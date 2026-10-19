@@ -148,6 +148,8 @@ import androidx.media3.exoplayer.RendererCapabilities;
 import androidx.media3.exoplayer.RenderersFactory;
 import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
+import androidx.media3.exoplayer.analytics.PlaybackStats;
+import androidx.media3.exoplayer.analytics.PlaybackStatsListener;
 import androidx.media3.exoplayer.audio.AudioCapabilities;
 import androidx.media3.exoplayer.audio.AudioRendererEventListener;
 import androidx.media3.exoplayer.audio.AudioSink;
@@ -168,6 +170,7 @@ import androidx.media3.exoplayer.text.TextOutput;
 import androidx.media3.exoplayer.source.TrackGroupArray;
 import androidx.media3.exoplayer.video.MediaCodecVideoDecoderException;
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer;
+import androidx.media3.exoplayer.video.VideoFrameMetadataListener;
 import androidx.media3.exoplayer.video.VideoRendererEventListener;
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
@@ -478,6 +481,34 @@ public class PlayerActivity extends Activity {
     // Frames dropped over the last minute for the statistics card. Fed by the analytics listener all the
     // time, not only while the card is up; restarted per player build, per item and per seek.
     private final DropWindow dropWindow = new DropWindow(SystemClock.elapsedRealtime());
+    // How fast the media source delivers, timed inside its read() — see ReadThroughput for why the
+    // loader's own estimate (bandwidthBitrate) never comes for a file.
+    private final ReadThroughput readThroughput = new ReadThroughput();
+    // Rebuffers of the item playing: Media3 tells them apart from seeks and from the first join.
+    @Nullable
+    private PlaybackStatsListener playbackStats;
+    // Presentation times of the frames the renderer shows, for a rate the container does not state
+    // (TS, FLV): collected up to RENDERED_FRAMES_FOR_RATE, then read once into renderedFrameRate.
+    private static final int RENDERED_FRAMES_FOR_RATE = 400;
+    private final ArrayList<Long> renderedFrameTimesUs = new ArrayList<>();
+    private float renderedFrameRate;
+    private final VideoFrameMetadataListener frameTimesListener =
+            (presentationTimeUs, releaseTimeNs, format, mediaFormat) -> {
+                synchronized (renderedFrameTimesUs) {
+                    final int size = renderedFrameTimesUs.size();
+                    if (size >= RENDERED_FRAMES_FOR_RATE) {
+                        return;
+                    }
+                    // A seek breaks the run: times from both sides sorted together would make steps of
+                    // nothing between frames that were never neighbours. Start the run again.
+                    final long last = size > 0 ? renderedFrameTimesUs.get(size - 1) : C.TIME_UNSET;
+                    if (last != C.TIME_UNSET
+                            && (presentationTimeUs <= last || presentationTimeUs - last > 1_000_000)) {
+                        renderedFrameTimesUs.clear();
+                    }
+                    renderedFrameTimesUs.add(presentationTimeUs);
+                }
+            };
     /**
      * The client the media path reads through. OkHttp rather than HttpURLConnection for one reason:
      * DefaultHttpDataSource calls disconnect() on every close and pools nothing, so each of the four
@@ -6446,10 +6477,18 @@ public class PlayerActivity extends Activity {
         final InfoCard.Section videoSection = new InfoCard.Section(getString(R.string.stats_sec_video));
         if (video != null) {
             final String codec = shortCodec(video.sampleMimeType);
+            // The container leads the row rather than taking one of its own: the card has no height to
+            // spare over the paused controls, and "MKV · H.264 · 1920×1080" reads as one fact anyway.
+            final Uri playing = currentMediaUri();
+            final String container = ContainerName.of(video.containerMimeType,
+                    playing != null ? playing.getLastPathSegment() : null);
             videoSection.row(getString(R.string.stats_l_format),
-                    (codec != null ? codec + " · " : "") + video.width + "×" + video.height);
-            final float fps = videoFrameRate();
-            videoSection.row(getString(R.string.stats_l_framerate), fps > 0 ? rate(fps) + " fps" : null);
+                    (container != null ? container + " · " : "") + (codec != null ? codec + " · " : "")
+                            + video.width + "×" + video.height);
+            final float stated = videoFrameRate();
+            final float fps = stated > 0 ? stated : renderedFrameRate();
+            videoSection.row(getString(R.string.stats_l_framerate), fps <= 0 ? null : rate(fps) + " fps"
+                    + (stated > 0 ? "" : " · " + getString(R.string.stats_v_by_frames)));
             // One label for both, the source in the value: the container's own figure for the stream when it
             // has one, else the file size over the duration — a different, coarser number, and it says so.
             if (video.bitrate != Format.NO_VALUE) {
@@ -6550,11 +6589,27 @@ public class PlayerActivity extends Activity {
 
         final InfoCard.Section transfer = new InfoCard.Section(getString(R.string.stats_sec_buffer));
         final long bufferedMs = player.getTotalBufferedDuration();
-        transfer.row(getString(R.string.stats_l_buffer), getString(R.string.stats_v_buffer_of,
-                bufferedMs / 1000, bufferCeilingMs() / 1000));
-        if (bandwidthBitrate > 0) {
+        final String buffer = getString(R.string.stats_v_buffer_of, bufferedMs / 1000, bufferCeilingMs() / 1000);
+        // Stops for want of data, seeks and the first start left out: the line that says a wait was the
+        // source's and not the decoder's, which a rising "dropped" alone cannot tell apart.
+        final PlaybackStats stats = playbackStats != null ? playbackStats.getPlaybackStats() : null;
+        if (stats != null && stats.totalRebufferCount > 0) {
+            final String stalls = getString(R.string.stats_v_stalls, stats.totalRebufferCount,
+                    Math.round(stats.getTotalRebufferTimeMs() / 1000f));
+            transfer.row(getString(R.string.stats_l_buffer), stalls + " · " + buffer, InfoCard.Tone.WARN,
+                    stalls.length());
+        } else {
+            transfer.row(getString(R.string.stats_l_buffer), buffer);
+        }
+        final long source = sourceBitrate();
+        if (source > 0) {
+            // Short of the file's own rate with a margin, the source is what holds playback back.
+            final float needed = video != null && video.bitrate != Format.NO_VALUE
+                    ? video.bitrate / 1_000_000f : overallBitrate();
+            final boolean sourceShort = needed > 0 && source / 1_000_000f < needed * 1.25f;
             transfer.row(getString(R.string.stats_l_network),
-                    getString(R.string.quality_bitrate, bandwidthBitrate / 1_000_000f));
+                    getString(R.string.quality_bitrate, source / 1_000_000f),
+                    sourceShort ? InfoCard.Tone.WARN : InfoCard.Tone.PLAIN);
         }
         sections.add(transfer);
 
@@ -6639,9 +6694,19 @@ public class PlayerActivity extends Activity {
     /** The measured network rate, or null before the first estimate lands. */
     @Nullable
     private String networkText() {
-        return bandwidthBitrate > 0
-                ? getString(R.string.stats_network, getString(R.string.quality_bitrate, bandwidthBitrate / 1_000_000f))
+        final long source = sourceBitrate();
+        return source > 0
+                ? getString(R.string.stats_network, getString(R.string.quality_bitrate, source / 1_000_000f))
                 : null;
+    }
+
+    /**
+     * What the source delivers, in bits a second: timed at the reads where any were made, else the
+     * loader's estimate — the one an adaptive stream gets with every segment it ends. 0 while neither is in.
+     */
+    private long sourceBitrate() {
+        final long read = readThroughput.bitrate();
+        return read > 0 ? read : bandwidthBitrate;
     }
 
     /**
@@ -6773,6 +6838,36 @@ public class PlayerActivity extends Activity {
             }
         }
         return 0f;
+    }
+
+    /**
+     * The rate the shown frames' own times keep, for the card: a TS or an FLV states none, and the probe
+     * the display match runs for them answers the display, not this. 0 until enough frames are in.
+     */
+    private float renderedFrameRate() {
+        if (renderedFrameRate > 0) {
+            return renderedFrameRate;
+        }
+        final List<Long> times;
+        synchronized (renderedFrameTimesUs) {
+            if (renderedFrameTimesUs.size() < 60) {
+                return 0f;
+            }
+            times = new ArrayList<>(renderedFrameTimesUs);
+        }
+        final float measured = Utils.frameRateFromSampleTimes(times, 0);
+        // Settled once the run is complete; until then it is read afresh each second the card is up.
+        if (times.size() >= RENDERED_FRAMES_FOR_RATE && measured > 0) {
+            renderedFrameRate = measured;
+        }
+        return Math.max(measured, 0f);
+    }
+
+    private void resetRenderedFrameRate() {
+        synchronized (renderedFrameTimesUs) {
+            renderedFrameTimesUs.clear();
+        }
+        renderedFrameRate = 0f;
     }
 
     /** The whole file's average bitrate in Mbit/s, or 0 while either its length or duration is unknown. */
@@ -12150,6 +12245,8 @@ public class PlayerActivity extends Activity {
         videoDecoderName = null;
         audioDecoderName = null;
         bandwidthBitrate = 0;
+        readThroughput.reset();
+        resetRenderedFrameRate();
         dropWindow.reset(SystemClock.elapsedRealtime());
         // A restart that never got its onTracksChanged belongs to the player being replaced here.
         audioRestartInFlight = false;
@@ -12779,7 +12876,8 @@ public class PlayerActivity extends Activity {
         // Outermost on purpose: the loader must see a failed open() as a failed read() whatever failed
         // underneath, the cache included — see DeferredOpenDataSource.
         final androidx.media3.datasource.DataSource.Factory dataSourceFactory = new DeferredOpenDataSource.Factory(
-                new TrackNameParsingDataSource.Factory(hashSource, trackNameListener));
+                new TrackNameParsingDataSource.Factory(
+                        new ReadThroughput.Factory(hashSource, readThroughput), trackNameListener));
         // Dolby Vision profile 7 is rewritten as profile 8.1 on the way out of the extractor, so the
         // display gets Dolby Vision instead of the base layer's HDR10 (see Dv7Converter). Not when the
         // user asked for the base layer outright ("Dolby Vision profile 7 fallback", handled by
@@ -13067,6 +13165,9 @@ public class PlayerActivity extends Activity {
 
         player.addListener(playerListener);
         player.addAnalyticsListener(playbackInfoListener);
+        playbackStats = new PlaybackStatsListener(/* keepHistory= */ false, /* callback= */ null);
+        player.addAnalyticsListener(playbackStats);
+        player.setVideoFrameMetadataListener(frameTimesListener);
         // The item set above made its transition before the listener was there to trace it.
         final Uri startUri = currentMediaUri();
         if (startUri != null) {
@@ -13982,6 +14083,9 @@ public class PlayerActivity extends Activity {
                     + (player != null ? " index=" + player.getCurrentMediaItemIndex() : "")
                     + (mediaItem != null && mediaItem.localConfiguration != null
                     ? " media=" + Utils.reportUri(mediaItem.localConfiguration.uri, mPrefs.maskReports) : ""));
+            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                resetRenderedFrameRate();
+            }
             // A card Back hid on the last episode comes back on this one: the decoder may well carry
             // over without a fresh init, so onVideoDecoderInitialized alone would miss it.
             restoreInfoCard();

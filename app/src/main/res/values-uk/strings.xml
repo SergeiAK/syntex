@@ -356,6 +356,8 @@
     <string name="stats_v_seconds">с</string>
     <string name="stats_v_off">вимк.</string>
     <string name="stats_v_buffer_of">%1$d з %2$d с</string>
+    <string name="stats_v_stalls">зупинок: %1$d, %2$d с</string>
+    <string name="stats_v_by_frames">за кадрами</string>
     <string name="pref_show_transfer">Рядок передачі</string>
     <string name="pref_show_transfer_on">Буфер, мережа й бітрейт стоять над смугою внизу</string>
     <string name="pref_show_transfer_off">Приховані; вони є в картці статистики (Ще → Статистика)</string>

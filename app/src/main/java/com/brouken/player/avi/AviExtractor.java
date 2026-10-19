@@ -526,6 +526,9 @@ public final class AviExtractor implements Extractor {
     Format streamFormat = streamFormatChunk.format;
     Format.Builder builder = streamFormat.buildUpon();
     builder.setId(streamId);
+    // The fork's: Media3's own AVI extractor leaves it unset, and the statistics card names the container
+    // by it.
+    builder.setContainerMimeType(MimeTypes.VIDEO_AVI);
     if (aviStreamHeaderChunk.getTrackType() == C.TRACK_TYPE_AUDIO
         && aviStreamHeaderChunk.sampleSize > 0
         && aviStreamHeaderChunk.scale > 0

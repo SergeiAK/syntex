@@ -346,6 +346,8 @@
     <string name="stats_v_seconds">с</string>
     <string name="stats_v_off">выкл.</string>
     <string name="stats_v_buffer_of">%1$d из %2$d с</string>
+    <string name="stats_v_stalls">остановок: %1$d, %2$d с</string>
+    <string name="stats_v_by_frames">по кадрам</string>
     <string name="pref_show_transfer">Строка передачи</string>
     <string name="pref_show_transfer_on">Буфер, сеть и битрейт стоят над полосой перемотки</string>
     <string name="pref_show_transfer_off">Скрыты; они есть в карточке статистики (Ещё → Статистика)</string>

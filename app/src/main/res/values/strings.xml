@@ -451,6 +451,8 @@
     <string name="stats_v_seconds">s</string>
     <string name="stats_v_off">off</string>
     <string name="stats_v_buffer_of">%1$d of %2$d s</string>
+    <string name="stats_v_stalls">stalls: %1$d, %2$d s</string>
+    <string name="stats_v_by_frames">by frames</string>
     <string name="pref_show_transfer">Transfer line</string>
     <string name="pref_show_transfer_on">Buffer, network and bitrate sit above the seek bar</string>
     <string name="pref_show_transfer_off">Hidden; the statistics card (More → Statistics) still has them</string>
