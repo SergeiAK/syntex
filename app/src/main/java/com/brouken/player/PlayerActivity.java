@@ -823,6 +823,9 @@ public class PlayerActivity extends Activity {
     private TextView videoInfoView;
     private TextView audioInfoView;
     private TextView endsAtView;
+    private TextView durationView;
+    private final StringBuilder timeBuilder = new StringBuilder();
+    private final Formatter timeFormatter = new Formatter(timeBuilder, Locale.getDefault());
     /**
      * When the broadcast now playing was joined, for the "watching for" reading in the bottom bar.
      * Wall clock and not accumulated playing time: the controller's progress tick only runs while the
@@ -2377,9 +2380,7 @@ public class PlayerActivity extends Activity {
         // the setting says so. PlayerControlView writes that TextView itself, so rewrite it after every
         // progress tick — updateTimeline() ends with updateProgress(), so its own value never lingers.
         final TextView positionView = playerView.findViewById(R.id.exo_position);
-        final TextView durationView = playerView.findViewById(R.id.exo_duration);
-        final StringBuilder timeBuilder = new StringBuilder();
-        final Formatter timeFormatter = new Formatter(timeBuilder, Locale.getDefault());
+        durationView = playerView.findViewById(R.id.exo_duration);
         controlView.setProgressUpdateListener((position, bufferedPosition) -> {
             // Over a broadcast the slot says how long this has been watched. What the control view
             // wrote there is the offset into the sliding window, which sits at the live edge and stays
@@ -2389,12 +2390,7 @@ public class PlayerActivity extends Activity {
                         Math.max(0, SystemClock.elapsedRealtime() - liveWatchStartMs)));
                 return;
             }
-            final long duration = player == null ? C.TIME_UNSET : player.getContentDuration();
-            if (duration == C.TIME_UNSET)
-                return;
-            durationView.setText(mPrefs != null && mPrefs.timeRemaining
-                    ? "-" + Util.getStringForTime(timeBuilder, timeFormatter, Math.max(0, duration - position))
-                    : Util.getStringForTime(timeBuilder, timeFormatter, duration));
+            updateDurationSlot(position);
         });
         controlView.setOnApplyWindowInsetsListener((view, windowInsets) -> {
             if (windowInsets != null) {
@@ -6164,6 +6160,23 @@ public class PlayerActivity extends Activity {
         return duration == C.TIME_UNSET || duration < LIVE_WINDOW_MAX_MS;
     }
 
+    /**
+     * The right-hand slot of the bottom bar: the length of the file, or with "Show remaining time" what is
+     * left of it in the viewer's time — divided by the speed, as "until …" is, so the two agree at 1.5x.
+     */
+    private void updateDurationSlot(long position) {
+        if (player == null || durationView == null) {
+            return;
+        }
+        final long duration = player.getContentDuration();
+        if (duration == C.TIME_UNSET)
+            return;
+        durationView.setText(mPrefs != null && mPrefs.timeRemaining
+                ? "-" + Util.getStringForTime(timeBuilder, timeFormatter, RemainingTime.wallClockMs(duration,
+                        position, player.getPlaybackParameters().speed))
+                : Util.getStringForTime(timeBuilder, timeFormatter, duration));
+    }
+
     void updateEndsAt() {
         if (player == null || endsAtView == null) {
             return;
@@ -6193,12 +6206,8 @@ public class PlayerActivity extends Activity {
             endsAtView.setVisibility(View.GONE);
             return;
         }
-        final long remaining = Math.max(0, duration - player.getCurrentPosition());
-        float speed = player.getPlaybackParameters().speed;
-        if (speed <= 0) {
-            speed = 1f;
-        }
-        final long endMs = System.currentTimeMillis() + (long) (remaining / speed);
+        final long endMs = System.currentTimeMillis() + RemainingTime.wallClockMs(duration,
+                player.getCurrentPosition(), player.getPlaybackParameters().speed);
         final String time = DateFormat.getTimeFormat(this).format(new Date(endMs));
         endsAtView.setText(getString(R.string.time_ends_at_inline, time));
         endsAtView.setVisibility(View.VISIBLE);
@@ -13792,6 +13801,14 @@ public class PlayerActivity extends Activity {
             // media clock notices that the renderer disagrees with the player, and reports it back here.
             // Everything follows that clock, so the picture does not speed up either. Without this the
             // viewer picks 1.5x, hears and sees 1.0x, and is told nothing at all.
+            //
+            // The remaining time and "until …" are redrawn first, from the speed actually granted: the
+            // control view does not redraw its time on a speed change, and on pause there is no progress
+            // tick either, so a speed picked on pause would show the old countdown until the film went on.
+            if (player != null && !isLiveStream()) {
+                updateDurationSlot(player.getContentPosition());
+                updateEndsAt();
+            }
             if (Math.abs(parameters.speed - speedRequested) < 0.01f || speedRefusalSaid
                     || playerView == null) {
                 return;
