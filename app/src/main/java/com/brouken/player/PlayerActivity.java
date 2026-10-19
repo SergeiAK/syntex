@@ -12362,6 +12362,15 @@ public class PlayerActivity extends Activity {
                         if (sessionFfmpegVideoFormats.contains(videoFormatKey(format))) {
                             return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
                         }
+                        // MPEG-4 with global motion compensation goes to FFmpeg up front: a device
+                        // decoder that does not implement GMC either fails on it - the case the
+                        // session set answers - or, like Amlogic's, plays it as squares and never
+                        // says so (see Mpeg4VideoObjectLayer).
+                        if (MimeTypes.VIDEO_MP4V.equals(format.sampleMimeType)
+                                && FfmpegVideoDecoder.isAvailable()
+                                && Mpeg4VideoObjectLayer.usesGmc(format.initializationData)) {
+                            return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
+                        }
                         return super.supportsFormat(selector, format);
                     }
 

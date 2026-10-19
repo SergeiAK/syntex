@@ -17,7 +17,9 @@
  * chunk sizes are passed to the chunk readers (they time byte-counted audio by them), byte-counted
  * audio carries its exact bitrate on its format, every audio chunk is a sync sample (each can start
  * playback; the fork reframes AVI audio itself), MPEG-4 Part 2 video is reordered to presentation
- * times (see Mpeg4VopReorderer), and the Media3-internal annotations are dropped.
+ * times (see Mpeg4VopReorderer), an MPEG-4 Part 2 track's format waits for its first chunk so a VOL
+ * with global motion compensation can travel on it (see Mpeg4VideoObjectLayer), and the
+ * Media3-internal annotations are dropped.
  */
 package com.brouken.player.avi;
 
@@ -42,6 +44,8 @@ import androidx.media3.extractor.SeekMap;
 import androidx.media3.extractor.TrackOutput;
 import androidx.media3.extractor.text.SubtitleParser;
 import androidx.media3.extractor.text.SubtitleTranscodingExtractorOutput;
+import com.brouken.player.Mpeg4VideoObjectLayer;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
@@ -164,6 +168,8 @@ public final class AviExtractor implements Extractor {
   private long moviEnd;
   private int idx1BodySize;
   private boolean seekMapHasBeenOutput;
+  /** MPEG-4 Part 2 tracks whose format is held until their first chunk has been looked at. */
+  private final ArrayList<PendingFormat> pendingFormats = new ArrayList<>();
 
   /**
    * @deprecated Use {@link #AviExtractor(int, SubtitleParser.Factory)} instead.
@@ -277,6 +283,9 @@ public final class AviExtractor implements Extractor {
         moviStart = input.getPosition();
         // Size includes the list type, but not the LIST or size fields, so we add 8.
         moviEnd = moviStart + chunkHeaderHolder.size + 8;
+        if (!pendingFormats.isEmpty()) {
+          outputPendingFormats(input);
+        }
         if (!seekMapHasBeenOutput) {
           if (checkNotNull(aviHeader).hasIndex()) {
             state = STATE_FINDING_IDX1_HEADER;
@@ -542,10 +551,13 @@ public final class AviExtractor implements Extractor {
     if (trackType == C.TRACK_TYPE_AUDIO || trackType == C.TRACK_TYPE_VIDEO) {
       TrackOutput trackOutput = extractorOutput.track(streamId, trackType);
       Format format = builder.build();
-      trackOutput.format(format);
+      boolean mpeg4Video = MimeTypes.VIDEO_MP4V.equals(format.sampleMimeType);
+      if (!mpeg4Video) {
+        trackOutput.format(format);
+      }
       trackOutput.durationUs(durationUs);
       this.durationUs = max(this.durationUs, durationUs);
-      return new ChunkReader(
+      ChunkReader chunkReader = new ChunkReader(
           streamId,
           aviStreamHeaderChunk,
           trackOutput,
@@ -553,10 +565,92 @@ public final class AviExtractor implements Extractor {
           // with it the index of every chunk the fork's reframer can resume from.
           trackType == C.TRACK_TYPE_AUDIO
               || MimeTypes.allSamplesAreSyncSamples(format.sampleMimeType, format.codecs),
-          MimeTypes.VIDEO_MP4V.equals(format.sampleMimeType));
+          mpeg4Video);
+      if (mpeg4Video) {
+        pendingFormats.add(new PendingFormat(chunkReader, trackOutput, format));
+      }
+      return chunkReader;
     } else {
       // We don't currently support tracks other than video and audio.
       return null;
+    }
+  }
+
+  /**
+   * Outputs the formats held back for MPEG-4 Part 2 tracks, each with the VOL of its first chunk as
+   * initialization data when that VOL turns on global motion compensation. Unchanged otherwise, so
+   * every other stream reaches the decoders exactly as before. The player is not prepared until every
+   * track has a format, so this happens before any track is selected; the chunks are only peeked, and
+   * reading then goes on from where it was. A track whose first chunk is not within the first
+   * {@link #VOL_PEEK_LIMIT} bytes of movi keeps its format as it was.
+   *
+   * @param input The input, positioned at the movi LIST header.
+   */
+  private void outputPendingFormats(ExtractorInput input) throws IOException {
+    int length = (int) Math.min(VOL_PEEK_LIMIT, moviEnd - moviStart);
+    byte[] data = new byte[max(length, 0)];
+    int peeked = 0;
+    while (peeked < data.length) {
+      int read = input.peek(data, peeked, data.length - peeked);
+      if (read == C.RESULT_END_OF_INPUT) {
+        break;
+      }
+      peeked += read;
+    }
+    input.resetPeekPosition();
+    ArrayList<PendingFormat> unresolved = new ArrayList<>(pendingFormats);
+    int position = 12; // The movi LIST header and its type.
+    while (!unresolved.isEmpty() && position + 8 <= peeked) {
+      int chunkId = readLittleEndianInt(data, position);
+      long size = readLittleEndianInt(data, position + 4) & 0xFFFFFFFFL;
+      if (size > peeked) {
+        break; // Past what was peeked, or not a chunk header at all.
+      }
+      if (chunkId == FOURCC_LIST) {
+        position += 12; // Into a rec list: its chunks follow its type.
+        continue;
+      }
+      for (int i = 0; i < unresolved.size(); i++) {
+        PendingFormat pending = unresolved.get(i);
+        if (pending.chunkReader.handlesChunkId(chunkId)) {
+          int bodyEnd = (int) Math.min(peeked, position + 8 + size);
+          @Nullable
+          byte[] vol = Mpeg4VideoObjectLayer.findGmcVol(data, position + 8, bodyEnd);
+          if (vol != null) {
+            pending.format =
+                pending.format.buildUpon().setInitializationData(ImmutableList.of(vol)).build();
+            Log.i(TAG, "MPEG-4 video with global motion compensation in stream " + pending.format.id);
+          }
+          unresolved.remove(i);
+          break;
+        }
+      }
+      position += (int) (8 + size + (size & 1));
+    }
+    for (PendingFormat pending : pendingFormats) {
+      pending.trackOutput.format(pending.format);
+    }
+    pendingFormats.clear();
+  }
+
+  private static final int VOL_PEEK_LIMIT = 1 << 20;
+
+  private static int readLittleEndianInt(byte[] data, int position) {
+    return (data[position] & 0xFF)
+        | (data[position + 1] & 0xFF) << 8
+        | (data[position + 2] & 0xFF) << 16
+        | (data[position + 3] & 0xFF) << 24;
+  }
+
+  private static final class PendingFormat {
+    final ChunkReader chunkReader;
+    final TrackOutput trackOutput;
+    Format format;
+
+    PendingFormat(ChunkReader chunkReader, TrackOutput trackOutput, Format format) {
+      this.chunkReader = chunkReader;
+      this.trackOutput = trackOutput;
+      this.format = format;
     }
   }
 
