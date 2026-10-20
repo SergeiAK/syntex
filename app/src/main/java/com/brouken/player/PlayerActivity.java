@@ -12931,8 +12931,8 @@ public class PlayerActivity extends Activity {
         // first on anything high-bitrate — 144 MB is about 21 s of a 53 Mbps remux, well short of the 50 s
         // window — so the loader sits on that ceiling and is switched on and off around it about eleven
         // times a second (measured: 1070 flips in two minutes), while the buffer costs 144 MB of a 512 MB
-        // heap. prioritizeTimeOverSizeThresholds moves the limit to the fifteen-second minimum and hands
-        // the memory question to Media3's own heap-headroom check, which is what it is for.
+        // heap. prioritizeTimeOverSizeThresholds moves the limit to the minimum and hands the memory
+        // question to HeapCappedLoadControl below.
         //
         // The figures follow the two players that stream the same torrent backends on the same boxes
         // without knocking them over (dddplayer: 15/50/500/5000 with the same flag; alpac: 30/60/2500/5000)
@@ -12940,9 +12940,15 @@ public class PlayerActivity extends Activity {
         // the fifteen that 4c3d62e tried here and had to be reverted for turning every seek out of the
         // buffered range into a 99 MB haul.
         //
+        // Except the minimum: loading starts again under forty seconds, not fifteen. The buffer is what
+        // plays through a network that has gone away, and with 15/50 it was anywhere between the two
+        // when that happened - 19 s on the Dune with the Wi-Fi off for 30 s (0056, 20.10.2026), a stop
+        // of 19 s. At 40/50 it is never under forty where memory allows; the same bytes come in, in
+        // shorter and more frequent runs. The high-bitrate files are held by the heap cap instead.
+        //
         // Streaming only: local playback keeps its own, smaller byte budget, where none of this applies.
         final DefaultLoadControl.Builder loadControlBuilder = new DefaultLoadControl.Builder()
-                .setBufferDurationsMsForStreaming(15_000, 50_000, 500, 5_000)
+                .setBufferDurationsMsForStreaming(40_000, 50_000, 500, 5_000)
                 .setPrioritizeTimeOverSizeThresholdsForStreaming(true);
         // What has just been played is thrown away by default, so stepping back a few seconds re-opens
         // the source and re-reads — over a torrent backend that is seconds, for media that was in
