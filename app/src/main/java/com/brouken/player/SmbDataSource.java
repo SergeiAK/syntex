@@ -11,10 +11,14 @@ import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.TransferListener;
 
+import com.hierynomus.mssmb2.messages.SMB2ReadResponse;
+import com.hierynomus.smbj.share.PipelinedReads;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Future;
 
 /**
  * Reads a file off an SMB 2/3 share, straight into the player.
@@ -37,7 +41,8 @@ final class SmbDataSource extends BaseDataSource {
      * small reads are served from it — 131 797 sub-kilobyte reads per 8 MiB became eight requests.
      *
      * <p>1 MiB because that is what SMB 3 negotiates as its maximum read, and asking for four
-     * produces the same number of round trips.
+     * produces the same number of round trips. The windows themselves are asked for ahead of the
+     * reader, several at a time — see {@link ReadAhead}.
      */
     private static final int WINDOW = 1024 * 1024;
 
@@ -127,6 +132,9 @@ final class SmbDataSource extends BaseDataSource {
     private boolean opened;
 
     @Nullable
+    private ReadAhead<Future<SMB2ReadResponse>> ahead;
+    /** The answer being handed out — smbj's own array, used as it came. */
+    @Nullable
     private byte[] window;
     private long windowStart;
     private int windowLength;
@@ -150,6 +158,28 @@ final class SmbDataSource extends BaseDataSource {
             throw new IOException("Position " + position + " past the end of " + uri + " (" + size + ")");
         }
 
+        final com.hierynomus.smbj.share.File handle = file;
+        ahead = new ReadAhead<>(new ReadAhead.Remote<Future<SMB2ReadResponse>>() {
+            @Override
+            public Future<SMB2ReadResponse> send(final long offset, final int length) throws IOException {
+                try {
+                    return PipelinedReads.send(handle, offset, length);
+                } catch (final Exception e) {
+                    throw new IOException(e);
+                }
+            }
+
+            @Nullable
+            @Override
+            public byte[] await(final Future<SMB2ReadResponse> pending) throws IOException {
+                try {
+                    return PipelinedReads.await(handle, pending);
+                } catch (final Exception e) {
+                    throw new IOException(e);
+                }
+            }
+        }, WINDOW, position, position + bytesRemaining);
+        window = null;
         windowLength = 0;
         opened = true;
         transferStarted(dataSpec);
@@ -166,40 +196,22 @@ final class SmbDataSource extends BaseDataSource {
         }
         final int wanted = (int) Math.min(length, bytesRemaining);
 
-        // A request as big as the window has nothing to gain from being copied through it.
-        if (wanted >= WINDOW) {
-            windowLength = 0;
-            final int read = readAt(buffer, offset, position, wanted);
-            return read <= 0 ? C.RESULT_END_OF_INPUT : advance(read);
-        }
-
-        if (position < windowStart || position >= windowStart + windowLength) {
-            if (window == null) {
-                window = new byte[WINDOW];
-            }
-            final int fill = (int) Math.min(WINDOW, bytesRemaining);
-            final int read = readAt(window, 0, position, fill);
-            if (read <= 0) {
+        if (window == null || position < windowStart || position >= windowStart + windowLength) {
+            final byte[] next = Assertions.checkNotNull(ahead).next(position);
+            if (next == null || next.length == 0) {
+                window = null;
                 windowLength = 0;
                 return C.RESULT_END_OF_INPUT;
             }
+            window = next;
             windowStart = position;
-            windowLength = read;
+            windowLength = (int) Math.min(next.length, bytesRemaining);
         }
 
         final int from = (int) (position - windowStart);
         final int served = Math.min(wanted, windowLength - from);
         System.arraycopy(Assertions.checkNotNull(window), from, buffer, offset, served);
         return advance(served);
-    }
-
-    private int readAt(final byte[] into, final int offset, final long at, final int length)
-            throws IOException {
-        try {
-            return Assertions.checkNotNull(file).read(into, at, offset, length);
-        } catch (final Exception e) {
-            throw new IOException(e);
-        }
     }
 
     private int advance(final int read) {
@@ -225,6 +237,8 @@ final class SmbDataSource extends BaseDataSource {
             // A closed handle on a connection that has already gone is not news.
         } finally {
             file = null;
+            ahead = null;
+            window = null;
             if (opened) {
                 opened = false;
                 transferEnded();
