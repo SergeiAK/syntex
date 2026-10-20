@@ -12890,9 +12890,11 @@ public class PlayerActivity extends Activity {
         // extractors they look for by type. A QuickTime file without ftyp is told it is QuickTime, or its
         // AAC is lost (see QuickTimeWithoutFtyp); nothing looks for the MP4 extractor by type. Blu-ray
         // M2TS (192-byte packets) gets an extractor of its own, the stock TS one over a 188-byte view.
+        // MPEG-1 program streams: the fork's copy of the PS extractor takes the stock one's place.
         final ExtractorsFactory baseExtractorsFactory = new M2tsExtractor.Factory(
-                new QuickTimeWithoutFtyp.Factory(
-                        new AviAudioReframer(extractorsFactory, subtitleParserFactory)),
+                new QuickTimeWithoutFtyp.Factory(new AviAudioReframer(
+                        com.brouken.player.ps.PsExtractor.replacing(extractorsFactory),
+                        subtitleParserFactory)),
                 subtitleParserFactory, tsPayloadReaderFlags, tsTimestampSearchBytes);
         final boolean convertDV7 = !mPrefs.mapDV7ToHevc && !forceHevcForDolbyVision;
         dv7Converter = convertDV7

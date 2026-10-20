@@ -193,6 +193,8 @@ final class ExtractorHarness {
         final int type;
         @Nullable Format format;
         int samples;
+        /** Samples timed earlier than the one before them by more than a second. */
+        int timeJumpsBack;
         long firstTimeUs = C.TIME_UNSET;
         long lastTimeUs = C.TIME_UNSET;
 
@@ -202,6 +204,7 @@ final class ExtractorHarness {
 
         void clear() {
             samples = 0;
+            timeJumpsBack = 0;
             firstTimeUs = C.TIME_UNSET;
             lastTimeUs = C.TIME_UNSET;
         }
@@ -236,6 +239,7 @@ final class ExtractorHarness {
         public void sampleMetadata(long timeUs, int flags, int size, int offset,
                                    @Nullable CryptoData cryptoData) {
             if (firstTimeUs == C.TIME_UNSET) firstTimeUs = timeUs;
+            if (lastTimeUs != C.TIME_UNSET && timeUs < lastTimeUs - 1_000_000) timeJumpsBack++;
             lastTimeUs = timeUs;
             samples++;
         }
