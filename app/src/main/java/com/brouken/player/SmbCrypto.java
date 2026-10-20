@@ -37,11 +37,6 @@ final class SmbCrypto implements SecurityProvider {
         return new SmbCrypto();
     }
 
-    /** Whether an SMB 3 signature is the platform's: AESCMAC is in Conscrypt from Android 12. */
-    static boolean platformCmac() {
-        return JCE_CMAC;
-    }
-
     /** Whether an SMB 3 signature is fast: the platform's AESCMAC or {@link AesCmac} on its AES-CBC. */
     static boolean fastCmac() {
         return JCE_CMAC || OWN_CMAC;

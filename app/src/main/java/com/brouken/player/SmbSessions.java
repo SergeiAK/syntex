@@ -174,11 +174,14 @@ final class SmbSessions {
             }
             openedUnder = protection;
         }
-        // Encryption is offered where it is what keeps a session protected and fast: asked for, or
-        // the automatic choice on a device that has a fast AES-GCM and no fast AES-CMAC - Android 11
-        // and older, where AESCMAC is not in the platform (Shield, measured 20.10.2026).
+        // Encryption is offered where it is asked for, or where it is the only fast protection: the
+        // automatic choice on a device with a fast AES-GCM and no fast AES-CMAC. Everywhere else the
+        // automatic choice signs - the platform's AESCMAC, or AesCmac on its AES-CBC on Android 11
+        // and older. On the Shield both were free in Mbit/s, the signing thread took 42-73 % of a core
+        // against encryption's 81 %, and on the Dune encryption cost a 2160p 37 % against signing's
+        // 13 % (20.10.2026): one way for every device, and the cheaper one.
         final boolean offerEncryption = ENCRYPT.equals(protection)
-                || AUTO.equals(protection) && !SmbCrypto.platformCmac() && SmbCrypto.platformGcm();
+                || AUTO.equals(protection) && !SmbCrypto.fastCmac() && SmbCrypto.platformGcm();
         final SmbConfig config = SmbConfig.builder()
                 .withTimeout(20, TimeUnit.SECONDS)
                 .withDfsEnabled(false)

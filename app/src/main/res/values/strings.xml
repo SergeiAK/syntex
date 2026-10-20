@@ -592,7 +592,7 @@
     <string name="pref_ignore_nomedia_off">A folder with a .nomedia file is left out of it</string>
     <string name="pref_smb_protection">Network folder protection (SMB)</string>
     <string name="pref_smb_protection_auto">Automatic</string>
-    <string name="pref_smb_protection_auto_hint">Recommended. The fastest protection this device has — signing or encryption. If both are slow, no signing</string>
+    <string name="pref_smb_protection_auto_hint">Recommended. Signing; encryption if this device cannot sign fast; no signing if both are slow</string>
     <string name="pref_smb_protection_encrypt">Encryption</string>
     <string name="pref_smb_protection_encrypt_hint">Hides what is sent and guards against tampering. Signed instead if the server does not encrypt. May slow very high bitrates</string>
     <string name="pref_smb_protection_unsigned">No signing</string>
