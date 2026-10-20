@@ -113,9 +113,12 @@ final class SmbSessions {
         // So every refill found the share closed and started from a reconnect: the stall of #219,
         // measured on a Synology as a dead share after 31 s idle and a live one after 90 s without
         // it. A host that stops answering is still caught, per request, by the 20 s timeout.
+        final String mode = mode();
         final SmbConfig config = SmbConfig.builder()
                 .withTimeout(20, TimeUnit.SECONDS)
                 .withDfsEnabled(false)
+                .withSecurityProvider(SmbCrypto.of(mode.endsWith("-platform")))
+                .withEncryptData(mode.startsWith("encrypt"))
                 .build();
         final SMBClient client = new SMBClient(config);
         try {
@@ -123,7 +126,13 @@ final class SmbSessions {
             final Connection connection = client.connect(uri.getHost(), port);
             final Session session = connection.authenticate(credentials(context, uri, name));
             final DiskShare share = (DiskShare) session.connectShare(name);
-            unsigned(session, uri);
+            if (mode.isEmpty()) {
+                unsigned(session, uri);
+            } else {
+                Utils.log("smb: " + session.getConnection().getNegotiatedProtocol().getDialect()
+                        + ", mode " + mode + ", encrypted " + session.getSessionContext().isEncryptData()
+                        + ", " + SmbCrypto.describe());
+            }
             CLIENTS.put(key, client);
             SHARES.put(key, share);
             return share;
@@ -133,6 +142,25 @@ final class SmbSessions {
         } catch (final Exception e) {
             close(client);
             throw new IOException(e);
+        }
+    }
+
+    /**
+     * What a share is opened with, for the measurement of what signing and encryption cost (2b):
+     * {@code setprop debug.syntex.smb sign-bc|sign-platform|encrypt-bc|encrypt-platform}, read on each
+     * new connection. Unset - the ordinary case - is unsigned where the host allows it, as before.
+     */
+    private static String mode() {
+        try {
+            final Process process = new ProcessBuilder("getprop", "debug.syntex.smb").start();
+            try (java.io.BufferedReader in = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream()))) {
+                final String line = in.readLine();
+                final String mode = line == null ? "" : line.trim();
+                return mode.matches("(sign|encrypt)-(bc|platform)") ? mode : "";
+            }
+        } catch (final IOException e) {
+            return "";
         }
     }
 
