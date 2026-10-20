@@ -3,6 +3,7 @@ package com.brouken.player;
 import android.net.Uri;
 
 import androidx.media3.common.C;
+import androidx.media3.common.ParserException;
 import androidx.media3.extractor.Extractor;
 import androidx.media3.extractor.ExtractorInput;
 import androidx.media3.extractor.ExtractorsFactory;
@@ -52,10 +53,19 @@ import java.util.Map;
  * chasing.
  *
  * <p>ponytail: reflection into Media3 internals. Contained — the field is looked up once, and if a
- * Media3 release renames it nothing is wrapped and files like this stay exactly as unseekable as
+ * Media3 release renames it the chain is not followed and files like this stay exactly as unseekable as
  * they are today. The reflection-free alternative is to wrap {@link ExtractorInput} and rewrite the
  * eight bytes of the stub entry in flight ({@code SeekID} → Cues, position → the real one, same
  * length, zero-padded), which costs seventeen forwarding methods to save one field write.
+ *
+ * <p>Second job, since every Matroska file passes through here anyway: a stretch of bytes that are not
+ * Matroska no longer ends the file. A torrent backend hands over a piece it does not have as zeros, and
+ * a zero byte is no valid element ID — {@code VarintReader} throws an {@link IllegalStateException},
+ * which the loader takes for a bug, and three retries of the same bytes later playback stops on a black
+ * screen (measured on the JVM: six seconds of a 4K remux with one MiB zeroed halfway, 20.10.2026). The
+ * stock reader resyncs only on an ID longer than four bytes. Here a malformed read once samples are
+ * flowing skips to the next Cluster and plays on from it; see {@link #resync}. Just+ 2.4.2 does the same
+ * inside its copy of the EBML reader.
  */
 final class MkvCuesLink extends ForwardingExtractor {
 
@@ -66,6 +76,9 @@ final class MkvCuesLink extends ForwardingExtractor {
     private static final int ID_SEEK_ID = 0x53AB;
     private static final int ID_SEEK_POSITION = 0x53AC;
     private static final int ID_CUES = 0x1C53BB6B;
+
+    /** How much a resync looks at per peek: Just+'s figure, and a few round trips per torrent piece. */
+    private static final int RESYNC_WINDOW_BYTES = 64 * 1024;
 
     /**
      * How far to look for a SeekHead. It is the first child of Segment in every file that has one,
@@ -87,6 +100,12 @@ final class MkvCuesLink extends ForwardingExtractor {
     private int state = STATE_READ_HEAD;
     /** Absolute offset of Segment's first content byte; SeekPositions are relative to it. */
     private long segmentContentPosition = C.POSITION_UNSET;
+    /**
+     * A sample has come out of this extractor: the tracks are declared and the reader is inside the
+     * Clusters, so damage from here on is in the media rather than in the header. Damage before it is
+     * left to fail as it did — skipping a broken Tracks element would play a file with no tracks.
+     */
+    private boolean sampling;
 
     private MkvCuesLink(Extractor delegate, MatroskaExtractor matroska) {
         super(delegate);
@@ -106,7 +125,7 @@ final class MkvCuesLink extends ForwardingExtractor {
                 // at an offset nobody can address is not worth a round trip to read. Not settled for
                 // good, though: a load whose open() failed shows up here with no length once, and the
                 // retry has one.
-                if (input.getLength() == C.LENGTH_UNSET) {
+                if (input.getLength() == C.LENGTH_UNSET || CUES_CONTENT_POSITION == null) {
                     break;
                 }
                 // The state moves only once the peek has returned. A peek that throws — the network
@@ -140,7 +159,62 @@ final class MkvCuesLink extends ForwardingExtractor {
             default:
                 break;
         }
-        return super.read(input, seekPosition);
+        final int result;
+        try {
+            result = super.read(input, seekPosition);
+        } catch (IllegalStateException | ParserException e) {
+            if (!sampling) {
+                throw e;
+            }
+            return resync(input, e);
+        }
+        // Matroska returns CONTINUE only with a sample out (its read loops until one is).
+        if (result == RESULT_CONTINUE) {
+            sampling = true;
+        }
+        return result;
+    }
+
+    /**
+     * Skips from where the read broke to the next Cluster and resets the extractor onto it, the way a
+     * seek through the Cues would land there. Only a Cluster: four exact bytes, which zeros or a cut
+     * through a frame do not fake the way the shorter IDs of other elements can. The bytes in between
+     * are peeked and dropped on the same connection — no reopen, no re-request of the range. Nothing
+     * before the end of the file means nothing to play: the read ends there, as at the end of a file.
+     */
+    private int resync(ExtractorInput input, Exception cause) throws IOException {
+        final long from = input.getPosition();
+        final byte[] window = new byte[RESYNC_WINDOW_BYTES];
+        while (true) {
+            input.resetPeekPosition();
+            int filled = 0;
+            while (filled < window.length) {
+                final int count = input.peek(window, filled, window.length - filled);
+                if (count == C.RESULT_END_OF_INPUT) {
+                    break;
+                }
+                filled += count;
+            }
+            input.resetPeekPosition();
+            for (int i = 0; i + 4 <= filled; i++) {
+                if ((window[i] & 0xFF) == 0x1F && (window[i + 1] & 0xFF) == 0x43
+                        && (window[i + 2] & 0xFF) == 0xB6 && (window[i + 3] & 0xFF) == 0x75) {
+                    input.skipFully(i);
+                    final long cluster = input.getPosition();
+                    Utils.log("mkv resync: skipped " + (cluster - from) + " B at " + from + ", " + cause);
+                    // Matroska's own seek reset: the reader's element stack, the block in progress,
+                    // the half-written sample. The time is not used by it.
+                    super.seek(cluster, C.TIME_UNSET);
+                    return RESULT_CONTINUE;
+                }
+            }
+            if (filled < window.length) {
+                Utils.log("mkv resync: nothing after " + from + " to the end, " + cause);
+                return RESULT_END_OF_INPUT;
+            }
+            // Searched; drop it all but the last three bytes, so an ID across the seam is still seen.
+            input.skipFully(filled - 3);
+        }
     }
 
     /** Up to {@link #PEEK_BYTES} from the input's current position, leaving the read position alone. */
@@ -297,9 +371,6 @@ final class MkvCuesLink extends ForwardingExtractor {
 
         /** A wrapper per extractor: Media3 keeps a set alive per media period, and state is per file. */
         private static Extractor[] wrap(Extractor[] extractors) {
-            if (CUES_CONTENT_POSITION == null) {
-                return extractors;
-            }
             for (int i = 0; i < extractors.length; i++) {
                 final Extractor underlying = extractors[i].getUnderlyingImplementation();
                 if (underlying instanceof MatroskaExtractor) {
