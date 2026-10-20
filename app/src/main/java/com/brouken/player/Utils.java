@@ -725,6 +725,11 @@ public class Utils {
                                         final Target<Bitmap> target, final boolean firstResource) {
                 poster.setVisibility(View.GONE);
                 blank.setVisibility(View.VISIBLE);
+                // Turned away for a player, not for the file: the next bind - the browser's, once the
+                // player is gone - must ask again, and the same-file shortcut above would skip it.
+                if (NetworkThumbs.refused(e) && key.equals(box.getTag())) {
+                    box.setTag(null);
+                }
                 return false;
             }
 

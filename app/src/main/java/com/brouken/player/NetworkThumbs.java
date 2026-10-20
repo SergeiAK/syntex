@@ -22,6 +22,7 @@ import com.bumptech.glide.Priority;
 import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.Options;
 import com.bumptech.glide.load.data.DataFetcher;
+import com.bumptech.glide.load.engine.GlideException;
 import com.bumptech.glide.load.model.ModelLoader;
 import com.bumptech.glide.load.model.ModelLoaderFactory;
 import com.bumptech.glide.load.model.MultiModelLoaderFactory;
@@ -112,6 +113,8 @@ final class NetworkThumbs {
                 PLAYERS_OPEN.set(0);
             }
             final Runnable again = onPlayerGone;
+            Log.d("NetworkThumbs", "player gone, open " + PLAYERS_OPEN.get() + ", missed " + missed
+                    + ", browser " + (again != null));
             if (PLAYERS_OPEN.get() == 0 && missed && again != null) {
                 missed = false;
                 new Handler(Looper.getMainLooper()).post(again);
@@ -127,6 +130,31 @@ final class NetworkThumbs {
      */
     static void whenPlayerGone(@Nullable final Runnable again) {
         onPlayerGone = again;
+    }
+
+    /**
+     * A still not taken because a player was up: not an answer about the file, so a row that got it
+     * is bound again in full rather than kept as it is (see Utils.bindPreview).
+     */
+    static final class Refused extends IOException {
+        Refused(final String message, @Nullable final Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /** Whether a failed request was turned away for a player rather than for the file. */
+    static boolean refused(@Nullable final GlideException e) {
+        if (e == null) {
+            return false;
+        }
+        for (final Throwable cause : e.getRootCauses()) {
+            for (Throwable t = cause; t != null; t = t.getCause()) {
+                if (t instanceof Refused) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -228,7 +256,8 @@ final class NetworkThumbs {
                     missed = true;
                     // Not cached as a failure: the browser binds its rows again when the player is
                     // gone (whenPlayerGone), and Glide begins a failed request again on a rebind.
-                    callback.onLoadFailed(new IOException("player open"));
+                    Log.d("NetworkThumbs", "refused, player open: " + uri.getLastPathSegment());
+                    callback.onLoadFailed(new Refused("player open", null));
                     return;
                 }
                 if (NO_FRAME.contains(uri.toString())) {
@@ -252,7 +281,7 @@ final class NetworkThumbs {
                             + source.jumps + ": " + uri.getLastPathSegment());
                     if (source.aborted) {
                         missed = true;
-                        callback.onLoadFailed(new IOException("player open, cut off"));
+                        callback.onLoadFailed(new Refused("player open, cut off", null));
                     } else if (frame == null) {
                         NO_FRAME.add(uri.toString());
                         callback.onLoadFailed(new IOException("no frame in " + uri
@@ -271,7 +300,7 @@ final class NetworkThumbs {
                     Log.d("NetworkThumbs", "failed after " + (source.bytes >> 10) + " KiB"
                             + (source.aborted ? ", cut off" : source.spent ? ", over the limit" : "")
                             + ": " + uri.getLastPathSegment() + ": " + e);
-                    callback.onLoadFailed(e);
+                    callback.onLoadFailed(source.aborted ? new Refused("player open, cut off", e) : e);
                 } finally {
                     current = null;
                     try {
