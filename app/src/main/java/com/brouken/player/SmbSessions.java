@@ -123,6 +123,7 @@ final class SmbSessions {
             final Connection connection = client.connect(uri.getHost(), port);
             final Session session = connection.authenticate(credentials(context, uri, name));
             final DiskShare share = (DiskShare) session.connectShare(name);
+            unsigned(session, uri);
             CLIENTS.put(key, client);
             SHARES.put(key, share);
             return share;
@@ -133,6 +134,29 @@ final class SmbSessions {
             close(client);
             throw new IOException(e);
         }
+    }
+
+    /**
+     * No signing where the host does not ask for it. smbj signs every request of a session that has
+     * a key - any sign-in with a password - whether signing is required or not, and the host then
+     * signs its answers, which smbj checks on its one reading thread: an AES-CMAC (SMB 3) or an
+     * HMAC-SHA256 (SMB 2) over every 1 MiB read, in Java. On the Dune that thread took 72-82 % of a
+     * core while a film loaded at 17-30 Mbit/s, the rest of the box half idle (0041). Without a key
+     * the requests go out unsigned, and a host that does not require signing answers unsigned.
+     * Only once the share is connected: SMB 3.1.1 wants its tree connect signed, and the NAS turned
+     * an unsigned one away as access denied.
+     */
+    private static void unsigned(final Session session, final Uri uri) {
+        final com.hierynomus.smbj.session.SessionContext keys = session.getSessionContext();
+        final String dialect = String.valueOf(session.getConnection().getNegotiatedProtocol().getDialect());
+        // An encrypted session is signed by its encryption; nothing here asks for one.
+        if (session.isSigningRequired() || keys.isEncryptData() || keys.getEncryptionKey() != null) {
+            Utils.log("smb: " + dialect + ", signing required by " + uri.getHost());
+            return;
+        }
+        keys.setSigningKey(null);
+        keys.setSessionKey(null);
+        Utils.log("smb: " + dialect + ", unsigned");
     }
 
     /**
