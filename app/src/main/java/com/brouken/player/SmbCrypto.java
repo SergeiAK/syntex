@@ -17,7 +17,8 @@ import com.hierynomus.security.jce.JceSecurityProvider;
  * the AES-CMAC or HMAC-SHA256 signature, the AES-GCM or AES-CCM of an encrypted session - goes to
  * the platform's provider (Conscrypt, BoringSSL underneath, the CPU's AES instructions on ARMv8) where
  * it has the algorithm, and falls back to BouncyCastle where it does not: AESCMAC came to Conscrypt
- * in 2021, after Android 11.
+ * in 2021, after Android 11. There the AES-CMAC is {@link AesCmac}, this app's own, on the
+ * platform's AES-CBC.
  */
 final class SmbCrypto implements SecurityProvider {
 
@@ -27,6 +28,7 @@ final class SmbCrypto implements SecurityProvider {
     private static final boolean JCE_HMAC = has("HmacSHA256", true);
     private static final boolean JCE_GCM = has("AES/GCM/NoPadding", false);
     private static final boolean JCE_CCM = has("AES/CCM/NoPadding", false);
+    private static final boolean OWN_CMAC = !JCE_CMAC && ownCmac();
 
     private SmbCrypto() {
     }
@@ -40,6 +42,11 @@ final class SmbCrypto implements SecurityProvider {
         return JCE_CMAC;
     }
 
+    /** Whether an SMB 3 signature is fast: the platform's AESCMAC or {@link AesCmac} on its AES-CBC. */
+    static boolean fastCmac() {
+        return JCE_CMAC || OWN_CMAC;
+    }
+
     /** Whether an SMB 2 signature is the platform's. */
     static boolean platformHmac() {
         return JCE_HMAC;
@@ -51,7 +58,8 @@ final class SmbCrypto implements SecurityProvider {
     }
 
     static String describe() {
-        return "platform cmac " + JCE_CMAC + ", hmac " + JCE_HMAC + ", gcm " + JCE_GCM + ", ccm " + JCE_CCM;
+        return "platform cmac " + JCE_CMAC + ", own cmac " + OWN_CMAC + ", hmac " + JCE_HMAC
+                + ", gcm " + JCE_GCM + ", ccm " + JCE_CCM;
     }
 
     private static boolean has(final String name, final boolean mac) {
@@ -67,6 +75,16 @@ final class SmbCrypto implements SecurityProvider {
         }
     }
 
+    private static boolean ownCmac() {
+        try {
+            Utils.log("smb: own AesCmac on AES/CBC/NoPadding from " + new AesCmac().provider());
+            return true;
+        } catch (final Exception e) {
+            Utils.log("smb: no AES/CBC/NoPadding in the platform: " + e);
+            return false;
+        }
+    }
+
     @Override
     public MessageDigest getDigest(final String name) throws SecurityException {
         return BC.getDigest(name);
@@ -76,6 +94,9 @@ final class SmbCrypto implements SecurityProvider {
     public Mac getMac(final String name) throws SecurityException {
         if ("AesCmac".equalsIgnoreCase(name) ? JCE_CMAC : "HmacSHA256".equalsIgnoreCase(name) && JCE_HMAC) {
             return JCE.getMac(name);
+        }
+        if (OWN_CMAC && "AesCmac".equalsIgnoreCase(name)) {
+            return new AesCmac();
         }
         return BC.getMac(name);
     }

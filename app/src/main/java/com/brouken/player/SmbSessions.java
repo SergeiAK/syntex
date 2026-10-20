@@ -220,7 +220,8 @@ final class SmbSessions {
      * 1080p loaded as fast as an unsigned one, 117 Mbit/s, and a 2160p at 157 against 181 (0051).
      *
      * <p>So a signature is dropped only where it would be BouncyCastle's: unsigned asked for, or the
-     * automatic choice on a device without the platform's algorithm for this dialect. Whatever the
+     * automatic choice on a device without a fast algorithm for this dialect - the platform's, or for
+     * SMB 3 {@link AesCmac} on the platform's AES-CBC, which Android 11 has without AESCMAC. Whatever the
      * host requires stays, and so does an encrypted session, which encryption signs. Dropped only once
      * the share is connected: SMB 3.1.1 wants its tree connect signed, and the NAS turned an unsigned
      * one away as access denied.
@@ -239,7 +240,7 @@ final class SmbSessions {
             Utils.log(line + "signed, required by " + uri.getHost());
             return;
         }
-        final boolean fast = dialect.isSmb3x() ? SmbCrypto.platformCmac() : SmbCrypto.platformHmac();
+        final boolean fast = dialect.isSmb3x() ? SmbCrypto.fastCmac() : SmbCrypto.platformHmac();
         if (ENCRYPT.equals(protection) || AUTO.equals(protection) && fast) {
             Utils.log(line + "signed" + (fast ? "" : ", in Java: the host would not encrypt"));
             return;
