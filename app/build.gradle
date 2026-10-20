@@ -61,6 +61,12 @@ android {
             }
         }
     }
+    // The interface is kept whole in English and Russian only. The other values-* folders stay in the tree
+    // for a later translation effort, but are not shipped: a language with 50 of 600 strings is English
+    // with a few words swapped. A language comes back by being named here and in locales_config.xml.
+    androidResources {
+        localeFilters += ["en", "ru"]
+    }
     base {
         archivesName = "Syntex.v${defaultConfig.versionName}"
     }
