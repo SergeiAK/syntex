@@ -6879,16 +6879,20 @@ public class PlayerActivity extends Activity {
      * whichever comes first, fifty seconds or its byte budget, and on a high-bitrate file the bytes come
      * first by a long way: 144 MB is about 21 s of a 53 Mbps remux. Reporting the fill against the fifty
      * seconds it can never reach is what made a full buffer read as "50 % and not growing", and had
-     * viewers reporting a download that never finishes.
+     * viewers reporting a download that never finishes. A stream, buffered by time over size, is held by
+     * the heap cap alone; a local file by the smaller of the cap and the default budget.
      */
     private long bufferCeilingMs() {
         final float overall = overallBitrate();
         if (overall <= 0f) {
             return DefaultLoadControl.DEFAULT_MAX_BUFFER_MS;
         }
+        final long cap = HeapCappedLoadControl.capBytes();
+        final long budget = Utils.isLocalPlaybackUri(mPrefs.mediaUri)
+                ? Math.min(cap, DefaultLoadControl.DEFAULT_VIDEO_BUFFER_SIZE + DefaultLoadControl.DEFAULT_AUDIO_BUFFER_SIZE)
+                : cap;
         // Bytes to milliseconds at this bitrate: bytes * 8 / (Mbit/s * 1e6) * 1000.
-        final long byteCeilingMs = (long) ((DefaultLoadControl.DEFAULT_VIDEO_BUFFER_SIZE
-                + DefaultLoadControl.DEFAULT_AUDIO_BUFFER_SIZE) * 8L / (overall * 1000f));
+        final long byteCeilingMs = (long) (budget * 8L / (overall * 1000f));
         return Math.max(1_000L, Math.min(DefaultLoadControl.DEFAULT_MAX_BUFFER_MS, byteCeilingMs));
     }
 
@@ -12974,7 +12978,8 @@ public class PlayerActivity extends Activity {
         if (backBufferAppliedMs > 0) {
             loadControlBuilder.setBackBuffer(backBufferAppliedMs, true);
         }
-        playerBuilder.setLoadControl(loadControlBuilder.build());
+        // Time is not memory: fifteen seconds of a 2160p demo outgrow the Dune's heap. See HeapCappedLoadControl.
+        playerBuilder.setLoadControl(new HeapCappedLoadControl(loadControlBuilder.build()));
 
         player = playerBuilder.build();
 
