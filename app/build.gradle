@@ -222,7 +222,9 @@ dependencies {
     implementation fileTree(dir: "libs", include: ["lib-*.aar"])
 }
 // AviAudioReframerTest reads its sample files from here: ./gradlew testLatestUniversalDebugUnitTest -PaviTestDir=...
+// The container tests (ExtractorHarness) from -PmediaTestDir=...
 tasks.withType(Test).configureEach {
     systemProperty 'aviTestDir', project.findProperty('aviTestDir') ?: ''
+    systemProperty 'mediaTestDir', project.findProperty('mediaTestDir') ?: ''
     testLogging { showStandardStreams = true; exceptionFormat = 'full' }
 }

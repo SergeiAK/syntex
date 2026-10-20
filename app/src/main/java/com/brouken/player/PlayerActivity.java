@@ -12885,9 +12885,10 @@ public class PlayerActivity extends Activity {
         // Dolby Vision decoder altogether.
         // The compressed audio of an AVI arrives in chunks cut by video frame, not by audio frame, and the
         // decoders choke on it (see AviAudioReframer). Innermost, so the wrappers below still see the
-        // extractors they look for by type.
-        final ExtractorsFactory baseExtractorsFactory =
-                new AviAudioReframer(extractorsFactory, subtitleParserFactory);
+        // extractors they look for by type. A QuickTime file without ftyp is told it is QuickTime, or its
+        // AAC is lost (see QuickTimeWithoutFtyp); nothing looks for the MP4 extractor by type.
+        final ExtractorsFactory baseExtractorsFactory = new QuickTimeWithoutFtyp.Factory(
+                new AviAudioReframer(extractorsFactory, subtitleParserFactory));
         final boolean convertDV7 = !mPrefs.mapDV7ToHevc && !forceHevcForDolbyVision;
         dv7Converter = convertDV7
                 ? new Dv7Converter(baseExtractorsFactory, subtitleParserFactory, mPrefs.removeHdr10Plus)
