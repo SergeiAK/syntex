@@ -67,6 +67,12 @@ final class NetworkThumbs {
     private static final AtomicInteger PLAYERS_OPEN = new AtomicInteger();
     /** How long a player waits for a still in progress; a slow one took 6 s on the Dune. */
     private static final long PLAYER_WAIT_MS = 8000;
+    /**
+     * What one still may read. A file without an index is walked by the retriever to its end - a
+     * 1080p MKV read 121 MB in 33 s, and every still behind it waited (measured on Dune, 0043) -
+     * while the heaviest still that came back in 0037 read 40 MB, of a UHD TS.
+     */
+    static final long MAX_BYTES = 48L << 20;
     private static final Set<String> NO_FRAME = ConcurrentHashMap.newKeySet();
     /** A still was refused or cut off while a player was up: the browser has rows to ask again. */
     private static volatile boolean missed;
@@ -249,11 +255,22 @@ final class NetworkThumbs {
                         callback.onLoadFailed(new IOException("player open, cut off"));
                     } else if (frame == null) {
                         NO_FRAME.add(uri.toString());
-                        callback.onLoadFailed(new IOException("no frame in " + uri));
+                        callback.onLoadFailed(new IOException("no frame in " + uri
+                                + (source.spent ? " within " + (MAX_BYTES >> 20) + " MiB" : "")));
                     } else {
                         callback.onDataReady(frame);
                     }
                 } catch (final Exception e) {
+                    // The retriever may give up on a refused read by throwing rather than by
+                    // returning no frame: the same two cases, then.
+                    if (source.aborted) {
+                        missed = true;
+                    } else if (source.spent) {
+                        NO_FRAME.add(uri.toString());
+                    }
+                    Log.d("NetworkThumbs", "failed after " + (source.bytes >> 10) + " KiB"
+                            + (source.aborted ? ", cut off" : source.spent ? ", over the limit" : "")
+                            + ": " + uri.getLastPathSegment() + ": " + e);
                     callback.onLoadFailed(e);
                 } finally {
                     current = null;
@@ -434,6 +451,8 @@ final class NetworkThumbs {
         long bytes;
         /** Set from another thread when a player comes up: every read after it fails. */
         volatile boolean aborted;
+        /** MAX_BYTES read: every read after it fails, and the file is taken for one without a frame. */
+        boolean spent;
         private long position = -1;
         private boolean open;
 
@@ -455,6 +474,14 @@ final class NetworkThumbs {
         final void checkNotAborted() throws IOException {
             if (aborted) {
                 throw new IOException("still cut off: player open");
+            }
+            if (bytes >= MAX_BYTES) {
+                if (!spent) {
+                    spent = true;
+                    Utils.log("thumbs: " + (bytes >> 20) + " MiB read, " + jumps + " jumps, no more: "
+                            + uri.getLastPathSegment());
+                }
+                throw new IOException("still over " + (MAX_BYTES >> 20) + " MiB");
             }
         }
 
