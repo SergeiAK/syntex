@@ -12306,10 +12306,12 @@ public class PlayerActivity extends Activity {
         // matching it by construction beats matching Media3's defaults from memory.
         final SubtitleParser.Factory subtitleParserFactory = new DefaultSubtitleParserFactory();
         // https://github.com/google/ExoPlayer/issues/8571
+        final int tsPayloadReaderFlags = DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS;
+        final int tsTimestampSearchBytes = 1500 * TsExtractor.TS_PACKET_SIZE;
         DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory()
                 .setSubtitleParserFactory(subtitleParserFactory)
-                .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
-                .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE);
+                .setTsExtractorFlags(tsPayloadReaderFlags)
+                .setTsExtractorTimestampSearchBytes(tsTimestampSearchBytes);
         // On TV boxes the platform MediaCodec decoder for the heavy codecs common in MKV remuxes
         // (DTS/EAC3/TrueHD) can wedge during init on the playback thread — no exception is thrown, so
         // the load never reaches a ready state (JPP-1005) — and where it does run, it is the decoder a
@@ -12886,9 +12888,12 @@ public class PlayerActivity extends Activity {
         // The compressed audio of an AVI arrives in chunks cut by video frame, not by audio frame, and the
         // decoders choke on it (see AviAudioReframer). Innermost, so the wrappers below still see the
         // extractors they look for by type. A QuickTime file without ftyp is told it is QuickTime, or its
-        // AAC is lost (see QuickTimeWithoutFtyp); nothing looks for the MP4 extractor by type.
-        final ExtractorsFactory baseExtractorsFactory = new QuickTimeWithoutFtyp.Factory(
-                new AviAudioReframer(extractorsFactory, subtitleParserFactory));
+        // AAC is lost (see QuickTimeWithoutFtyp); nothing looks for the MP4 extractor by type. Blu-ray
+        // M2TS (192-byte packets) gets an extractor of its own, the stock TS one over a 188-byte view.
+        final ExtractorsFactory baseExtractorsFactory = new M2tsExtractor.Factory(
+                new QuickTimeWithoutFtyp.Factory(
+                        new AviAudioReframer(extractorsFactory, subtitleParserFactory)),
+                subtitleParserFactory, tsPayloadReaderFlags, tsTimestampSearchBytes);
         final boolean convertDV7 = !mPrefs.mapDV7ToHevc && !forceHevcForDolbyVision;
         dv7Converter = convertDV7
                 ? new Dv7Converter(baseExtractorsFactory, subtitleParserFactory, mPrefs.removeHdr10Plus)

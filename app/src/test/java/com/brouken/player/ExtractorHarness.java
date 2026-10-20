@@ -63,6 +63,12 @@ final class ExtractorHarness {
         return file;
     }
 
+    static boolean sniffs(Extractor extractor, File file) throws IOException {
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            return extractor.sniff(input(raf, 0));
+        }
+    }
+
     /** Reads until the extractor has declared its tracks and every one has a format, or to the end. */
     static Result readTracks(Extractor extractor, File file) throws IOException {
         return read(extractor, file, Integer.MAX_VALUE, true);
@@ -80,28 +86,46 @@ final class ExtractorHarness {
             throws IOException {
         final Result result = new Result();
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-            ExtractorInput in = input(raf, 0);
-            Assume.assumeTrue(file + " not recognised by sniff", extractor.sniff(in));
-            in = input(raf, 0);
+            Assume.assumeTrue(file + " not recognised by sniff", extractor.sniff(input(raf, 0)));
             extractor.init(result);
-            final PositionHolder holder = new PositionHolder();
-            while (true) {
-                if (tracksOnly && result.allFormatsKnown()) break;
-                if (result.samples() >= maxSamples) break;
-                final int code;
-                try {
-                    code = extractor.read(in, holder);
-                } catch (EOFException e) {
-                    break;
-                }
-                if (code == Extractor.RESULT_END_OF_INPUT) break;
-                if (code == Extractor.RESULT_SEEK) {
-                    if (holder.position >= raf.length()) break;
-                    in = input(raf, holder.position);
-                }
-            }
+            loop(extractor, raf, 0, result, maxSamples, tracksOnly);
         }
         return result;
+    }
+
+    /**
+     * Seeks an extractor that has already been through {@link #readSamples} the way the player does —
+     * {@code seek()} and a fresh input at the position — and reads {@code maxSamples} more into a
+     * cleared {@code result}.
+     */
+    static void seekAndRead(Extractor extractor, File file, Result result, long position, long timeUs,
+                            int maxSamples) throws IOException {
+        for (Track t : result.tracks) t.clear();
+        extractor.seek(position, timeUs);
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            loop(extractor, raf, position, result, maxSamples, false);
+        }
+    }
+
+    private static void loop(Extractor extractor, RandomAccessFile raf, long position, Result result,
+                             int maxSamples, boolean tracksOnly) throws IOException {
+        ExtractorInput in = input(raf, position);
+        final PositionHolder holder = new PositionHolder();
+        while (true) {
+            if (tracksOnly && result.allFormatsKnown()) break;
+            if (result.samples() >= maxSamples) break;
+            final int code;
+            try {
+                code = extractor.read(in, holder);
+            } catch (EOFException e) {
+                break;
+            }
+            if (code == Extractor.RESULT_END_OF_INPUT) break;
+            if (code == Extractor.RESULT_SEEK) {
+                if (holder.position >= raf.length()) break;
+                in = input(raf, holder.position);
+            }
+        }
     }
 
     private static ExtractorInput input(RandomAccessFile raf, long position) throws IOException {
@@ -174,6 +198,12 @@ final class ExtractorHarness {
 
         Track(int type) {
             this.type = type;
+        }
+
+        void clear() {
+            samples = 0;
+            firstTimeUs = C.TIME_UNSET;
+            lastTimeUs = C.TIME_UNSET;
         }
 
         @Override
