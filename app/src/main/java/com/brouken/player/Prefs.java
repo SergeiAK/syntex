@@ -1522,12 +1522,17 @@ class Prefs {
      *
      * <p>With no shape known (-1) nothing is written, which is what keeps the reset in updateMedia —
      * a new media opening at fit — from wiping what the previous shape had remembered.
+     *
+     * <p>Written for an API launch too (Lampa and the like), unlike tracks, speed and position: the
+     * frame mode belongs to the shape of picture and the screen, not to the clip, and a choice made in
+     * one episode that is gone by the next is the bug upstream fixed in 2.4.6. Same keys as a local
+     * launch — upstream keeps no separate set for callers either (2.4.7 bytecode).
      */
     public void updateFrameMode(final int resizeMode, final float scale, final float aspectRatio) {
         this.resizeMode = resizeMode;
         this.scale = scale;
         this.aspectRatio = aspectRatio;
-        if (!persistentMode || aspectClass < 0)
+        if (aspectClass < 0)
             return;
         mSharedPreferences.edit()
                 .putInt(PREF_KEY_RESIZE_MODE + "_" + aspectClass, resizeMode)
