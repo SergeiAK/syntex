@@ -46,8 +46,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * list being scrolled would otherwise ask for a dozen frames at once - of 4K HEVC, over the network.
  * Glide keeps what comes back on disk, so each file costs this once.
  *
- * <p>Not while the player is open, and the player waits for the one in progress before it picks a
- * video decoder. The retriever decodes in the media server with the same hardware decoders the player
+ * <p>Not while the player is open: the one in progress is cut off when a player screen comes up
+ * (its next read fails, and the retriever lets go), and the player still waits for it to be gone
+ * before it picks a video decoder. The retriever decodes in the media server with the same hardware decoders the player
  * uses, and on an Amlogic box a VC-1 decoder is exclusive: while a still of a VC-1 file was being
  * taken, the player's own decoder was refused ({@code NO_MEMORY}) and Media3 fell back to the
  * software one - a 4K H.264 slide show (measured on Dune, 0037). A file that gave no frame is not
@@ -65,6 +66,9 @@ final class NetworkThumbs {
     /** How long a player waits for a still in progress; a slow one took 6 s on the Dune. */
     private static final long PLAYER_WAIT_MS = 8000;
     private static final Set<String> NO_FRAME = ConcurrentHashMap.newKeySet();
+    /** The source of the still in progress, to be cut off when a player comes up. */
+    @Nullable
+    private static volatile Source current;
     private static boolean registered;
 
     private NetworkThumbs() {
@@ -83,6 +87,13 @@ final class NetworkThumbs {
     static void playerVisible(final boolean visible) {
         if (visible) {
             PLAYERS_OPEN.incrementAndGet();
+            // Measured on the Dune, 0041: the still of the very file being opened had read 121 MB in
+            // 33 s, and the player waited 12 s of it. The retriever cannot be told to stop; its source
+            // can stop answering.
+            final Source source = current;
+            if (source != null) {
+                source.aborted = true;
+            }
         } else if (PLAYERS_OPEN.decrementAndGet() < 0) {
             PLAYERS_OPEN.set(0);
         }
@@ -197,6 +208,7 @@ final class NetworkThumbs {
                 final Source source = SmbSessions.SCHEME.equals(uri.getScheme())
                         ? new SmbSource(context, uri) : new Source(context, uri);
                 final long start = SystemClock.elapsedRealtime();
+                current = source;
                 try {
                     retriever.setDataSource(source);
                     final long opened = SystemClock.elapsedRealtime();
@@ -207,7 +219,9 @@ final class NetworkThumbs {
                             + (SystemClock.elapsedRealtime() - opened) + " ms, read "
                             + source.reads + " x / " + (source.bytes >> 10) + " KiB, jumps "
                             + source.jumps + ": " + uri.getLastPathSegment());
-                    if (frame == null) {
+                    if (source.aborted) {
+                        callback.onLoadFailed(new IOException("player open, cut off"));
+                    } else if (frame == null) {
                         NO_FRAME.add(uri.toString());
                         callback.onLoadFailed(new IOException("no frame in " + uri));
                     } else {
@@ -216,6 +230,7 @@ final class NetworkThumbs {
                 } catch (final Exception e) {
                     callback.onLoadFailed(e);
                 } finally {
+                    current = null;
                     try {
                         retriever.release();
                     } catch (final Exception ignored) {
@@ -332,6 +347,7 @@ final class NetworkThumbs {
             if (size == 0) {
                 return 0;
             }
+            checkNotAborted();
             final com.hierynomus.smbj.share.File open = file();
             if (at >= length) {
                 return -1;
@@ -390,6 +406,8 @@ final class NetworkThumbs {
         int reads;
         int jumps;
         long bytes;
+        /** Set from another thread when a player comes up: every read after it fails. */
+        volatile boolean aborted;
         private long position = -1;
         private boolean open;
 
@@ -408,12 +426,19 @@ final class NetworkThumbs {
             source = new SmbDataSource.Factory(context, http).createDataSource();
         }
 
+        final void checkNotAborted() throws IOException {
+            if (aborted) {
+                throw new IOException("still cut off: player open");
+            }
+        }
+
         @Override
         public synchronized int readAt(final long at, final byte[] buffer, final int offset,
                                        final int length) throws IOException {
             if (length == 0) {
                 return 0;
             }
+            checkNotAborted();
             final long total = getSize();
             if (total >= 0 && at >= total) {
                 return -1;
