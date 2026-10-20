@@ -24,7 +24,8 @@ import org.junit.Test;
  * files ({@code head -c}, a multiple of 192 — ffmpeg would remux them), passed in with
  * -PmediaTestDir=...: {@code ac3.m2ts} — 192·50000 bytes of "Casino.50.m2ts" (H.264, AC-3 0x81);
  * {@code truehd.m2ts} — 192·60000 bytes of "H264_TrueHD.m2ts" (H.264, TrueHD 0x83 with its AC-3 core
- * on the same PID). Frame counts are ffmpeg's ({@code -c copy -f framecrc}) on the same heads.
+ * on the same PID); {@code lpcm.m2ts} — 192·20000 bytes of "00019.m2ts" (MPEG-2, two Blu-ray LPCM
+ * tracks 0x80). Frame counts are ffmpeg's ({@code -c copy -f framecrc}) on the same heads.
  */
 public class M2tsExtractorTest {
 
@@ -74,6 +75,16 @@ public class M2tsExtractorTest {
         assertAbout(56, result.track(C.TRACK_TYPE_VIDEO).samples);
         // ffmpeg: 72 AC-3 frames, 2663 TrueHD units. Not one TrueHD unit taken for an AC-3 frame.
         assertAbout(72, audio.samples);
+    }
+
+    /** 0x80 is Blu-ray LPCM, not a video stream that never gets a format. */
+    @Test
+    public void lpcmIsLeftOut() throws IOException {
+        final ExtractorHarness.Result result = ExtractorHarness.readTracks(
+                create(), ExtractorHarness.testFile("lpcm.m2ts"));
+        assertTrue("formats known", result.allFormatsKnown());
+        assertEquals(1, result.tracks.size());
+        assertEquals(MimeTypes.VIDEO_MPEG2, result.mime(C.TRACK_TYPE_VIDEO));
     }
 
     @Test

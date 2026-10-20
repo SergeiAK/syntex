@@ -49,7 +49,8 @@ import java.util.Map;
  * be dropped. On the same PID the disc also carries the AC-3 core every player must be able to fall
  * back to, each frame in a PES packet of its own (the TrueHD access units in the others). Type 0x83
  * therefore gets the AC-3 reader behind a filter that passes only the PES packets that begin with an
- * AC-3 sync word — sound in 5.1 rather than none.
+ * AC-3 sync word — sound in 5.1 rather than none. Blu-ray LPCM (0x80) is left out: Media3 has no
+ * reader for it either, and takes the number for a video stream.
  */
 final class M2tsExtractor implements Extractor {
 
@@ -58,6 +59,8 @@ final class M2tsExtractor implements Extractor {
     private static final int HEADER = PACKET - TS_PACKET;
     private static final int SNIFF_PACKETS = 5;
     private static final int TS_STREAM_TYPE_HDMV_TRUEHD = 0x83;
+    /** Blu-ray LPCM; Media3 takes 0x80 for DigiCipher II video. */
+    private static final int TS_STREAM_TYPE_HDMV_LPCM = 0x80;
     /**
      * The least window, in 188-byte packets, searched for a PCR at either end of the file and at every
      * step of a seek. Blu-ray allows 100 ms between PCRs and carries them on a PID of their own; at
@@ -328,6 +331,12 @@ final class M2tsExtractor implements Extractor {
         @Nullable
         @Override
         public TsPayloadReader createPayloadReader(int streamType, TsPayloadReader.EsInfo esInfo) {
+            if (streamType == TS_STREAM_TYPE_HDMV_LPCM) {
+                // Read as DigiCipher II H.262 the stream never yields a format, and the player, waiting
+                // for every track to have one, loaded the whole file first - 50 s for "00019.m2ts"
+                // (measured on Dune, 0041). No reader: the track is left out, the picture plays silent.
+                return null;
+            }
             if (streamType == TS_STREAM_TYPE_HDMV_TRUEHD) {
                 return new PesReader(new Ac3CoreReader(
                         new Ac3Reader(esInfo.language, esInfo.getRoleFlags(), MimeTypes.VIDEO_MP2T)));
