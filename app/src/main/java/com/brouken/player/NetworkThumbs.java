@@ -6,6 +6,8 @@ import android.media.MediaDataSource;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -66,6 +68,11 @@ final class NetworkThumbs {
     /** How long a player waits for a still in progress; a slow one took 6 s on the Dune. */
     private static final long PLAYER_WAIT_MS = 8000;
     private static final Set<String> NO_FRAME = ConcurrentHashMap.newKeySet();
+    /** A still was refused or cut off while a player was up: the browser has rows to ask again. */
+    private static volatile boolean missed;
+    /** The browser's way to ask again, while it is started; see whenPlayerGone. */
+    @Nullable
+    private static Runnable onPlayerGone;
     /** The source of the still in progress, to be cut off when a player comes up. */
     @Nullable
     private static volatile Source current;
@@ -94,9 +101,26 @@ final class NetworkThumbs {
             if (source != null) {
                 source.aborted = true;
             }
-        } else if (PLAYERS_OPEN.decrementAndGet() < 0) {
-            PLAYERS_OPEN.set(0);
+        } else {
+            if (PLAYERS_OPEN.decrementAndGet() < 0) {
+                PLAYERS_OPEN.set(0);
+            }
+            final Runnable again = onPlayerGone;
+            if (PLAYERS_OPEN.get() == 0 && missed && again != null) {
+                missed = false;
+                new Handler(Looper.getMainLooper()).post(again);
+            }
         }
+    }
+
+    /**
+     * Set by the browser in onStart, cleared in onStop; run on the main thread once the last player
+     * is gone if a still was refused meanwhile. Needed because of the order of a return: the
+     * browser's onStart, where Glide begins its failed requests again, comes before the player's
+     * onStop - so they were refused a second time and the rows stayed blank (measured on Dune, 0043).
+     */
+    static void whenPlayerGone(@Nullable final Runnable again) {
+        onPlayerGone = again;
     }
 
     /**
@@ -195,8 +219,9 @@ final class NetworkThumbs {
                     return;
                 }
                 if (PLAYERS_OPEN.get() > 0) {
-                    // Not cached as a failure: Glide begins the request again when the browser is
-                    // back in front.
+                    missed = true;
+                    // Not cached as a failure: the browser binds its rows again when the player is
+                    // gone (whenPlayerGone), and Glide begins a failed request again on a rebind.
                     callback.onLoadFailed(new IOException("player open"));
                     return;
                 }
@@ -220,6 +245,7 @@ final class NetworkThumbs {
                             + source.reads + " x / " + (source.bytes >> 10) + " KiB, jumps "
                             + source.jumps + ": " + uri.getLastPathSegment());
                     if (source.aborted) {
+                        missed = true;
                         callback.onLoadFailed(new IOException("player open, cut off"));
                     } else if (frame == null) {
                         NO_FRAME.add(uri.toString());

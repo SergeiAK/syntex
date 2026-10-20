@@ -725,6 +725,19 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         // is another app and hands back no result. Coming home from it is the only signal there is.
         // show() is what re-reads what the index was built under - see its head.
         show();
+        // Stills refused while a player was up are asked for again once it is gone, which is after
+        // this onStart: binding the rows again is what makes Glide begin a failed request anew.
+        NetworkThumbs.whenPlayerGone(() -> {
+            if (list != null && list.getAdapter() != null) {
+                list.getAdapter().notifyDataSetChanged();
+            }
+        });
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        NetworkThumbs.whenPlayerGone(null);
     }
 
     /**
