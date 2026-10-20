@@ -82,16 +82,16 @@ public class HeapCappedLoadControlTest {
     }
 
     @Test
-    public void picksUpAgainOnlyBelowThreeQuarters() {
+    public void picksUpAgainOnlyBelowNineTenths() {
         final Greedy greedy = new Greedy();
         final HeapCappedLoadControl control = new HeapCappedLoadControl(greedy, CAP);
         greedy.held = 100;
         control.shouldContinueLoading(ahead(10_000_000));
-        greedy.held = 80;
-        assertFalse(control.shouldContinueLoading(ahead(10_000_000)));
-        greedy.held = 74;
-        assertTrue(control.shouldContinueLoading(ahead(10_000_000)));
         greedy.held = 90;
+        assertFalse(control.shouldContinueLoading(ahead(10_000_000)));
+        greedy.held = 89;
+        assertTrue(control.shouldContinueLoading(ahead(10_000_000)));
+        greedy.held = 95;
         assertTrue(control.shouldContinueLoading(ahead(10_000_000)));
     }
 

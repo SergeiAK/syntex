@@ -18,10 +18,12 @@ import androidx.media3.exoplayer.upstream.Allocator;
  * 200 ms twice a second — loading fell to 60-150 Mbit/s and playback stopped three times — and the
  * second play ended in an OutOfMemoryError.
  *
- * <p>So loading pauses once the allocator holds {@link #capBytes()} and picks up again at three
- * quarters of it — the gap keeps the loader from being switched on and off on every sample at the
- * line. The wrapped control decides everything else, and is asked as before whenever the cap is not
- * what stops it.
+ * <p>So loading pauses once the allocator holds {@link #capBytes()} and picks up again at nine
+ * tenths of it — the gap keeps the loader from being switched on and off on every sample at the
+ * line. It was three quarters, and on a heavy file that quarter was most of what lay ahead: at
+ * 50 Mbit/s, with 26 MB of back buffer in the cap, the buffer swung between 14 and 20 s and was 17 s
+ * when the Dune's Wi-Fi went for 30 s (20.10.2026). The wrapped control decides everything else, and
+ * is asked as before whenever the cap is not what stops it.
  *
  * <p>The allocator also holds the back buffer, kept from the keyframe before it — and on a sparse GOP
  * that is most of it: the demo has keyframes at 0 and 8.3 s only, and by 6 s it held 274 MB with 50 ms
@@ -35,11 +37,14 @@ final class HeapCappedLoadControl implements LoadControl {
 
     /** Of the heap the app may grow to; the rest is the decoders' input, the interface and Glide. */
     private static final double HEAP_SHARE = 0.4;
+    /** Of the cap that loading picks up again below. */
+    private static final double RESUME_SHARE = 0.9;
     /** Ahead of the playhead that a full cap starts playback on. */
     private static final long START_ON_CAP_US = 1_000_000;
 
     private final LoadControl delegate;
     private final long cap;
+    private final long resume;
     private boolean capped;
 
     HeapCappedLoadControl(final LoadControl delegate) {
@@ -49,6 +54,7 @@ final class HeapCappedLoadControl implements LoadControl {
     HeapCappedLoadControl(final LoadControl delegate, final long cap) {
         this.delegate = delegate;
         this.cap = cap;
+        this.resume = (long) (cap * RESUME_SHARE);
     }
 
     /** The most the buffer holds: 154 MB on the Dune's 384 MB heap. */
@@ -61,7 +67,7 @@ final class HeapCappedLoadControl implements LoadControl {
         final long held = delegate.getAllocator(parameters.playerId).getTotalBytesAllocated();
         if (held >= cap) {
             capped = true;
-        } else if (held < cap / 4 * 3) {
+        } else if (held < resume) {
             capped = false;
         }
         return !capped && delegate.shouldContinueLoading(parameters);
