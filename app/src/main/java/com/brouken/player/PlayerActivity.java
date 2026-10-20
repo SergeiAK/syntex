@@ -2994,6 +2994,8 @@ public class PlayerActivity extends Activity {
     public void onStart() {
         super.onStart();
         alive = true;
+        // Before anything here can build a player: the browser's stills must not take a decoder now.
+        NetworkThumbs.playerVisible(true);
         Utils.log("onStart" + (player == null ? ", no player" : player.getPlayerError() != null
                 ? ", player failed while away" : ", state " + stateName(player.getPlaybackState())));
         updateSubtitleStyle(this);
@@ -3087,6 +3089,7 @@ public class PlayerActivity extends Activity {
     public void onStop() {
         super.onStop();
         alive = false;
+        NetworkThumbs.playerVisible(false);
         Utils.log("onStop" + (isFinishing() ? ", finishing" : ""));
         if (Build.VERSION.SDK_INT >= 31) {
             playerView.removeCallbacks(barsHider);
@@ -12691,36 +12694,41 @@ public class PlayerActivity extends Activity {
                 // reads back as "exceeds capabilities" — which plays, but drops those renditions out of
                 // the quality list. The refusal means no Dolby Vision anywhere, so mapping it is free.
                 .setMapDV7ToHevc(mPrefs.mapDV7ToHevc || mPrefs.refuseDolbyVision);
-        if (forceHevcForDolbyVision || isTvBox) {
-            // One combined codec selector for two independent needs:
-            // - heavy MKV audio on a TV: no platform decoder for those codecs, so they passthrough (if
-            //   the sink supports it) or fall back to ffmpeg (see above).
-            // - forceHevcForDolbyVision: route a Dolby Vision track to the plain HEVC decoder (its base
-            //   layer is HEVC), bypassing a device DV decoder that wedged or failed while decoding.
-            //   Picture stays HDR10.
-            renderersFactory.setMediaCodecSelector((mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
-                if (isTvBox && HEAVY_MKV_AUDIO_MIMES.contains(mimeType)
-                        && isMatroskaMedia(mediaUri, mediaType)) {
-                    return Collections.emptyList();
-                }
-                if (forceHevcForDolbyVision && MimeTypes.VIDEO_DOLBY_VISION.equals(mimeType)) {
-                    // HEVC first, the Dolby Vision decoders kept behind it rather than dropped. The base
-                    // layer of profiles 4, 7 and 8 is HEVC and the first list plays them; profile 9 is
-                    // AVC and profile 10 is AV1, and for those the HEVC decoder fails to configure and
-                    // decoder fallback walks on to the second list. Dropping them outright would turn a
-                    // profile this cannot redirect into an error screen.
-                    final List<androidx.media3.exoplayer.mediacodec.MediaCodecInfo> infos =
-                            new ArrayList<>(MediaCodecSelector.DEFAULT.getDecoderInfos(
-                                    MimeTypes.VIDEO_H265, requiresSecureDecoder,
-                                    requiresTunnelingDecoder));
-                    infos.addAll(MediaCodecSelector.DEFAULT.getDecoderInfos(
-                            mimeType, requiresSecureDecoder, requiresTunnelingDecoder));
-                    return infos;
-                }
-                return MediaCodecSelector.DEFAULT.getDecoderInfos(
-                        mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
-            });
-        }
+        // One combined codec selector for three independent needs:
+        // - every video track: wait for a still the browser is taking of a network file to let go of
+        //   its hardware decoder (see NetworkThumbs). On an Amlogic box a VC-1 still in progress
+        //   refused the player any video decoder and playback fell back to software. This runs on
+        //   the player's thread, the first time a video format is matched against the decoders.
+        // - heavy MKV audio on a TV: no platform decoder for those codecs, so they passthrough (if
+        //   the sink supports it) or fall back to ffmpeg (see above).
+        // - forceHevcForDolbyVision: route a Dolby Vision track to the plain HEVC decoder (its base
+        //   layer is HEVC), bypassing a device DV decoder that wedged or failed while decoding.
+        //   Picture stays HDR10.
+        renderersFactory.setMediaCodecSelector((mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
+            if (MimeTypes.isVideo(mimeType)) {
+                NetworkThumbs.awaitIdle();
+            }
+            if (isTvBox && HEAVY_MKV_AUDIO_MIMES.contains(mimeType)
+                    && isMatroskaMedia(mediaUri, mediaType)) {
+                return Collections.emptyList();
+            }
+            if (forceHevcForDolbyVision && MimeTypes.VIDEO_DOLBY_VISION.equals(mimeType)) {
+                // HEVC first, the Dolby Vision decoders kept behind it rather than dropped. The base
+                // layer of profiles 4, 7 and 8 is HEVC and the first list plays them; profile 9 is
+                // AVC and profile 10 is AV1, and for those the HEVC decoder fails to configure and
+                // decoder fallback walks on to the second list. Dropping them outright would turn a
+                // profile this cannot redirect into an error screen.
+                final List<androidx.media3.exoplayer.mediacodec.MediaCodecInfo> infos =
+                        new ArrayList<>(MediaCodecSelector.DEFAULT.getDecoderInfos(
+                                MimeTypes.VIDEO_H265, requiresSecureDecoder,
+                                requiresTunnelingDecoder));
+                infos.addAll(MediaCodecSelector.DEFAULT.getDecoderInfos(
+                        mimeType, requiresSecureDecoder, requiresTunnelingDecoder));
+                return infos;
+            }
+            return MediaCodecSelector.DEFAULT.getDecoderInfos(
+                    mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
+        });
 
         ExoPlayer.Builder playerBuilder = new ExoPlayer.Builder(this, renderersFactory)
                 .setTrackSelector(trackSelector);

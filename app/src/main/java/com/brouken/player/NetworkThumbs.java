@@ -27,6 +27,11 @@ import com.bumptech.glide.signature.ObjectKey;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * A still of a video on an SMB share or a WebDAV server, for the browser's rows and tiles.
@@ -41,12 +46,25 @@ import java.util.Collections;
  * list being scrolled would otherwise ask for a dozen frames at once - of 4K HEVC, over the network.
  * Glide keeps what comes back on disk, so each file costs this once.
  *
+ * <p>Not while the player is open, and the player waits for the one in progress before it picks a
+ * video decoder. The retriever decodes in the media server with the same hardware decoders the player
+ * uses, and on an Amlogic box a VC-1 decoder is exclusive: while a still of a VC-1 file was being
+ * taken, the player's own decoder was refused ({@code NO_MEMORY}) and Media3 fell back to the
+ * software one - a 4K H.264 slide show (measured on Dune, 0037). A file that gave no frame is not
+ * tried again until the app restarts: Glide keeps no failure, and that VC-1 still was taken - and
+ * failed - four times in four minutes.
+ *
  * <p>Not for a torrent server (a frame there means the server fetching the torrent) and not for a
  * media server, which sends its own artwork.
  */
 final class NetworkThumbs {
 
-    private static final Object ONE_AT_A_TIME = new Object();
+    private static final ReentrantLock ONE_AT_A_TIME = new ReentrantLock();
+    /** Players started and not stopped: a stop of one screen may come after the start of the next. */
+    private static final AtomicInteger PLAYERS_OPEN = new AtomicInteger();
+    /** How long a player waits for a still in progress; a slow one took 6 s on the Dune. */
+    private static final long PLAYER_WAIT_MS = 8000;
+    private static final Set<String> NO_FRAME = ConcurrentHashMap.newKeySet();
     private static boolean registered;
 
     private NetworkThumbs() {
@@ -59,6 +77,39 @@ final class NetworkThumbs {
         registered = true;
         Glide.get(context.getApplicationContext()).getRegistry()
                 .prepend(Uri.class, Bitmap.class, new Factory(context.getApplicationContext()));
+    }
+
+    /** From the player screen's onStart and onStop: no new stills in between. */
+    static void playerVisible(final boolean visible) {
+        if (visible) {
+            PLAYERS_OPEN.incrementAndGet();
+        } else if (PLAYERS_OPEN.decrementAndGet() < 0) {
+            PLAYERS_OPEN.set(0);
+        }
+    }
+
+    /**
+     * Blocks until the still in progress, if any, has released its decoder - on the player's own
+     * thread, before it picks a video decoder; never on the main thread. A still that outlasts the
+     * wait is left to finish, and the player takes what decoder it is given, as before.
+     */
+    static void awaitIdle() {
+        if (!ONE_AT_A_TIME.isLocked() || ONE_AT_A_TIME.isHeldByCurrentThread()) {
+            return;
+        }
+        final long start = SystemClock.elapsedRealtime();
+        boolean idle = false;
+        try {
+            idle = ONE_AT_A_TIME.tryLock(PLAYER_WAIT_MS, TimeUnit.MILLISECONDS);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            if (idle) {
+                ONE_AT_A_TIME.unlock();
+            }
+        }
+        Utils.log("thumbs: player waited " + (SystemClock.elapsedRealtime() - start) + " ms for a still"
+                + (idle ? "" : ", still busy"));
     }
 
     /** Whether a frame of this address is taken here. */
@@ -125,10 +176,21 @@ final class NetworkThumbs {
         @Override
         public void loadData(@NonNull final Priority priority,
                              @NonNull final DataCallback<? super Bitmap> callback) {
-            synchronized (ONE_AT_A_TIME) {
+            ONE_AT_A_TIME.lock();
+            try {
                 if (cancelled) {
                     // Scrolled past while it waited its turn: nothing has been read, nothing is owed.
                     callback.onLoadFailed(new IOException("cancelled"));
+                    return;
+                }
+                if (PLAYERS_OPEN.get() > 0) {
+                    // Not cached as a failure: Glide begins the request again when the browser is
+                    // back in front.
+                    callback.onLoadFailed(new IOException("player open"));
+                    return;
+                }
+                if (NO_FRAME.contains(uri.toString())) {
+                    callback.onLoadFailed(new IOException("no frame in " + uri + " (earlier)"));
                     return;
                 }
                 final MediaMetadataRetriever retriever = new MediaMetadataRetriever();
@@ -146,6 +208,7 @@ final class NetworkThumbs {
                             + source.reads + " x / " + (source.bytes >> 10) + " KiB, jumps "
                             + source.jumps + ": " + uri.getLastPathSegment());
                     if (frame == null) {
+                        NO_FRAME.add(uri.toString());
                         callback.onLoadFailed(new IOException("no frame in " + uri));
                     } else {
                         callback.onDataReady(frame);
@@ -160,6 +223,8 @@ final class NetworkThumbs {
                     }
                     source.close();
                 }
+            } finally {
+                ONE_AT_A_TIME.unlock();
             }
         }
 
