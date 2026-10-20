@@ -592,11 +592,11 @@
     <string name="pref_ignore_nomedia_off">A folder with a .nomedia file is left out of it</string>
     <string name="pref_smb_protection">Network folder protection (SMB)</string>
     <string name="pref_smb_protection_auto">Automatic</string>
-    <string name="pref_smb_protection_auto_hint">Signs or encrypts, whichever this device does fast. Where it can do neither, the traffic is left unprotected. Recommended</string>
+    <string name="pref_smb_protection_auto_hint">Recommended. The fastest protection this device has — signing or encryption. If both are slow, no signing</string>
     <string name="pref_smb_protection_encrypt">Encryption</string>
-    <string name="pref_smb_protection_encrypt_hint">Hides what is played from the network and guards it against tampering. Signed instead if the server does not encrypt. Very high bitrates may load slower</string>
+    <string name="pref_smb_protection_encrypt_hint">Hides what is sent and guards against tampering. Signed instead if the server does not encrypt. May slow very high bitrates</string>
     <string name="pref_smb_protection_unsigned">No signing</string>
-    <string name="pref_smb_protection_unsigned_hint">The fastest, with nothing guarding against tampering on the network. Signing or encryption the server requires is kept</string>
+    <string name="pref_smb_protection_unsigned_hint">The fastest. No protection against tampering unless the server requires it</string>
     <string name="pref_appearance_header_summary">Theme, AMOLED black</string>
     <string name="pref_controls_header_summary">Volume, gestures, hold to speed up</string>
     <string name="pref_onscreen_header_summary">Clock, remaining time, statistics</string>

@@ -610,11 +610,11 @@
     <string name="pref_ignore_nomedia_off">Папка с файлом .nomedia пропускается, как просит</string>
     <string name="pref_smb_protection">Защита сетевых папок (SMB)</string>
     <string name="pref_smb_protection_auto">Автовыбор</string>
-    <string name="pref_smb_protection_auto_hint">Подпись или шифрование — что это устройство делает быстро. Если ни то ни другое, без защиты. Рекомендуется</string>
+    <string name="pref_smb_protection_auto_hint">Рекомендуется. Самая быстрая защита на этом устройстве — подпись или шифрование. Если обе медленные — без подписи</string>
     <string name="pref_smb_protection_encrypt">Шифрование</string>
-    <string name="pref_smb_protection_encrypt_hint">Скрывает воспроизводимое от сети и защищает от подмены. Если сервер не шифрует — подпись. На очень высоком битрейте загрузка может замедлиться</string>
+    <string name="pref_smb_protection_encrypt_hint">Скрывает передаваемое и защищает от подмены. Если сервер не шифрует — подпись. Может замедлить очень высокий битрейт</string>
     <string name="pref_smb_protection_unsigned">Без подписи</string>
-    <string name="pref_smb_protection_unsigned_hint">Быстрее всего, но от подмены в сети ничего не защищает. Подпись или шифрование, которых требует сервер, остаются</string>
+    <string name="pref_smb_protection_unsigned_hint">Быстрее всего. Без защиты от подмены, если сервер сам её не требует</string>
     <string name="pref_section_display">Режим экрана</string>
     <string name="pref_reset_section">Сбросить этот раздел</string>
     <string name="pref_reset_all">Сбросить все настройки</string>

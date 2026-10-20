@@ -622,6 +622,14 @@ public class SettingsActivity extends AppCompatActivity
                             android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     entry.setSpan(new android.text.style.ForegroundColorSpan(ink), from, entry.length(),
                             android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    if (i < names.length - 1) {
+                        // Half a line under each hint but the last: the next choice's name otherwise
+                        // sits right under this one's hint, and the three read as one paragraph.
+                        final int gap = entry.length();
+                        entry.append("\n ");
+                        entry.setSpan(new android.text.style.RelativeSizeSpan(0.5f), gap, entry.length(),
+                                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    }
                     entries[i] = entry;
                 }
                 smb.setEntries(entries);
