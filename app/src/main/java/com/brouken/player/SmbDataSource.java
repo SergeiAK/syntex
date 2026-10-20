@@ -165,6 +165,7 @@ final class SmbDataSource extends BaseDataSource {
                 try {
                     return PipelinedReads.send(handle, offset, length);
                 } catch (final Exception e) {
+                    SmbSessions.readFailed(handle, e);
                     throw new IOException(e);
                 }
             }
@@ -175,6 +176,7 @@ final class SmbDataSource extends BaseDataSource {
                 try {
                     return PipelinedReads.await(handle, pending);
                 } catch (final Exception e) {
+                    SmbSessions.readFailed(handle, e);
                     throw new IOException(e);
                 }
             }

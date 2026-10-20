@@ -431,6 +431,7 @@ final class NetworkThumbs {
                 try {
                     fill = open.read(window, at, 0, (int) Math.min(WINDOW, length - at));
                 } catch (final Exception e) {
+                    SmbSessions.readFailed(open, e);
                     throw new IOException(e);
                 }
                 if (fill <= 0) {

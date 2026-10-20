@@ -54,32 +54,36 @@ final class SmbSessions {
     /** Opens a file for reading, reconnecting once if the connection we had has gone. */
     static com.hierynomus.smbj.share.File open(final Context context, final Uri uri)
             throws IOException {
+        DiskShare used = null;
         try {
-            return openFile(context, uri, false);
+            used = share(context, uri, null);
+            return openFile(used, uri);
         } catch (final Exception first) {
             // A cached connection the server has since dropped fails here and nowhere else, so the
             // one retry belongs here rather than in a keep-alive. A refused password or a share that
             // is not there will refuse again, and retrying it only doubles the wait before the
             // person is told: measured 11 s to give up on a wrong password, four of those retries
             // the player's own.
-            if (permanent(first)) {
+            if (permanent(first) || interrupted(first)) {
                 throw first instanceof IOException ? (IOException) first : new IOException(first);
             }
-            return openFile(context, uri, true);
+            return openFile(share(context, uri, retire(used, first)), uri);
         }
     }
 
     /** Lists a folder, reconnecting once on the same terms as {@link #open}. */
     static List<com.hierynomus.msfscc.fileinformation.FileIdBothDirectoryInformation> list(
             final Context context, final Uri uri) throws IOException {
+        DiskShare used = null;
         try {
-            return share(context, uri, false).list(pathOf(uri));
+            used = share(context, uri, null);
+            return used.list(pathOf(uri));
         } catch (final Exception first) {
-            if (permanent(first)) {
+            if (permanent(first) || interrupted(first)) {
                 throw first instanceof IOException ? (IOException) first : new IOException(first);
             }
             try {
-                return share(context, uri, true).list(pathOf(uri));
+                return share(context, uri, retire(used, first)).list(pathOf(uri));
             } catch (final IOException e) {
                 throw e;
             } catch (final Exception e) {
@@ -88,29 +92,71 @@ final class SmbSessions {
         }
     }
 
-    private static com.hierynomus.smbj.share.File openFile(final Context context, final Uri uri,
-                                                           final boolean fresh) throws IOException {
+    private static com.hierynomus.smbj.share.File openFile(final DiskShare share, final Uri uri)
+            throws IOException {
         try {
-            return share(context, uri, fresh).openFile(pathOf(uri),
+            return share.openFile(pathOf(uri),
                     EnumSet.of(AccessMask.GENERIC_READ), null, SMB2ShareAccess.ALL,
                     SMB2CreateDisposition.FILE_OPEN, null);
-        } catch (final IOException e) {
-            throw e;
-        } catch (final Exception e) {
+        } catch (final RuntimeException e) {
             throw new IOException(e);
         }
     }
 
+    /**
+     * The share to give up on before the retry: the one that failed, when the failure says its
+     * connection is gone. Anything else is asked again on the same connection.
+     */
+    @Nullable
+    private static DiskShare retire(@Nullable final DiskShare used, final Exception failure) {
+        if (used == null || !lost(failure)) {
+            return null;
+        }
+        Utils.log("smb: reconnecting, " + reason(failure));
+        return used;
+    }
+
+    /**
+     * A reader's read failed on {@code file}. If the failure says the connection is gone, it is
+     * forgotten here, so that the player's next attempt connects afresh rather than first waiting out
+     * the 20 s timeout again on a connection that no longer answers. Only that connection: one a
+     * thread has already put in its place is left alone.
+     */
+    static void readFailed(final com.hierynomus.smbj.share.File file, final Throwable failure) {
+        if (!lost(failure)) {
+            return;
+        }
+        final DiskShare share = file.getDiskShare();
+        synchronized (SmbSessions.class) {
+            for (final Map.Entry<String, DiskShare> entry : SHARES.entrySet()) {
+                if (entry.getValue() == share) {
+                    final String key = entry.getKey();
+                    Utils.log("smb: read failed, dropping " + key + ", " + reason(failure));
+                    drop(key);
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Hands out the open connection to a share, connecting when there is none.
+     *
+     * @param broken the share a caller saw fail. It is replaced only if it is still the one handed
+     *               out: the player and the browser's thumbnails read the same share at once, and
+     *               when both see one connection die, the second to retry must take the connection
+     *               the first has just made rather than close it under the first one's reads.
+     *               Measured on the Dune (0037): a thumbnail read failing with "DiskShare has already
+     *               been closed" the moment the player opened its connection.
+     */
     private static synchronized DiskShare share(final Context context, final Uri uri,
-                                                final boolean fresh) throws IOException {
+                                                @Nullable final DiskShare broken) throws IOException {
         final String name = shareOf(uri);
         final String key = uri.getHost() + ":" + uri.getPort() + "/" + name;
 
-        if (!fresh) {
-            final DiskShare cached = SHARES.get(key);
-            if (cached != null && cached.isConnected()) {
-                return cached;
-            }
+        final DiskShare cached = SHARES.get(key);
+        if (cached != null && cached != broken && cached.isConnected()) {
+            return cached;
         }
         drop(key);
 
@@ -281,6 +327,76 @@ final class SmbSessions {
             }
         }
         return false;
+    }
+
+    /**
+     * The server-side ends of a session that leave the TCP connection up: a session the host logged
+     * off (an idle timeout, a restarted service), a share it took away, a Kerberos ticket run out.
+     * Only a new session cures them. By number: smbj 0.14 names not all of them.
+     */
+    private static final long STATUS_NETWORK_NAME_DELETED = 0xC00000C9L;
+    private static final long STATUS_USER_SESSION_DELETED = 0xC0000203L;
+    private static final long STATUS_NETWORK_SESSION_EXPIRED = 0xC000035CL;
+
+    /**
+     * True when the failure says the connection or its session is gone, so that only a new one will
+     * do: the transport failed or timed out, smbj ran out of credits waiting for answers (5 s without
+     * any, a host that has stopped answering), the share was closed, or the host ended the session.
+     * False for a read the caller interrupted - a seek, a thumbnail cut off - where the connection is
+     * fine and in use by others, and for the host's ordinary refusals, which a new connection would
+     * meet again.
+     */
+    static boolean lost(@Nullable final Throwable failure) {
+        if (failure == null || interrupted(failure)) {
+            return false;
+        }
+        for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof SMBApiException) {
+                final long status = ((SMBApiException) t).getStatusCode();
+                return status == STATUS_NETWORK_NAME_DELETED || status == STATUS_USER_SESSION_DELETED
+                        || status == STATUS_NETWORK_SESSION_EXPIRED;
+            }
+            if (t instanceof com.hierynomus.smbj.common.SMBRuntimeException
+                    || t instanceof com.hierynomus.protocol.transport.TransportException
+                    || t instanceof java.net.SocketException
+                    || t instanceof java.net.SocketTimeoutException
+                    || t instanceof java.io.EOFException
+                    || t instanceof java.util.concurrent.TimeoutException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True for a wait the caller broke off. smbj puts the thread's flag back and wraps the
+     * {@link InterruptedException}, or, waiting for credits, says so in words only.
+     */
+    static boolean interrupted(@Nullable final Throwable failure) {
+        if (Thread.currentThread().isInterrupted()) {
+            return true;
+        }
+        for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof InterruptedException
+                    || t instanceof java.io.InterruptedIOException
+                    && !(t instanceof java.net.SocketTimeoutException)) {
+                return true;
+            }
+            final String message = t.getMessage();
+            if (message != null && message.startsWith("Got interrupted")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The innermost cause, in one line, for the log. */
+    private static String reason(final Throwable failure) {
+        Throwable root = failure;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root.getClass().getSimpleName() + ": " + root.getMessage();
     }
 
     /** {@code smb://host/share/dir/file.mkv} — the first path segment is the share. */
