@@ -230,6 +230,8 @@
     <string name="time_ends_at">Закінчиться о %s</string>
     <string name="time_ends_at_inline">до %1$s</string>
     <string name="time_live">● ЕФІР</string>
+    <string name="header_subtitles">субтитри: %1$s</string>
+    <string name="header_subtitles_on">субтитри увімкнено</string>
     <string name="playlist">Список відтворення</string>
     <plurals name="playlist_items">
         <item quantity="one">%d файл</item>

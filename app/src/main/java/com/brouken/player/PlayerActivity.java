@@ -2061,6 +2061,17 @@ public class PlayerActivity extends Activity {
 
         headerClockColumn.addView(timeRow);
 
+        // TV: the end time takes its own row under the clock, in full words ("Ends at …"), level with the
+        // video line on the left - the header has the height for it there, the display icons live below.
+        if (isTvBox) {
+            timeRow.removeView(endsAtView);
+            final LinearLayout.LayoutParams endsAtLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            endsAtLp.gravity = Gravity.END;
+            endsAtLp.topMargin = ui.dpS(7);
+            headerClockColumn.addView(endsAtView, endsAtLp);
+        }
+
         // All the slack goes between the two rows, so the icons ride the header's bottom line whatever the
         // left column's height turns out to be, instead of trailing the clock with a fixed gap.
         final View headerSpacer = new View(this);
@@ -2285,6 +2296,13 @@ public class PlayerActivity extends Activity {
         infoLp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.TOP;
         infoCard.setLayoutParams(infoLp);
         coordinatorLayout.addView(infoCard);
+        if (isTvBox) {
+            topInfoPanel.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) -> {
+                if (b != ob) {
+                    placeInfoCardUnderHeader();
+                }
+            });
+        }
 
         // Which room we are in. Floating, so it costs no row in the header or the bottom bar — both are
         // grids whose height a fourth line visibly changes — but tied to the controls (see updateRoomBadge),
@@ -2570,6 +2588,14 @@ public class PlayerActivity extends Activity {
                     infoParams.topMargin = windowInsets.getSystemWindowInsetTop() + ui.dpS(6);
                     infoParams.rightMargin = insetH + ui.gridH();
                     infoCard.setLayoutParams(infoParams);
+                    if (isTvBox) {
+                        placeInfoCardUnderHeader();
+                    }
+                }
+
+                if (isTvBox) {
+                    placeTvTransport(bottomBarPaddingBottom, barHeight);
+                    placeTvSideChrome();
                 }
 
                 Utils.setViewMargins(findViewById(R.id.exo_error_message), 0, windowInsets.getSystemWindowInsetTop() / 2, 0, getResources().getDimensionPixelSize(R.dimen.exo_error_message_margin_bottom) + windowInsets.getSystemWindowInsetBottom() / 2);
@@ -2759,21 +2785,52 @@ public class PlayerActivity extends Activity {
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM | Gravity.END));
             bar.setCompanion(horizontalScrollView);
-            if (transferView != null && transferView.getParent() instanceof ViewGroup) {
-                ((ViewGroup) transferView.getParent()).removeView(transferView);
-                final LinearLayout.LayoutParams transferInBar = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                transferInBar.gravity = Gravity.CENTER_VERTICAL;
-                transferInBar.setMarginEnd(ui.gridH());
-                transferView.setMaxLines(1);
-                exoBasicControls.addView(transferView, transferInBar);
+            // The bar under the seek bar is a time line: elapsed at the start, remaining at the end, the
+            // transport between them (see placeTvTransport). The total moved up into the header's video
+            // line, so the slot at the end only counts down. The transfer line stays floating, over the
+            // seek bar on the left, level with the button row (placeTvSideChrome).
+            final View separator = findViewById(R.id.exo_time_separator);
+            if (separator != null) {
+                separator.setVisibility(View.GONE);
             }
-            // Down from any button is the seek bar; Up from the seek bar is audio (or whichever of the
-            // row is there, when a file has no audio choice to make - see the visibility listener).
+            if (durationView != null && durationView.getParent() instanceof ViewGroup) {
+                ((ViewGroup) durationView.getParent()).removeView(durationView);
+                final LinearLayout.LayoutParams durationLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                durationLp.gravity = Gravity.CENTER_VERTICAL;
+                durationLp.setMarginEnd(getResources().getDimensionPixelOffset(
+                        R.dimen.exo_styled_bottom_bar_time_padding));
+                exoBasicControls.addView(durationView, durationLp);
+            }
+            if (transferView != null) {
+                transferView.setMaxLines(1);
+            }
+            // The loading ring stays in the middle of the picture, where the eye goes when it stops:
+            // only the transport moves down. It keeps its size and its stand-in role for play/pause.
+            if (loadingProgressBar.getParent() instanceof ViewGroup) {
+                ((ViewGroup) loadingProgressBar.getParent()).removeView(loadingProgressBar);
+                controller.addView(loadingProgressBar, new FrameLayout.LayoutParams(
+                        ui.spinnerSize(), ui.spinnerSize(), Gravity.CENTER));
+            }
+            horizontalScrollView.addOnLayoutChangeListener(
+                    (v, l, t, r, b, ol, ot, or_, ob) -> {
+                        if (t != ot || b != ob) {
+                            placeTvSideChrome();
+                        }
+                    });
+            // The remote walks the screen top to bottom: the row, the seek bar, the transport, and from
+            // there the playlist (see the Down key). Up from the seek bar is audio, or whichever of the
+            // row is there when a file has no audio choice to make - see the visibility listener.
             for (int i = 0; i < controls.getChildCount(); i++) {
                 controls.getChildAt(i).setNextFocusDownId(R.id.exo_progress);
             }
             timeBar.setNextFocusUpId(buttonAudio.getId());
+            timeBar.setNextFocusDownId(R.id.exo_play_pause);
+            for (View transport : new View[]{exoPrev, exoPlayPause, exoNext, loadingProgressBar}) {
+                if (transport != null) {
+                    transport.setNextFocusUpId(R.id.exo_progress);
+                }
+            }
         } else {
             exoBasicControls.addView(horizontalScrollView, horizontalScrollViewLp);
         }
@@ -3663,6 +3720,13 @@ public class PlayerActivity extends Activity {
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 if (controllerVisibleFully) {
+                    // TV: below the transport is the playlist - Down from it opens the list.
+                    if (isTvBox && haveMedia && isVisible(buttonPlaylist) && isTransportFocused()) {
+                        if (event.getRepeatCount() == 0) {
+                            showPlaylistDialog();
+                        }
+                        return true;
+                    }
                     // Mirror of Up above: Down from the bottom row dismisses the controls, anywhere
                     // else it stays plain focus navigation.
                     final View focusedDown = getCurrentFocus();
@@ -5814,8 +5878,59 @@ public class PlayerActivity extends Activity {
             return;
         }
         final Format video = player.getVideoFormat();
-        setInfoLine(videoInfoView, buildVideoInfo(video, videoFrameRate()));
-        setInfoLine(audioInfoView, buildAudioInfo(getSelectedAudioFormat()));
+        String videoLine = buildVideoInfo(video, videoFrameRate());
+        if (videoLine != null) {
+            // The container leads and the running time closes the line: the bottom bar counts what is
+            // left, so the total lives here, with the other facts about the file.
+            final Uri playing = currentMediaUri();
+            final String container = ContainerName.of(video.containerMimeType,
+                    playing != null ? playing.getLastPathSegment() : null);
+            final StringBuilder b = new StringBuilder();
+            appendField(b, container);
+            appendField(b, videoLine);
+            final long duration = player.getContentDuration();
+            if (!isLiveStream() && duration != C.TIME_UNSET && duration > 0) {
+                appendField(b, Util.getStringForTime(timeBuilder, timeFormatter, duration));
+            }
+            videoLine = b.toString();
+        }
+        setInfoLine(videoInfoView, videoLine);
+        String audioLine = buildAudioInfo(getSelectedAudioFormat());
+        final String subtitles = selectedSubtitleName();
+        if (subtitles != null) {
+            final String part = getString(R.string.header_subtitles, subtitles);
+            audioLine = audioLine == null || audioLine.isEmpty() ? part : audioLine + "  ·  " + part;
+        }
+        setInfoLine(audioInfoView, audioLine);
+    }
+
+    /** What the header calls the subtitles on screen, or null when none are. */
+    @Nullable
+    private String selectedSubtitleName() {
+        if (player != null) {
+            for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+                if (group.getType() != C.TRACK_TYPE_TEXT) {
+                    continue;
+                }
+                for (int i = 0; i < group.length; i++) {
+                    if (!group.isTrackSelected(i)) {
+                        continue;
+                    }
+                    final Format format = group.getTrackFormat(i);
+                    if (isPhantomClosedCaption(format)) {
+                        continue;
+                    }
+                    final String name = trackName(format);
+                    if (name != null && !name.isEmpty()) {
+                        return name;
+                    }
+                    final String language = languageDisplayName(format.language);
+                    return language != null && !language.isEmpty() ? language
+                            : getString(R.string.header_subtitles_on);
+                }
+            }
+        }
+        return paintedSubtitleUri != null ? getString(R.string.header_subtitles_on) : null;
     }
 
     private static void setInfoLine(TextView view, String text) {
@@ -6243,14 +6358,16 @@ public class PlayerActivity extends Activity {
         final long endMs = System.currentTimeMillis() + RemainingTime.wallClockMs(duration,
                 player.getCurrentPosition(), player.getPlaybackParameters().speed);
         final String time = DateFormat.getTimeFormat(this).format(new Date(endMs));
-        endsAtView.setText(getString(R.string.time_ends_at_inline, time));
+        endsAtView.setText(getString(isTvBox ? R.string.time_ends_at : R.string.time_ends_at_inline, time));
         endsAtView.setVisibility(View.VISIBLE);
     }
 
     /** The bottom bar's total and the dot in front of it; the elapsed slot beside them always shows. */
     private void setDurationVisible(boolean visible) {
         final int visibility = visible ? View.VISIBLE : View.GONE;
-        for (int id : new int[]{R.id.exo_time_separator, R.id.exo_duration}) {
+        // TV has no separator: elapsed and remaining stand at the two ends of the bar.
+        for (int id : isTvBox ? new int[]{R.id.exo_duration}
+                : new int[]{R.id.exo_time_separator, R.id.exo_duration}) {
             final View view = playerView.findViewById(id);
             if (view != null) {
                 view.setVisibility(visibility);
@@ -6413,7 +6530,8 @@ public class PlayerActivity extends Activity {
             return false;
         }
         infoCardOpen = true;
-        setHeaderHidden(true);
+        // TV: the card stands under the header (placeInfoCardUnderHeader), so the header stays.
+        setHeaderHidden(!isTvBox);
         updateInfoCard();
         playerView.postDelayed(infoCardRunnable, 1000);
         return true;
@@ -6443,6 +6561,88 @@ public class PlayerActivity extends Activity {
         }
         if (overlayClock != null) {
             overlayClock.setAlpha(alpha);
+        }
+    }
+
+    /** Where the TV header last ended; kept while the header is away, so the card does not jump up. */
+    private int tvHeaderBottom;
+
+    /** TV: the card opens under the header rather than over it, so the title and the clock stay readable. */
+    private void placeInfoCardUnderHeader() {
+        if (infoCard == null || topInfoPanel == null) {
+            return;
+        }
+        if (topInfoPanel.getHeight() > 0) {
+            tvHeaderBottom = topInfoPanel.getBottom();
+        }
+        if (tvHeaderBottom <= 0) {
+            return;
+        }
+        final CoordinatorLayout.LayoutParams lp = (CoordinatorLayout.LayoutParams) infoCard.getLayoutParams();
+        final int top = tvHeaderBottom + ui.dpS(6);
+        if (lp.topMargin != top) {
+            lp.topMargin = top;
+            infoCard.setLayoutParams(lp);
+        }
+    }
+
+    /** The transport's size on TV, under the seek bar: a step down from the centre disc it used to be. */
+    private static final float TV_TRANSPORT_SCALE = 0.55f;
+    private boolean tvTransportFollowsHeight;
+
+    /**
+     * TV: prev / play-pause / next leave the middle of the picture for the bottom bar, between the elapsed
+     * time and the remaining one. Scaled rather than resized: the discs, their padding and the focus ring
+     * keep the proportions UiMetrics gave them. The row is centred on the bar's own centre line - the
+     * margin puts its bottom there, and half its height brings it back down.
+     */
+    private void placeTvTransport(int bottomPad, int barHeight) {
+        final View transport = findViewById(R.id.exo_center_controls);
+        if (transport == null || !(transport.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        final FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) transport.getLayoutParams();
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        lp.bottomMargin = bottomPad + barHeight / 2;
+        transport.setLayoutParams(lp);
+        transport.setScaleX(TV_TRANSPORT_SCALE);
+        transport.setScaleY(TV_TRANSPORT_SCALE);
+        if (!tvTransportFollowsHeight) {
+            tvTransportFollowsHeight = true;
+            transport.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) ->
+                    v.setTranslationY((b - t) / 2f));
+        }
+    }
+
+    /**
+     * TV: the transfer line over the seek bar on the left, its bottom on the button row's bottom, and the
+     * room pill above it. Both float on the coordinator, so they are placed from the row's geometry.
+     */
+    private void placeTvSideChrome() {
+        if (tvButtonRow == null || !(tvButtonRow.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        final int rowBottom = ((FrameLayout.LayoutParams) tvButtonRow.getLayoutParams()).bottomMargin;
+        int transferHeight = 0;
+        if (transferView != null && transferView.getLayoutParams() instanceof CoordinatorLayout.LayoutParams) {
+            final CoordinatorLayout.LayoutParams lp = (CoordinatorLayout.LayoutParams) transferView.getLayoutParams();
+            if (lp.bottomMargin != rowBottom) {
+                lp.bottomMargin = rowBottom;
+                transferView.setLayoutParams(lp);
+            }
+            transferHeight = transferView.getHeight();
+            if (transferHeight == 0) {
+                transferView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+                transferHeight = transferView.getMeasuredHeight();
+            }
+        }
+        if (roomPill != null && roomPill.getLayoutParams() instanceof CoordinatorLayout.LayoutParams) {
+            final CoordinatorLayout.LayoutParams lp = (CoordinatorLayout.LayoutParams) roomPill.getLayoutParams();
+            final int bottom = rowBottom + transferHeight + ui.dpS(8);
+            if (lp.bottomMargin != bottom) {
+                lp.bottomMargin = bottom;
+                roomPill.setLayoutParams(lp);
+            }
         }
     }
 
@@ -6636,8 +6836,9 @@ public class PlayerActivity extends Activity {
         if (transferView == null) {
             return;
         }
+        // TV stacks the room pill above the line; elsewhere the two share one slot.
         if (!mPrefs.showTransfer || player == null || !controllerChromeVisible || inPip
-                || isVisible(roomPill)) {
+                || (!isTvBox && isVisible(roomPill))) {
             fadeChrome(transferView, false);
             return;
         }
@@ -6662,7 +6863,11 @@ public class PlayerActivity extends Activity {
             final CoordinatorLayout.LayoutParams lp =
                     (CoordinatorLayout.LayoutParams) transferView.getLayoutParams();
             final int row = coordinatorLayout.getWidth() - lp.leftMargin - lp.rightMargin;
-            final int free = isVisible(buttonSkip) ? row - buttonSkip.getWidth() - ui.dpS(8) : row;
+            // TV: the button row is the line's neighbour on the right; Skip stands above it there.
+            // The scroll view takes the free width; the buttons are its child, right-aligned in it.
+            final int free = tvButtonRow != null
+                    ? row - tvButtonRow.getChildAt(0).getWidth() - ui.dpS(16)
+                    : isVisible(buttonSkip) ? row - buttonSkip.getWidth() - ui.dpS(8) : row;
             if (free > 0) {
                 transferView.setMaxWidth(free);
             }
@@ -7924,6 +8129,8 @@ public class PlayerActivity extends Activity {
         Utils.setButtonEnabled(this, exoSubtitle, hasSubtitles);
         // Light the CC icon coral while either line is actually showing something.
         exoSubtitle.setSelected(textSelected);
+        // The header names the subtitles on screen, and this is where a change of them lands.
+        updateMediaInfo();
     }
 
     private void applyAudio(AudioChoice choice) {
@@ -17560,6 +17767,12 @@ public class PlayerActivity extends Activity {
             }
         }
         return buttonMore.requestFocus();
+    }
+
+    private boolean isTransportFocused() {
+        final View focused = getCurrentFocus();
+        return focused != null && (focused == exoPlayPause || focused == exoPrev || focused == exoNext
+                || focused == loadingProgressBar);
     }
 
     private void parkFocusOnLoadingRing() {

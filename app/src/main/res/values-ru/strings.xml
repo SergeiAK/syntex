@@ -229,6 +229,8 @@
     <string name="time_ends_at">Закончится в %s</string>
     <string name="time_ends_at_inline">до %1$s</string>
     <string name="time_live">● ЭФИР</string>
+    <string name="header_subtitles">субтитры: %1$s</string>
+    <string name="header_subtitles_on">субтитры включены</string>
     <string name="playlist">Плейлист</string>
     <plurals name="playlist_items">
         <item quantity="one">%d файл</item>

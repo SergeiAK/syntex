@@ -321,6 +321,8 @@
     <string name="time_ends_at">Ends at %s</string>
     <string name="time_ends_at_inline">until %1$s</string>
     <string name="time_live">● LIVE</string>
+    <string name="header_subtitles">subtitles: %1$s</string>
+    <string name="header_subtitles_on">subtitles on</string>
     <string name="playlist">Playlist</string>
     <plurals name="playlist_items">
         <item quantity="one">%d file</item>
