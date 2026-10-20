@@ -12924,18 +12924,8 @@ public class PlayerActivity extends Activity {
         // track.
         mediaSourceFactory = new DefaultMediaSourceFactory(this, new Dv10AsAv1(seekableExtractorsFactory))
                 .setDataSourceFactory(dataSourceFactory)
-                // A share that refuses the password refuses it again, and the default policy spends
-                // three retries and about three and a half seconds finding that out before anything
-                // is said. Everything else keeps the default budget: a server hiccup is worth a
-                // second read, a wrong password never is.
-                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy() {
-                    @Override
-                    public long getRetryDelayMsFor(@NonNull final LoadErrorInfo info) {
-                        return NetworkFiles.needsPassword(info.exception)
-                                ? C.TIME_UNSET
-                                : super.getRetryDelayMsFor(info);
-                    }
-                });
+                // No retry for a refused password, a minute's patience for a network that went away.
+                .setLoadErrorHandlingPolicy(new NetworkRetryPolicy());
         playerBuilder.setMediaSourceFactory(mediaSourceFactory);
         // Bounded by time rather than by bytes, for streams only. On the defaults the byte budget binds
         // first on anything high-bitrate — 144 MB is about 21 s of a 53 Mbps remux, well short of the 50 s
