@@ -31,9 +31,23 @@ final class SmbCrypto implements SecurityProvider {
     private SmbCrypto() {
     }
 
-    /** BouncyCastle throughout, as smbj does by default; or the platform for what it has. */
-    static SecurityProvider of(final boolean platform) {
-        return platform ? new SmbCrypto() : BC;
+    static SecurityProvider create() {
+        return new SmbCrypto();
+    }
+
+    /** Whether an SMB 3 signature is the platform's: AESCMAC is in Conscrypt from Android 12. */
+    static boolean platformCmac() {
+        return JCE_CMAC;
+    }
+
+    /** Whether an SMB 2 signature is the platform's. */
+    static boolean platformHmac() {
+        return JCE_HMAC;
+    }
+
+    /** Whether an encrypted SMB 3 session is the platform's: GCM is the cipher smbj offers first. */
+    static boolean platformGcm() {
+        return JCE_GCM;
     }
 
     static String describe() {

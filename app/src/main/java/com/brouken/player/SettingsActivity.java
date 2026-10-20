@@ -603,6 +603,34 @@ public class SettingsActivity extends AppCompatActivity
             // The second line lives behind its own row, and Off there means the whole feature rather
             // than just the line — so the rows that would configure one are greyed out rather than left
             // live and inert.
+            // Three words alone would ask the viewer to know what SMB signing is: each choice carries
+            // what it guards and what it costs as a second line of its own entry, and the row says
+            // what the current one does.
+            final ListPreference smb = findPreference(SmbSessions.PREF_PROTECTION);
+            if (smb != null && smb.getEntries() != null) {
+                final CharSequence[] names = smb.getEntries();
+                final CharSequence[] hints = getResources().getTextArray(R.array.smb_protection_hints);
+                final int ink = MaterialColors.getColor(requireContext(), R.attr.colorOnSurfaceVariant,
+                        Color.GRAY);
+                final CharSequence[] entries = new CharSequence[names.length];
+                for (int i = 0; i < names.length; i++) {
+                    final android.text.SpannableStringBuilder entry =
+                            new android.text.SpannableStringBuilder(names[i]).append('\n');
+                    final int from = entry.length();
+                    entry.append(i < hints.length ? hints[i] : "");
+                    entry.setSpan(new android.text.style.RelativeSizeSpan(0.85f), from, entry.length(),
+                            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    entry.setSpan(new android.text.style.ForegroundColorSpan(ink), from, entry.length(),
+                            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    entries[i] = entry;
+                }
+                smb.setEntries(entries);
+                smb.setSummaryProvider(preference -> {
+                    final int at = smb.findIndexOfValue(smb.getValue());
+                    return at < 0 || at >= hints.length ? null : names[at] + ". " + hints[at];
+                });
+            }
+
             final ListPreference secondaryMode = findPreference("subtitleSecondaryMode");
             if (secondaryMode != null) {
                 applySecondaryMode(secondaryMode, secondaryMode.getValue());

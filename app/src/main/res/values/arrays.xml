@@ -217,6 +217,24 @@
     <item>+1500 ms</item>
   </string-array>
 
+  <string-array name="smb_protection_entries">
+    <item>@string/pref_smb_protection_auto</item>
+    <item>@string/pref_smb_protection_encrypt</item>
+    <item>@string/pref_smb_protection_unsigned</item>
+  </string-array>
+
+  <string-array name="smb_protection_hints">
+    <item>@string/pref_smb_protection_auto_hint</item>
+    <item>@string/pref_smb_protection_encrypt_hint</item>
+    <item>@string/pref_smb_protection_unsigned_hint</item>
+  </string-array>
+
+  <string-array name="smb_protection_values" translatable="false">
+    <item>auto</item>
+    <item>encrypt</item>
+    <item>unsigned</item>
+  </string-array>
+
   <string-array name="back_buffer_entries">
     <item>@string/pref_back_buffer_off</item>
     <item>5 s</item>

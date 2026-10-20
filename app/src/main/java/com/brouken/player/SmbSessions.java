@@ -40,6 +40,13 @@ final class SmbSessions {
 
     private static final Map<String, DiskShare> SHARES = new HashMap<>();
     private static final Map<String, SMBClient> CLIENTS = new HashMap<>();
+    static final String PREF_PROTECTION = "smbProtection";
+    static final String AUTO = "auto";
+    static final String ENCRYPT = "encrypt";
+    static final String UNSIGNED = "unsigned";
+    /** The protection the open connections were made under. */
+    @Nullable
+    private static String openedUnder;
 
     private SmbSessions() {
     }
@@ -113,12 +120,24 @@ final class SmbSessions {
         // So every refill found the share closed and started from a reconnect: the stall of #219,
         // measured on a Synology as a dead share after 31 s idle and a live one after 90 s without
         // it. A host that stops answering is still caught, per request, by the 20 s timeout.
-        final String mode = mode();
+        final String protection = protection(context);
+        if (!protection.equals(openedUnder)) {
+            // A choice changed in Settings: what is open was opened under the old one.
+            for (final String open : new java.util.ArrayList<>(CLIENTS.keySet())) {
+                drop(open);
+            }
+            openedUnder = protection;
+        }
+        // Encryption is offered where it is what keeps a session protected and fast: asked for, or
+        // the automatic choice on a device that has a fast AES-GCM and no fast AES-CMAC - Android 11
+        // and older, where AESCMAC is not in the platform (Shield, measured 20.10.2026).
+        final boolean offerEncryption = ENCRYPT.equals(protection)
+                || AUTO.equals(protection) && !SmbCrypto.platformCmac() && SmbCrypto.platformGcm();
         final SmbConfig config = SmbConfig.builder()
                 .withTimeout(20, TimeUnit.SECONDS)
                 .withDfsEnabled(false)
-                .withSecurityProvider(SmbCrypto.of(mode.endsWith("-platform")))
-                .withEncryptData(mode.startsWith("encrypt"))
+                .withSecurityProvider(SmbCrypto.create())
+                .withEncryptData(offerEncryption)
                 .build();
         final SMBClient client = new SMBClient(config);
         try {
@@ -126,14 +145,7 @@ final class SmbSessions {
             final Connection connection = client.connect(uri.getHost(), port);
             final Session session = connection.authenticate(credentials(context, uri, name));
             final DiskShare share = (DiskShare) session.connectShare(name);
-            if (mode.isEmpty()) {
-                unsigned(session, uri);
-            } else {
-                Utils.log("smb: " + session.getConnection().getNegotiatedProtocol().getDialect()
-                        + ", mode " + mode + ", encrypted " + session.shouldEncryptData()
-                        + " (key " + (session.getSessionContext().getEncryptionKey() != null) + ")"
-                        + ", " + SmbCrypto.describe());
-            }
+            protect(session, uri, protection);
             CLIENTS.put(key, client);
             SHARES.put(key, share);
             return share;
@@ -146,46 +158,49 @@ final class SmbSessions {
         }
     }
 
-    /**
-     * What a share is opened with, for the measurement of what signing and encryption cost (2b):
-     * {@code setprop debug.syntex.smb sign-bc|sign-platform|encrypt-bc|encrypt-platform}, read on each
-     * new connection. Unset - the ordinary case - is unsigned where the host allows it, as before.
-     */
-    private static String mode() {
-        try {
-            final Process process = new ProcessBuilder("getprop", "debug.syntex.smb").start();
-            try (java.io.BufferedReader in = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(process.getInputStream()))) {
-                final String line = in.readLine();
-                final String mode = line == null ? "" : line.trim();
-                return mode.matches("(sign|encrypt)-(bc|platform)") ? mode : "";
-            }
-        } catch (final IOException e) {
-            return "";
-        }
+    /** The choice in Settings, Browser: {@link #AUTO}, {@link #ENCRYPT} or {@link #UNSIGNED}. */
+    private static String protection(final Context context) {
+        final String value = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+                .getString(PREF_PROTECTION, AUTO);
+        return ENCRYPT.equals(value) || UNSIGNED.equals(value) ? value : AUTO;
     }
 
     /**
-     * No signing where the host does not ask for it. smbj signs every request of a session that has
-     * a key - any sign-in with a password - whether signing is required or not, and the host then
-     * signs its answers, which smbj checks on its one reading thread: an AES-CMAC (SMB 3) or an
-     * HMAC-SHA256 (SMB 2) over every 1 MiB read, in Java. On the Dune that thread took 72-82 % of a
-     * core while a film loaded at 17-30 Mbit/s, the rest of the box half idle (0041). Without a key
-     * the requests go out unsigned, and a host that does not require signing answers unsigned.
-     * Only once the share is connected: SMB 3.1.1 wants its tree connect signed, and the NAS turned
-     * an unsigned one away as access denied.
+     * What a connected session keeps of its protection. smbj signs every request of a session that
+     * has a key - any sign-in with a password - whether signing is required or not, and the host
+     * then signs its answers, which smbj checks on its one reading thread for every 1 MiB read: an
+     * AES-CMAC (SMB 3) or an HMAC-SHA256 (SMB 2). In BouncyCastle's Java that thread took 72-82 % of a
+     * core while a film loaded at 17-30 Mbit/s on the Dune (0041); in the platform's provider a signed
+     * 1080p loaded as fast as an unsigned one, 117 Mbit/s, and a 2160p at 157 against 181 (0051).
+     *
+     * <p>So a signature is dropped only where it would be BouncyCastle's: unsigned asked for, or the
+     * automatic choice on a device without the platform's algorithm for this dialect. Whatever the
+     * host requires stays, and so does an encrypted session, which encryption signs. Dropped only once
+     * the share is connected: SMB 3.1.1 wants its tree connect signed, and the NAS turned an unsigned
+     * one away as access denied.
      */
-    private static void unsigned(final Session session, final Uri uri) {
+    private static void protect(final Session session, final Uri uri, final String protection)
+            throws IOException {
         final com.hierynomus.smbj.session.SessionContext keys = session.getSessionContext();
-        final String dialect = String.valueOf(session.getConnection().getNegotiatedProtocol().getDialect());
-        // An encrypted session is signed by its encryption; nothing here asks for one.
-        if (session.isSigningRequired() || keys.isEncryptData() || keys.getEncryptionKey() != null) {
-            Utils.log("smb: " + dialect + ", signing required by " + uri.getHost());
+        final com.hierynomus.mssmb2.SMB2Dialect dialect =
+                session.getConnection().getNegotiatedProtocol().getDialect();
+        final String line = "smb: " + dialect + ", " + protection + ", " + SmbCrypto.describe() + ": ";
+        if (session.shouldEncryptData()) {
+            Utils.log(line + "encrypted");
+            return;
+        }
+        if (session.isSigningRequired()) {
+            Utils.log(line + "signed, required by " + uri.getHost());
+            return;
+        }
+        final boolean fast = dialect.isSmb3x() ? SmbCrypto.platformCmac() : SmbCrypto.platformHmac();
+        if (ENCRYPT.equals(protection) || AUTO.equals(protection) && fast) {
+            Utils.log(line + "signed" + (fast ? "" : ", in Java: the host would not encrypt"));
             return;
         }
         keys.setSigningKey(null);
         keys.setSessionKey(null);
-        Utils.log("smb: " + dialect + ", unsigned");
+        Utils.log(line + "unsigned");
     }
 
     /**

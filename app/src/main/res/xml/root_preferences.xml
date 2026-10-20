@@ -100,6 +100,15 @@
                 app:summaryOff="@string/pref_ignore_nomedia_off"
                 app:title="@string/pref_ignore_nomedia" />
 
+            <!-- Entries and summary are set in SettingsFragment: each choice carries its hint as a
+                 second line, and the row says what the current one does. -->
+            <ListPreference
+                app:key="smbProtection"
+                app:defaultValue="auto"
+                app:entries="@array/smb_protection_entries"
+                app:entryValues="@array/smb_protection_values"
+                app:title="@string/pref_smb_protection" />
+
         </PreferenceScreen>
 
         <PreferenceScreen
