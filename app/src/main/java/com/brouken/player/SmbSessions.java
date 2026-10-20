@@ -130,7 +130,8 @@ final class SmbSessions {
                 unsigned(session, uri);
             } else {
                 Utils.log("smb: " + session.getConnection().getNegotiatedProtocol().getDialect()
-                        + ", mode " + mode + ", encrypted " + session.getSessionContext().isEncryptData()
+                        + ", mode " + mode + ", encrypted " + session.shouldEncryptData()
+                        + " (key " + (session.getSessionContext().getEncryptionKey() != null) + ")"
                         + ", " + SmbCrypto.describe());
             }
             CLIENTS.put(key, client);
