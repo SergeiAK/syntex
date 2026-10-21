@@ -998,6 +998,9 @@ public class PlayerActivity extends Activity {
     private float secondarySubtitlesScale;
     private boolean isScrubbing;
     private boolean scrubbingNoticeable;
+    /** A bar scrub shown by trickplay frames rather than by seeking the picture (see onScrubStart). */
+    private boolean scrubPreview;
+    private long scrubPreviewLast;
     private long scrubbingStart;
     // Key seek (D-pad arrows, ◀◀/▶▶) accelerates: the longer the key is held — or the faster it is
     // clicked — the bigger the step. A fixed 10s per press cannot get through a feature-length film.
@@ -1781,7 +1784,12 @@ public class PlayerActivity extends Activity {
                 if (player == null) {
                     return;
                 }
-                restorePlayState = player.isPlaying();
+                // With a trickplay set the card shows where the scrub is, so the film need not stop to show it:
+                // it plays on, and the one jump is the stop's. Without one, the live picture is the preview,
+                // and that needs the pause.
+                scrubPreview = trickplay != null;
+                scrubPreviewLast = position;
+                restorePlayState = !scrubPreview && player.isPlaying();
                 if (restorePlayState) {
                     player.pause();
                 }
@@ -1803,6 +1811,10 @@ public class PlayerActivity extends Activity {
             public void onScrubStop(TimeBar timeBar, long position, boolean canceled) {
                 playerView.readout(null, 0);
                 isScrubbing = false;
+                if (scrubPreview) {
+                    scrubPreview = false;
+                    trickplayWanted.set(-1);
+                }
                 // Media3's own scrub listener has already seeked here, under the CLOSEST_SYNC left in
                 // force by onScrubStart — so it landed on a keyframe, which is up to half a keyframe
                 // interval either side of where the finger let go. Land on the number instead. Ours is
@@ -14044,22 +14056,32 @@ public class PlayerActivity extends Activity {
     /** The position the card wants a frame for, or -1; a frame cut for any other is not shown. */
     private final java.util.concurrent.atomic.AtomicLong trickplayWanted =
             new java.util.concurrent.atomic.AtomicLong(-1);
+    /** Numbers the asks, so a frame older than the one on the card is never put over it. */
+    private final java.util.concurrent.atomic.AtomicLong trickplayAsked = new java.util.concurrent.atomic.AtomicLong();
+    private long trickplayShown;
     /** One thread, so the sheets are read one at a time and a held key does not queue up decodes. */
     @Nullable
     private java.util.concurrent.ExecutorService trickplayWorker;
 
     /**
-     * Puts the frame for a seek's target on its card, off the main thread. Only the latest ask is served:
+     * Puts the frame for a seek's target on its card, off the main thread. Only the latest ask is cut —
      * a hold steps faster than a new sheet reads over SMB (240-270 ms), and the frames in between are of
-     * places already left behind. The next sheet the way the seek goes is read after it, so the step
-     * that crosses into it finds it kept.
+     * places already left behind — but a cut frame is shown even if a newer ask came in meanwhile, as long
+     * as nothing newer is on the card: a finger on the bar moves every frame, faster than any cut, and
+     * insisting on the very latest would show nothing until it stopped. The next sheet the way the seek
+     * goes is read after it, so the step that crosses into it finds it kept.
      */
     private void showTrickplayFrame(final long positionMs, final boolean forward) {
         final Trickplay set = trickplay;
         if (set == null) {
             return;
         }
-        trickplayWanted.set(positionMs);
+        // Within one frame of the set nothing changes on the card; a finger crosses a frame in many moves.
+        final long frameAt = positionMs / set.index.intervalMs * set.index.intervalMs;
+        if (trickplayWanted.getAndSet(frameAt) == frameAt) {
+            return;
+        }
+        final long ask = trickplayAsked.incrementAndGet();
         if (trickplayWorker == null) {
             trickplayWorker = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
                 final Thread t = new Thread(r, "trickplay-frames");
@@ -14068,17 +14090,18 @@ public class PlayerActivity extends Activity {
             });
         }
         trickplayWorker.execute(() -> {
-            if (trickplayWanted.get() != positionMs) {
+            if (trickplayAsked.get() != ask) {
                 return;
             }
-            final Bitmap frame = set.frame(positionMs);
+            final Bitmap frame = set.frame(frameAt);
             runOnUiThread(() -> {
-                if (frame != null && trickplayWanted.get() == positionMs && set == trickplay) {
+                if (frame != null && trickplayWanted.get() >= 0 && ask > trickplayShown && set == trickplay) {
+                    trickplayShown = ask;
                     playerView.seekStill(frame);
                 }
             });
-            if (trickplayWanted.get() == positionMs) {
-                set.prefetch(positionMs + (forward ? 1 : -1) * set.index.intervalMs * set.index.perSheet());
+            if (trickplayAsked.get() == ask) {
+                set.prefetch(frameAt + (forward ? 1 : -1) * set.index.intervalMs * set.index.perSheet());
             }
         });
     }
@@ -17379,6 +17402,13 @@ public class PlayerActivity extends Activity {
         if (scrubbingNoticeable && player != null
                 && !playerView.seekReadout(diff, position, player.getDuration())) {
             playerView.seekReadoutCentered(diff, isLiveStream() ? -1 : position);
+        }
+        if (scrubPreview) {
+            if (scrubbingNoticeable) {
+                showTrickplayFrame(position, position >= scrubPreviewLast);
+            }
+            scrubPreviewLast = position;
+            return;
         }
         seekIfLanded(position);
     }

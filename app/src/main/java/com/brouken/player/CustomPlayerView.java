@@ -690,6 +690,11 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
         // Whatever is said now, or the clearing of it, is the end of a seek's card: the seek either finished
         // (its readout is cleared) or something else took the screen's attention.
         seekCard.hide();
+        topLine(text, iconRes, takeTheLine);
+    }
+
+    /** The top line alone, leaving a seek's card as it is. */
+    private void topLine(final CharSequence text, final int iconRes, final boolean takeTheLine) {
         exoErrorMessage.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
         // The bar belongs to the value that raised it; anything else said here replaces that value, so it
         // goes with it. showVolume and showBrightness raise their own again on the next line.
@@ -721,7 +726,8 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
                 || ((CustomDefaultTimeBar) exoProgress).xOf(targetMs, durationMs) < 0) {
             return false;
         }
-        readout(null, 0);
+        // Not readout(null): that ends the card, and with it the frame a preview has on it.
+        topLine(null, 0, true);
         Notice.dismiss();
         seekCard.show((CustomDefaultTimeBar) exoProgress, deltaMs, targetMs, durationMs);
         return true;
@@ -737,7 +743,8 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
         if (!(exoProgress instanceof CustomDefaultTimeBar)) {
             return;
         }
-        readout(null, 0);
+        // Not readout(null): that ends the card, and with it the frame a preview has on it.
+        topLine(null, 0, true);
         Notice.dismiss();
         seekCard.showCentered((CustomDefaultTimeBar) exoProgress, deltaMs, targetMs);
     }
