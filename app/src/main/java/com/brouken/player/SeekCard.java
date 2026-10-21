@@ -20,7 +20,12 @@ import androidx.core.content.ContextCompat;
 
 /**
  * The seek readout, standing on the time bar over the place the seek lands: "+06:06 ▶▶ 43:35 (33%)"
- * forward, mirrored backward — "31:23 (21%) ◀◀ −06:06" — so the arrows point at the target either way.
+ * going forward, the whole line mirrored going back — "(21%) 31:23 ◀◀ −06:06" — so it reads from the
+ * delta outwards to the target either way, and the arrows point the way the seek is moving.
+ *
+ * <p>The way it is moving, not the sign of the delta: the delta is counted from where the film is, so after
+ * an overshoot it stays "+" while the seek comes back towards it. Arrows that kept pointing right there
+ * read as the remote not doing what was pressed.
  *
  * <p>It used to be the top line every passing message shares. The eye is on the bar while seeking, and
  * the bar is up for every remote seek, so the readout moved down to it, onto a pointer that says which
@@ -47,6 +52,9 @@ final class SeekCard extends LinearLayout {
     private final int barGap;
     private float pointerX;
     private boolean anchored;
+    // Which way the seek is moving: from the last target it showed, or for a card just shown, the delta's sign.
+    private boolean back;
+    private long shownTargetMs = -1;
     // What the card was last placed by, so a frame arriving later (and growing the card) can place it again.
     @Nullable private CustomDefaultTimeBar placedBar;
     private long placedTargetMs;
@@ -117,9 +125,9 @@ final class SeekCard extends LinearLayout {
      * @param durationMs the media's length; the percentage needs it, and so does the place on the bar
      */
     void show(final CustomDefaultTimeBar bar, final long deltaMs, final long targetMs, final long durationMs) {
-        final StringBuilder target = new StringBuilder(Utils.formatMilis(targetMs));
-        target.append(" (").append(Math.round(targetMs * 100f / durationMs)).append("%)");
-        setLine(deltaMs, target);
+        final String time = Utils.formatMilis(targetMs);
+        final String share = "(" + Math.round(targetMs * 100f / durationMs) + "%)";
+        setLine(deltaMs, targetMs, back -> back ? share + " " + time : time + " " + share);
         anchored = true;
         bar.setSeekTarget(targetMs, durationMs);
         setShown(true);
@@ -142,7 +150,7 @@ final class SeekCard extends LinearLayout {
      *                 time the viewer has anywhere to put, so only the delta is said
      */
     void showCentered(final CustomDefaultTimeBar bar, final long deltaMs, final long targetMs) {
-        setLine(deltaMs, targetMs >= 0 ? Utils.formatMilis(targetMs) : null);
+        setLine(deltaMs, targetMs, back -> targetMs >= 0 ? Utils.formatMilis(targetMs) : null);
         anchored = false;
         setShown(true);
         place(bar, -1, 0);
@@ -153,10 +161,23 @@ final class SeekCard extends LinearLayout {
         });
     }
 
+    private interface TargetText {
+        @Nullable
+        CharSequence of(boolean back);
+    }
+
     /** Forward reads delta, arrows, target; backward the mirror of it, so the arrows point at the target. */
-    private void setLine(final long deltaMs, final CharSequence target) {
+    private void setLine(final long deltaMs, final long targetMs, final TargetText targetText) {
+        if (getVisibility() == VISIBLE && shownTargetMs >= 0 && targetMs >= 0) {
+            if (targetMs != shownTargetMs) {
+                back = targetMs < shownTargetMs;
+            }
+        } else {
+            back = deltaMs < 0;
+        }
+        shownTargetMs = targetMs;
         final String delta = Utils.formatMilisSign(deltaMs);
-        final boolean back = deltaMs < 0;
+        final CharSequence target = targetText.of(back);
         final CharSequence first = back ? target : delta;
         final CharSequence second = back ? delta : target;
         left.setText(first);
