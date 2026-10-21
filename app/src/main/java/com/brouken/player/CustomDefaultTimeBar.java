@@ -35,6 +35,10 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
      * on black — a line a television viewer can find without looking for it.
      */
     private static final int TRACK_FOCUSED = 0xFF9C9C9E;
+    private boolean seekLook;
+    private long seekTargetMs = -1;
+    private long seekTargetDurationMs;
+    private final Paint seekTargetRing = new Paint(Paint.ANTI_ALIAS_FLAG);
     private boolean scrubbing;
     private int scrubbingStartX;
     private boolean scrubbingNow;
@@ -129,11 +133,55 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         invalidate();
     }
 
+    /**
+     * Where a remote seek is going, as a dot on the bar. Media3 hides its own scrubber while only the
+     * progress is up, and in that window the bar itself stands at the playing position, not at the target —
+     * so without this the card's pointer would be the only thing saying where the seek lands. -1 clears it.
+     */
+    void setSeekTarget(final long targetMs, final long durationMs) {
+        if (seekTargetMs == targetMs && seekTargetDurationMs == durationMs) {
+            return;
+        }
+        seekTargetMs = targetMs;
+        seekTargetDurationMs = durationMs;
+        invalidate();
+    }
+
+    /** The x of a position on the bar, in this view's coordinates; -1 before the first layout. */
+    int xOf(final long positionMs, final long durationMs) {
+        if (progressBar == null || progressBar.width() <= 0 || durationMs <= 0) {
+            return -1;
+        }
+        return progressBar.left + Math.round(progressBar.width() * clamp((float) positionMs / durationMs));
+    }
+
+    /** The top of the drawn bar, in this view's coordinates. */
+    int barTop() {
+        return progressBar != null ? progressBar.top : 0;
+    }
+
+    private void drawSeekTarget(final Canvas canvas) {
+        if (!seekLook || seekTargetMs < 0) {
+            return;
+        }
+        final int x = xOf(seekTargetMs, seekTargetDurationMs);
+        if (x < 0) {
+            return;
+        }
+        final float radius = getResources().getDimensionPixelSize(R.dimen.exo_styled_progress_enabled_thumb_size) / 2f;
+        final float cy = progressBar.exactCenterY();
+        // A hairline of black around it, so a light dot still reads where it lands on the light played part.
+        seekTargetRing.setColor(0xFF000000);
+        canvas.drawCircle(x, cy, radius + Utils.dpToPx(1), seekTargetRing);
+        canvas.drawCircle(x, cy, radius, playheadPaint);
+    }
+
     @Override
     public void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
         if (skipStartsMs == null || skipDurationMs <= 0 || progressBar == null) {
+            drawSeekTarget(canvas);
             return;
         }
         final int barLeft = progressBar.left;
@@ -181,6 +229,7 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         if (playheadCovered && scrubberBar != null) {
             canvas.drawCircle(playheadX, scrubberBar.centerY(), playheadRadius, playheadPaint);
         }
+        drawSeekTarget(canvas);
     }
 
     /** Paints a bar-height band. */
@@ -200,8 +249,7 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         // pixels of the same dark grey, which is nothing at three metres. Lit, the track reads 4.21:1
         // against its own resting tone — the state change is now a colour as well as a size, and the
         // colour is the one a viewer sees from the sofa.
-        setUnplayedColor(gainFocus ? TRACK_FOCUSED
-                : ContextCompat.getColor(getContext(), R.color.timebar_track));
+        applyTrackColor(gainFocus);
         if (barHeightField == null) {
             return;
         }
@@ -222,6 +270,29 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         barHeightAnimator.setInterpolator(new PathInterpolator(0.2f, 0f, 0f, 1f));
         barHeightAnimator.addUpdateListener(animation -> setBarHeight((int) animation.getAnimatedValue()));
         barHeightAnimator.start();
+    }
+
+    /**
+     * The bar is up only to show where a remote seek is going, with the controls hidden. The focus it holds
+     * then is left over from the controls, not something the viewer moved, so the lit track would announce a
+     * state nobody asked about — and under a light accent it took the contrast away from the played part:
+     * on a Shield with the Monochrome accent, #E0E0E0 over the lit #9C9C9E is about 2:1, read from the sofa
+     * as a white bar with no progress on it. The height still follows the focus; only the light goes.
+     */
+    void setSeekLook(final boolean seekLook) {
+        if (this.seekLook == seekLook) {
+            return;
+        }
+        this.seekLook = seekLook;
+        if (!seekLook) {
+            seekTargetMs = -1;
+        }
+        applyTrackColor(isFocused());
+    }
+
+    private void applyTrackColor(final boolean focused) {
+        setUnplayedColor(focused && !seekLook ? TRACK_FOCUSED
+                : ContextCompat.getColor(getContext(), R.color.timebar_track));
     }
 
     private int currentBarHeight() {

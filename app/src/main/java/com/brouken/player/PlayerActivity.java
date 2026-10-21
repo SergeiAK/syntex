@@ -2361,6 +2361,7 @@ public class PlayerActivity extends Activity {
         transferView.setLayoutParams(transferLp);
         transferView.setVisibility(View.GONE);
         coordinatorLayout.addView(transferView);
+        playerView.setOnSeekCardChanged(this::updateTransfer);
 
         // The room itself reads in the pill above; this floats only for the one thing that pill cannot say
         // in time — that the pause was the room's doing and not the viewer's, which has to show while the
@@ -2874,6 +2875,10 @@ public class PlayerActivity extends Activity {
                 final boolean wasVisibleFully = controllerVisibleFully;
                 controllerVisible = visibility == View.VISIBLE;
                 controllerVisibleFully = playerView.isControllerFullyVisible();
+                if (controllerVisibleFully) {
+                    // The controls came up over a seek's bar: from here the focus on it is the viewer's.
+                    playerView.setSeekLook(false);
+                }
 
                 // See controllerChromeVisible. Both animations report their first frame here as "visible but
                 // not fully visible", which on its own says nothing about the direction — what tells them
@@ -4083,18 +4088,14 @@ public class PlayerActivity extends Activity {
     }
 
     private void showKeySeekMessage(long target) {
-        // The offset answers "how far", not "where in the film" — and against a duration that is not on
-        // screen at that moment, an absolute time is a division done in the head. Checked here rather
-        // than at the call site: the live and unknown-duration branch reaches this too, and there is
-        // nothing to divide by there.
+        // The offset answers "how far", not "where in the film" - and against a duration that is not on
+        // screen at that moment, an absolute time is a division done in the head. So the target carries
+        // its share of the film, and the card stands over it on the bar (see SeekCard).
         final long duration = player != null ? player.getDuration() : C.TIME_UNSET;
-        final StringBuilder position = new StringBuilder(Utils.formatMilis(target));
-        if (duration > 0) {
-            position.append(" · ").append(Math.round(target * 100f / duration)).append('%');
-        }
         final long keyDelta = target - playerView.keySeekStart;
-        playerView.readout(Utils.formatMilisSign(keyDelta) + "\n" + position,
-                keyDelta < 0 ? R.drawable.ic_rewind_24dp : R.drawable.ic_fast_forward_24dp);
+        if (!playerView.seekReadout(keyDelta, target, duration)) {
+            playerView.seekReadoutCentered(keyDelta, isLiveStream() ? -1 : target);
+        }
     }
 
     /** Forget a burst in progress: its target, the step it was on, and the commit it has armed. */
@@ -6837,6 +6838,14 @@ public class PlayerActivity extends Activity {
             return;
         }
         // TV stacks the room pill above the line; elsewhere the two share one slot.
+        // Off while a seek's card is up as well: the figures say nothing about where the seek is going,
+        // and over the bar they stand exactly where the card does. At once, not faded: the card appears
+        // at once, and a quarter of a second of the two over each other is what the fade would show.
+        if (playerView.isSeekCardShown()) {
+            transferView.animate().cancel();
+            transferView.setVisibility(View.GONE);
+            return;
+        }
         if (!mPrefs.showTransfer || player == null || !controllerChromeVisible || inPip
                 || (!isTvBox && isVisible(roomPill))) {
             fadeChrome(transferView, false);
@@ -17246,9 +17255,11 @@ public class PlayerActivity extends Activity {
         if (Math.abs(diff) > 1000) {
             scrubbingNoticeable = true;
         }
-        if (scrubbingNoticeable) {
-            playerView.readout(Utils.formatMilisSign(diff),
-                    diff < 0 ? R.drawable.ic_rewind_24dp : R.drawable.ic_fast_forward_24dp);
+        // The same card a remote seek gets, over the scrubber: the target and its share of the film as well
+        // as the delta, which is all the top line used to say here.
+        if (scrubbingNoticeable && player != null
+                && !playerView.seekReadout(diff, position, player.getDuration())) {
+            playerView.seekReadoutCentered(diff, isLiveStream() ? -1 : position);
         }
         seekIfLanded(position);
     }

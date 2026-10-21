@@ -112,7 +112,15 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
     public void showSeekProgress() {
         if (!isControllerFullyVisible()) {
             seekProgress = true;
+            setSeekLook(true);
             showProgress();
+        }
+    }
+
+    /** See CustomDefaultTimeBar.setSeekLook. Off again as soon as the controls are the viewer's. */
+    void setSeekLook(final boolean seekLook) {
+        if (exoProgress instanceof CustomDefaultTimeBar) {
+            ((CustomDefaultTimeBar) exoProgress).setSeekLook(seekLook);
         }
     }
 
@@ -124,6 +132,7 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
     private void hideSeekProgress() {
         if (seekProgress) {
             seekProgress = false;
+            setSeekLook(false);
             if (!isControllerFullyVisible()) {
                 hideControllerImmediately();
             }
@@ -136,6 +145,7 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
     private final TextView exoErrorMessage;
     private final View exoProgress;
     private final LevelBar levelBar;
+    private final SeekCard seekCard;
 
     public CustomPlayerView(Context context) {
         this(context, null);
@@ -154,6 +164,7 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
         exoErrorMessage = findViewById(R.id.exo_error_message);
         exoProgress = findViewById(R.id.exo_progress);
         levelBar = findViewById(R.id.level_bar);
+        seekCard = SeekCard.attach(this);
 
         mScaleDetector = new ScaleGestureDetector(context, this);
     }
@@ -676,6 +687,9 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
      *                    button before anyone could press it.
      */
     void readout(final CharSequence text, final int iconRes, final boolean takeTheLine) {
+        // Whatever is said now, or the clearing of it, is the end of a seek's card: the seek either finished
+        // (its readout is cleared) or something else took the screen's attention.
+        seekCard.hide();
         exoErrorMessage.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
         // The bar belongs to the value that raised it; anything else said here replaces that value, so it
         // goes with it. showVolume and showBrightness raise their own again on the next line.
@@ -693,6 +707,48 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
             }
         }
         setCustomErrorMessage(text);
+    }
+
+    /**
+     * A seek's readout, on the bar over the place it lands (see SeekCard), instead of on the top line. It
+     * takes the top line's place as well, so a message standing there does not outlive the seek under it.
+     *
+     * @return false when there is nothing to stand on — no length to place the target by, or no bar yet —
+     *         so the caller says it on the top line as before.
+     */
+    boolean seekReadout(final long deltaMs, final long targetMs, final long durationMs) {
+        if (durationMs <= 0 || !(exoProgress instanceof CustomDefaultTimeBar)
+                || ((CustomDefaultTimeBar) exoProgress).xOf(targetMs, durationMs) < 0) {
+            return false;
+        }
+        readout(null, 0);
+        Notice.dismiss();
+        seekCard.show((CustomDefaultTimeBar) exoProgress, deltaMs, targetMs, durationMs);
+        return true;
+    }
+
+    /**
+     * The seek readout where there is no length to place it by (see SeekCard.showCentered): over the bar,
+     * in the middle. Not on the top line either — the eye is on the bar during a seek whatever is playing.
+     *
+     * @param targetMs where it lands, or -1 for a broadcast, where only the delta means anything
+     */
+    void seekReadoutCentered(final long deltaMs, final long targetMs) {
+        if (!(exoProgress instanceof CustomDefaultTimeBar)) {
+            return;
+        }
+        readout(null, 0);
+        Notice.dismiss();
+        seekCard.showCentered((CustomDefaultTimeBar) exoProgress, deltaMs, targetMs);
+    }
+
+    boolean isSeekCardShown() {
+        return seekCard.getVisibility() == VISIBLE;
+    }
+
+    /** See SeekCard.setOnShownChanged. */
+    void setOnSeekCardChanged(final Runnable listener) {
+        seekCard.setOnShownChanged(listener);
     }
 
     private void showLevelBar(int value, float max, int gravity) {
