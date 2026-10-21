@@ -220,6 +220,25 @@ final class NetworkThumbs {
     }
 
     /** Whether a frame of this address is taken here. */
+    /**
+     * Reads the files of a browsed place - SMB, WebDAV (as http, with the place's password) or a file on
+     * the device - one at a time, outside the player. The stills here and the trickplay sheets read
+     * through it.
+     */
+    static androidx.media3.datasource.DataSource.Factory sideFiles(final Context context) {
+        final androidx.media3.datasource.DataSource.Factory http =
+                new ResolvingDataSource.Factory(new DefaultHttpDataSource.Factory(), spec -> {
+                    if (!DavFiles.speaks(spec.uri)) {
+                        return spec;
+                    }
+                    final DataSpec asHttp = spec.buildUpon().setUri(DavFiles.http(spec.uri)).build();
+                    final String authorization = NetworkFiles.authorization(context, spec.uri);
+                    return authorization == null ? asHttp : asHttp.withAdditionalHeaders(
+                            Collections.singletonMap("Authorization", authorization));
+                });
+        return new SmbDataSource.Factory(context, http);
+    }
+
     static boolean speaks(@Nullable final Uri uri) {
         return uri != null && (SmbSessions.SCHEME.equals(uri.getScheme()) || DavFiles.speaks(uri));
     }
@@ -596,17 +615,7 @@ final class NetworkThumbs {
 
         Source(final Context context, final Uri uri) {
             this.uri = uri;
-            final androidx.media3.datasource.DataSource.Factory http =
-                    new ResolvingDataSource.Factory(new DefaultHttpDataSource.Factory(), spec -> {
-                        if (!DavFiles.speaks(spec.uri)) {
-                            return spec;
-                        }
-                        final DataSpec asHttp = spec.buildUpon().setUri(DavFiles.http(spec.uri)).build();
-                        final String authorization = NetworkFiles.authorization(context, spec.uri);
-                        return authorization == null ? asHttp : asHttp.withAdditionalHeaders(
-                                Collections.singletonMap("Authorization", authorization));
-                    });
-            source = new SmbDataSource.Factory(context, http).createDataSource();
+            source = sideFiles(context).createDataSource();
         }
 
         final void checkNotAborted() throws IOException {

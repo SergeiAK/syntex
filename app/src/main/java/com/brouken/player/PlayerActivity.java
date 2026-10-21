@@ -13985,6 +13985,49 @@ public class PlayerActivity extends Activity {
                 ? R.string.error_playback_timeout : R.string.error_playback_stalled), null);
     }
 
+    /** The trickplay set beside the file now playing, once it has been found; see Trickplay. */
+    @Nullable
+    private Trickplay trickplay;
+    /** What the lookup in flight is for, so an answer for a file left behind is dropped. */
+    @Nullable
+    private Uri trickplayFor;
+
+    /**
+     * Looks for a set beside the file, off the main thread: one listing of its folder, two of the set's.
+     * Nothing is read from the sheets yet - that waits for a seek that needs a frame.
+     */
+    private void lookForTrickplay(@Nullable final Uri uri, final long durationMs) {
+        releaseTrickplay();
+        if (uri == null || durationMs <= 0 || !Trickplay.speaks(uri)) {
+            return;
+        }
+        trickplayFor = uri;
+        final Context app = getApplicationContext();
+        final Thread worker = new Thread(() -> {
+            final Trickplay found = Trickplay.find(app, uri, durationMs);
+            if (found == null) {
+                return;
+            }
+            runOnUiThread(() -> {
+                if (uri.equals(trickplayFor)) {
+                    trickplay = found;
+                } else {
+                    found.release();
+                }
+            });
+        }, "trickplay");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void releaseTrickplay() {
+        trickplayFor = null;
+        if (trickplay != null) {
+            trickplay.release();
+            trickplay = null;
+        }
+    }
+
     public void releasePlayer() {
         releasePlayer(true);
     }
@@ -13993,6 +14036,7 @@ public class PlayerActivity extends Activity {
         if (player != null) {
             Utils.log("release player" + (save ? ", saving" : ""));
         }
+        releaseTrickplay();
         // The question was about this player's start. Dismissed, not cancelled: cancelling answers it.
         resumeCheck = null;
         if (resumeDialog != null) {
@@ -14696,6 +14740,9 @@ public class PlayerActivity extends Activity {
                     } else {
                         timeBar.setKeyCountIncrement(20);
                     }
+
+                    lookForTrickplay(current != null && current.localConfiguration != null
+                            ? current.localConfiguration.uri : null, duration);
 
                     if (backBufferAppliedMs > 0) {
                         // Said in megabytes as well as seconds, because seconds are not the thing that
