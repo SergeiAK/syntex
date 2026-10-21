@@ -1787,7 +1787,7 @@ public class PlayerActivity extends Activity {
                 // With a trickplay set the card shows where the scrub is, so the film need not stop to show it:
                 // it plays on, and the one jump is the stop's. Without one, the live picture is the preview,
                 // and that needs the pause.
-                scrubPreview = trickplay != null;
+                scrubPreview = trickplay != null && mPrefs.seekPreview;
                 scrubPreviewLast = position;
                 restorePlayState = !scrubPreview && player.isPlaying();
                 if (restorePlayState) {
@@ -3895,7 +3895,7 @@ public class PlayerActivity extends Activity {
             keyScrubTarget = snapped;
         }
         showKeySeekMessage(keyScrubTarget);
-        if (!keyScrubPreview && trickplay != null && (held || step >= KEY_PREVIEW_STEP_MS)) {
+        if (!keyScrubPreview && trickplay != null && mPrefs.seekPreview && (held || step >= KEY_PREVIEW_STEP_MS)) {
             keyScrubPreview = true;
         }
         if (keyScrubPreview) {

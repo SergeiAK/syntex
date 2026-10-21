@@ -181,6 +181,13 @@
                 app:summaryOff="@string/pref_show_transfer_off"
                 app:title="@string/pref_show_transfer" />
 
+            <SwitchPreferenceCompat
+                app:key="seekPreview"
+                app:defaultValue="true"
+                app:summaryOn="@string/pref_seek_preview_on"
+                app:summaryOff="@string/pref_seek_preview_off"
+                app:title="@string/pref_seek_preview" />
+
             <ListPreference
                 app:key="controllerTimeout"
                 app:defaultValue="3500"

@@ -141,6 +141,7 @@ class Prefs {
     // The old side panel's switch was "showStats"; a new key, so a panel left on does not open the card.
     private static final String PREF_KEY_INFO_CARD_OPEN = "infoCardOpen";
     private static final String PREF_KEY_SHOW_TRANSFER = "showTransfer";
+    private static final String PREF_KEY_SEEK_PREVIEW = "seekPreview";
     private static final String PREF_KEY_SYSTEM_VOLUME = "systemVolume";
     private static final String PREF_KEY_TOGETHER_NICK = "togetherNick";
     private static final String PREF_KEY_TOGETHER_PASSWORD = "togetherPassword";
@@ -400,6 +401,8 @@ class Prefs {
     public boolean infoCardOpen = false;
     /** Buffer, network and bitrate on one line above the seek bar. */
     public boolean showTransfer = false;
+    /** Trickplay frames on the seek card, the film playing on under them (see PlayerActivity.keyScrubPreview). */
+    public boolean seekPreview = true;
     public boolean systemVolume = true;
     /** How other people in a watch-together room see this device. Generated once, then editable. */
     public String togetherNick = "";
@@ -591,6 +594,7 @@ class Prefs {
         timeRemaining = mSharedPreferences.getBoolean(PREF_KEY_TIME_REMAINING, timeRemaining);
         infoCardOpen = mSharedPreferences.getBoolean(PREF_KEY_INFO_CARD_OPEN, infoCardOpen);
         showTransfer = mSharedPreferences.getBoolean(PREF_KEY_SHOW_TRANSFER, showTransfer);
+        seekPreview = mSharedPreferences.getBoolean(PREF_KEY_SEEK_PREVIEW, seekPreview);
         // Forced on for TV boxes, where the remote routes volume to the panel or receiver over CEC and
         // only the system stream responds — the setting is hidden there too.
         systemVolume = Utils.isTvBox(mContext) || mSharedPreferences.getBoolean(PREF_KEY_SYSTEM_VOLUME, systemVolume);

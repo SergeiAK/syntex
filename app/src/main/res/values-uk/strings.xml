@@ -363,6 +363,9 @@
     <string name="pref_show_transfer">Рядок передачі</string>
     <string name="pref_show_transfer_on">Буфер, мережа й бітрейт стоять над смугою внизу</string>
     <string name="pref_show_transfer_off">Приховані; вони є в картці статистики (Ще → Статистика)</string>
+    <string name="pref_seek_preview">Прев\'ю під час перемотування</string>
+    <string name="pref_seek_preview_on">Якщо поруч із файлом є кадри trickplay, під час довгого перемотування вони видні над смугою, фільм іде далі, перехід — один наприкінці</string>
+    <string name="pref_seek_preview_off">Кожне перемотування одразу рухає картинку</string>
     <string name="pref_keep_awake_on_pause">Не вимикати екран на паузі</string>
     <string name="pref_keep_awake_on_pause_on">Заставка не вмикається, але не довше двох годин</string>
     <string name="pref_keep_awake_on_pause_off">Заставка пристрою вмикається так само, як завжди</string>
