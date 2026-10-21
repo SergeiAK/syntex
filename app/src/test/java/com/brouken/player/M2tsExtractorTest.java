@@ -26,6 +26,14 @@ import org.junit.Test;
  * {@code truehd.m2ts} — 192·60000 bytes of "H264_TrueHD.m2ts" (H.264, TrueHD 0x83 with its AC-3 core
  * on the same PID); {@code lpcm.m2ts} — 192·20000 bytes of "00019.m2ts" (MPEG-2, two Blu-ray LPCM
  * tracks 0x80). Frame counts are ffmpeg's ({@code -c copy -f framecrc}) on the same heads.
+ *
+ * <p>Blu-ray audio numbers in plain TS and in M2TS: {@code dtshd-ma.ts} — 188·30000 bytes of
+ * "03.split.5.ts" (a disc copied to 188-byte TS: VC-1 0xEA, DTS-HD 0x86, PGS 0x90, "HDMV" in the
+ * program map); {@code plain.ts} — 188·20000 bytes of "bbb_1080p_c.ts" (HEVC, AAC; not a disc). No
+ * library file carries 0x84 or 0x85, so two are made by rewriting the stream type in the program map
+ * (CRC recomputed): {@code eac3-retyped.m2ts} — {@code ac3.m2ts} with 0x81 → 0x84;
+ * {@code dtshd-hra-retyped.ts} — {@code dtshd-ma.ts} with 0x86 → 0x85. They check the numbers are
+ * read, not a real Dolby Digital Plus stream; the dependent frames are checked on bytes below.
  */
 public class M2tsExtractorTest {
 
@@ -109,11 +117,99 @@ public class M2tsExtractorTest {
                 Math.abs(video.firstTimeUs - targetUs) < 500_000);
     }
 
+    /** Blu-ray Dolby Digital Plus, 0x84: read, the AC-3 frames as before. */
+    @Test
+    public void eac3NumberIsRead() throws IOException {
+        final ExtractorHarness.Result result = ExtractorHarness.readSamples(
+                create(), ExtractorHarness.testFile("eac3-retyped.m2ts"), Integer.MAX_VALUE);
+        assertEquals(MimeTypes.AUDIO_AC3, result.mime(C.TRACK_TYPE_AUDIO));
+        assertAbout(51, result.track(C.TRACK_TYPE_AUDIO).samples);
+    }
+
+    /** A disc in 188-byte TS: DTS-HD 0x86 is sound, not an SCTE-35 cue stream. */
+    @Test
+    public void dtsHdInPlainTsOfADisc() throws IOException {
+        for (String name : new String[]{"dtshd-ma.ts", "dtshd-hra-retyped.ts"}) {
+            final ExtractorHarness.Result result = ExtractorHarness.readSamples(
+                    createPlain(), ExtractorHarness.testFile(name), Integer.MAX_VALUE);
+            assertEquals(name, 1, count(result, C.TRACK_TYPE_AUDIO));
+            final ExtractorHarness.Track audio = result.track(C.TRACK_TYPE_AUDIO);
+            assertTrue(name + ": " + audio.format.sampleMimeType,
+                    audio.format.sampleMimeType.startsWith("audio/vnd.dts"));
+            assertEquals(name, 6, audio.format.channelCount);
+            // ffmpeg: 101 DTS frames.
+            assertAbout(101, audio.samples);
+        }
+    }
+
+    /** Without "HDMV" the plain TS extractor reads as the stock one does. */
+    @Test
+    public void plainTsUnchanged() throws IOException {
+        final File file = ExtractorHarness.testFile("plain.ts");
+        final ExtractorHarness.Result ours =
+                ExtractorHarness.readSamples(createPlain(), file, Integer.MAX_VALUE);
+        final ExtractorHarness.Result stock = ExtractorHarness.readSamples(
+                new TsExtractor(new DefaultSubtitleParserFactory()), file, Integer.MAX_VALUE);
+        assertEquals(stock.tracks.size(), ours.tracks.size());
+        for (int type : new int[]{C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO}) {
+            assertEquals(stock.mime(type), ours.mime(type));
+            assertEquals(stock.track(type).samples, ours.track(type).samples);
+        }
+        // ffmpeg: 286 video frames, 507 AAC frames.
+        assertAbout(286, ours.track(C.TRACK_TYPE_VIDEO).samples);
+    }
+
+    /** AC-3 32 kbit/s (128 bytes), then E-AC-3 frames of 64 bytes, dependent or independent. */
+    @Test
+    public void dependentFramesAreDropped() {
+        final byte[] ac3 = frame(128, 0, 0x00, 8 << 3);
+        final byte[] dependent = frame(64, 0x40 | 0, 31, 16 << 3);
+        final byte[] independent = frame(64, 0x00 | 0, 31, 16 << 3);
+        final byte[] data = concat(ac3, dependent, ac3, dependent, independent, new byte[]{1, 2, 3});
+        final int kept = M2tsExtractor.Ac3CoreReader.dropDependentFrames(data, data.length);
+        final byte[] expected = concat(ac3, ac3, independent, new byte[]{1, 2, 3});
+        assertEquals(expected.length, kept);
+        for (int i = 0; i < kept; i++) {
+            assertEquals("byte " + i, expected[i], data[i]);
+        }
+    }
+
+    private static byte[] frame(int size, int byte2, int byte3, int byte5) {
+        final byte[] f = new byte[size];
+        f[0] = 0x0B;
+        f[1] = 0x77;
+        f[2] = (byte) byte2;
+        f[3] = (byte) byte3;
+        f[4] = 0x00; // AC-3: fscod 48 kHz, frmsizecod 0 = 32 kbit/s = 64 words
+        f[5] = (byte) byte5;
+        for (int i = 6; i < size; i++) f[i] = (byte) (size + i);
+        return f;
+    }
+
+    private static byte[] concat(byte[]... parts) {
+        int n = 0;
+        for (byte[] p : parts) n += p.length;
+        final byte[] all = new byte[n];
+        int at = 0;
+        for (byte[] p : parts) {
+            System.arraycopy(p, 0, all, at, p.length);
+            at += p.length;
+        }
+        return all;
+    }
+
     private static M2tsExtractor create() {
         final ExtractorsFactory none = () -> new Extractor[0];
         return new M2tsExtractor.Factory(none, new DefaultSubtitleParserFactory(),
                 DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS,
                 1500 * TsExtractor.TS_PACKET_SIZE).create();
+    }
+
+    private static Extractor createPlain() {
+        final ExtractorsFactory none = () -> new Extractor[0];
+        return new M2tsExtractor.Factory(none, new DefaultSubtitleParserFactory(),
+                DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS,
+                1500 * TsExtractor.TS_PACKET_SIZE).createPlain();
     }
 
     private static int count(ExtractorHarness.Result result, int type) {

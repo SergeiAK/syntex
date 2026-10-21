@@ -8,10 +8,12 @@ import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.TimestampAdjuster;
+import androidx.media3.extractor.Ac3Util;
 import androidx.media3.extractor.Extractor;
 import androidx.media3.extractor.ExtractorInput;
 import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.ExtractorsFactory;
+import androidx.media3.extractor.ForwardingExtractorInput;
 import androidx.media3.extractor.ForwardingExtractorOutput;
 import androidx.media3.extractor.ForwardingExtractorsFactory;
 import androidx.media3.extractor.ForwardingSeekMap;
@@ -51,6 +53,18 @@ import java.util.Map;
  * therefore gets the AC-3 reader behind a filter that passes only the PES packets that begin with an
  * AC-3 sync word — sound in 5.1 rather than none. Blu-ray LPCM (0x80) is left out: Media3 has no
  * reader for it either, and takes the number for a video stream.
+ *
+ * <p>The disc's other audio numbers are its own too, and Media3 knows none of them: Dolby Digital Plus
+ * 0x84 and DTS-HD 0x85 (High Resolution) / 0x86 (Master Audio; to Media3 an SCTE-35 cue stream) — the
+ * tracks were dropped. DTS-HD goes to the stock DTS reader, which takes the core and its extension
+ * substream. Dolby Digital Plus on a disc is an AC-3 frame for 5.1 followed by an E-AC-3 dependent
+ * frame with the channels past it; fed both, the AC-3 reader would switch format at every frame, so
+ * the dependent frames are dropped and the track plays in 5.1.
+ *
+ * <p>A disc copied to a plain {@code .ts} keeps these numbers with 188-byte packets, where the stock
+ * extractor reads it. {@link Factory} gives that one the same readers, switched on only once the
+ * file shows itself a disc: the Blu-ray registration descriptor ("HDMV") in its program map. In a
+ * broadcast stream 0x80 and 0x86 mean what Media3 takes them for.
  */
 final class M2tsExtractor implements Extractor {
 
@@ -61,6 +75,11 @@ final class M2tsExtractor implements Extractor {
     private static final int TS_STREAM_TYPE_HDMV_TRUEHD = 0x83;
     /** Blu-ray LPCM; Media3 takes 0x80 for DigiCipher II video. */
     private static final int TS_STREAM_TYPE_HDMV_LPCM = 0x80;
+    private static final int TS_STREAM_TYPE_HDMV_EAC3 = 0x84;
+    private static final int TS_STREAM_TYPE_HDMV_DTS_HD = 0x85;
+    private static final int TS_STREAM_TYPE_HDMV_DTS_HD_MA = 0x86;
+    /** Registration descriptor, tag 5, length 4, "HDMV": a Blu-ray program map has it. */
+    private static final byte[] HDMV_REGISTRATION = {0x05, 0x04, 'H', 'D', 'M', 'V'};
     /**
      * The least window, in 188-byte packets, searched for a PCR at either end of the file and at every
      * step of a seek. Blu-ray allows 100 ms between PCRs and carries them on a PID of their own; at
@@ -314,13 +333,16 @@ final class M2tsExtractor implements Extractor {
         }
     }
 
-    /** The stock readers, plus the AC-3 core of a Blu-ray TrueHD stream. */
+    /** The stock readers, plus those for the Blu-ray stream types while {@link #bluray} is set. */
     private static final class PayloadReaders implements TsPayloadReader.Factory {
 
         private final DefaultTsPayloadReaderFactory stock;
+        /** Set before the program map is read: always for M2TS, for plain TS by {@link HdmvWatch}. */
+        boolean bluray;
 
-        PayloadReaders(DefaultTsPayloadReaderFactory stock) {
+        PayloadReaders(DefaultTsPayloadReaderFactory stock, boolean bluray) {
             this.stock = stock;
+            this.bluray = bluray;
         }
 
         @Override
@@ -331,24 +353,33 @@ final class M2tsExtractor implements Extractor {
         @Nullable
         @Override
         public TsPayloadReader createPayloadReader(int streamType, TsPayloadReader.EsInfo esInfo) {
+            if (!bluray) {
+                return stock.createPayloadReader(streamType, esInfo);
+            }
             if (streamType == TS_STREAM_TYPE_HDMV_LPCM) {
                 // Read as DigiCipher II H.262 the stream never yields a format, and the player, waiting
                 // for every track to have one, loaded the whole file first - 50 s for "00019.m2ts"
                 // (measured on Dune, 0041). No reader: the track is left out, the picture plays silent.
                 return null;
             }
-            if (streamType == TS_STREAM_TYPE_HDMV_TRUEHD) {
+            if (streamType == TS_STREAM_TYPE_HDMV_TRUEHD || streamType == TS_STREAM_TYPE_HDMV_EAC3) {
                 return new PesReader(new Ac3CoreReader(
                         new Ac3Reader(esInfo.language, esInfo.getRoleFlags(), MimeTypes.VIDEO_MP2T)));
+            }
+            if (streamType == TS_STREAM_TYPE_HDMV_DTS_HD
+                    || streamType == TS_STREAM_TYPE_HDMV_DTS_HD_MA) {
+                return stock.createPayloadReader(TsExtractor.TS_STREAM_TYPE_DTS_HD, esInfo);
             }
             return stock.createPayloadReader(streamType, esInfo);
         }
     }
 
     /**
-     * Collects each PES packet whole and hands it on only if it starts with an AC-3 sync word. The
-     * TrueHD access units on the same PID never reach the AC-3 reader, which would otherwise take any
-     * {@code 0B 77} inside them for a frame.
+     * Collects each PES packet whole and hands on, from those that start with an AC-3 sync word, every
+     * frame but the E-AC-3 dependent ones. The TrueHD access units on the same PID never reach the
+     * AC-3 reader, which would otherwise take any {@code 0B 77} inside them for a frame; a Dolby
+     * Digital Plus track loses the dependent frame after each AC-3 one, and with it the channels past
+     * 5.1.
      */
     static final class Ac3CoreReader implements ElementaryStreamReader {
 
@@ -402,9 +433,10 @@ final class M2tsExtractor implements Extractor {
             if (!started) return;
             started = false;
             if (size >= 2 && packet[0] == 0x0B && packet[1] == 0x77) {
+                final int kept = dropDependentFrames(packet, size);
                 ac3.packetStarted(timeUs, flags);
                 try {
-                    ac3.consume(new ParsableByteArray(packet, size));
+                    ac3.consume(new ParsableByteArray(packet, kept));
                 } catch (androidx.media3.common.ParserException e) {
                     // Ac3Reader declares it, never throws it; a broken frame is skipped like a lost one.
                     Utils.log("m2ts: AC-3 core frame skipped, " + e);
@@ -414,6 +446,29 @@ final class M2tsExtractor implements Extractor {
             size = 0;
         }
 
+        /**
+         * Moves the frames to keep to the front of {@code data}, in order, and returns their length.
+         * Frames are walked from the start by their own sizes; past the last whole frame, or at bytes
+         * that are not one, the rest is kept as it is — the AC-3 reader resyncs on its own.
+         */
+        static int dropDependentFrames(byte[] data, int size) {
+            int read = 0;
+            int write = 0;
+            while (size - read >= 6 && data[read] == 0x0B && data[read + 1] == 0x77) {
+                final int frame = Ac3Util.parseAc3SyncframeSize(Arrays.copyOfRange(data, read, read + 6));
+                if (frame <= 0 || frame > size - read) break;
+                final boolean eac3 = ((data[read + 5] & 0xF8) >> 3) > 10;
+                final boolean dependent = eac3 && ((data[read + 2] & 0xC0) >> 6) == 1;
+                if (!dependent) {
+                    System.arraycopy(data, read, data, write, frame);
+                    write += frame;
+                }
+                read += frame;
+            }
+            System.arraycopy(data, read, data, write, size - read);
+            return write + size - read;
+        }
+
         @Override
         public void endOfInputReached() {
             packetFinished();
@@ -421,24 +476,127 @@ final class M2tsExtractor implements Extractor {
         }
     }
 
-    /** Adds the M2TS extractor after the stock ones; a stock extractor refuses these files anyway. */
+    /**
+     * A stock TS extractor whose readers learn the stream is a Blu-ray one from the program map's
+     * registration descriptor. {@link TsExtractor} reads the input in chunks before it parses the
+     * packets in them, so a scan of each chunk as it comes in sets {@link PayloadReaders#bluray} before
+     * the map it carries is read.
+     */
+    static final class PlainTs implements Extractor {
+
+        private final TsExtractor ts;
+        private final PayloadReaders readers;
+        @Nullable
+        private ExtractorInput lastInput;
+        @Nullable
+        private HdmvWatch watch;
+
+        PlainTs(TsExtractor ts, PayloadReaders readers) {
+            this.ts = ts;
+            this.readers = readers;
+        }
+
+        @Override
+        public boolean sniff(ExtractorInput input) throws IOException {
+            return ts.sniff(input);
+        }
+
+        @Override
+        public void init(ExtractorOutput output) {
+            ts.init(output);
+        }
+
+        @Override
+        public int read(ExtractorInput input, PositionHolder seekPosition) throws IOException {
+            if (readers.bluray) {
+                return ts.read(input, seekPosition);
+            }
+            if (input != lastInput) {
+                lastInput = input;
+                watch = new HdmvWatch(input, readers);
+            }
+            return ts.read(watch, seekPosition);
+        }
+
+        @Override
+        public void seek(long position, long timeUs) {
+            ts.seek(position, timeUs);
+        }
+
+        @Override
+        public void release() {
+            ts.release();
+        }
+    }
+
+    /** Passes reads through, looking in what they bring for {@link #HDMV_REGISTRATION}. */
+    private static final class HdmvWatch extends ForwardingExtractorInput {
+
+        private final PayloadReaders readers;
+        /** The last bytes of the previous read, for a descriptor cut in two. */
+        private final byte[] tail = new byte[HDMV_REGISTRATION.length - 1];
+        private int tailSize;
+
+        HdmvWatch(ExtractorInput input, PayloadReaders readers) {
+            super(input);
+            this.readers = readers;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            final int n = super.read(buffer, offset, length);
+            if (n > 0 && !readers.bluray) look(buffer, offset, n);
+            return n;
+        }
+
+        private void look(byte[] buffer, int offset, int n) {
+            final byte[] joined = new byte[tailSize + n];
+            System.arraycopy(tail, 0, joined, 0, tailSize);
+            System.arraycopy(buffer, offset, joined, tailSize, n);
+            if (indexOf(joined, HDMV_REGISTRATION) >= 0) {
+                readers.bluray = true;
+                Utils.log("ts: Blu-ray program map (HDMV), disc stream types on");
+                return;
+            }
+            tailSize = Math.min(tail.length, joined.length);
+            System.arraycopy(joined, joined.length - tailSize, tail, 0, tailSize);
+        }
+
+        static int indexOf(byte[] data, byte[] pattern) {
+            outer:
+            for (int i = 0; i + pattern.length <= data.length; i++) {
+                for (int j = 0; j < pattern.length; j++) {
+                    if (data[i + j] != pattern[j]) continue outer;
+                }
+                return i;
+            }
+            return -1;
+        }
+    }
+
+    /**
+     * Adds the M2TS extractor after the stock ones, and gives the stock TS extractor the Blu-ray
+     * readers ({@link PlainTs}); a stock extractor refuses M2TS files anyway.
+     */
     static final class Factory extends ForwardingExtractorsFactory {
 
         private final SubtitleParser.Factory subtitleParserFactory;
         private final int payloadReaderFlags;
+        private final int stockTimestampSearchBytes;
         private final int timestampSearchBytes;
 
         /**
          * @param payloadReaderFlags   the {@link DefaultTsPayloadReaderFactory} flags the stock TS
          *                             extractor is given;
          * @param timestampSearchBytes the stock one's, counted in 188-byte packets like it; raised to
-         *                             {@link #MIN_TIMESTAMP_SEARCH_PACKETS} if smaller.
+         *                             {@link #MIN_TIMESTAMP_SEARCH_PACKETS} if smaller for M2TS.
          */
         Factory(ExtractorsFactory delegate, SubtitleParser.Factory subtitleParserFactory,
                 int payloadReaderFlags, int timestampSearchBytes) {
             super(delegate);
             this.subtitleParserFactory = subtitleParserFactory;
             this.payloadReaderFlags = payloadReaderFlags;
+            this.stockTimestampSearchBytes = timestampSearchBytes;
             this.timestampSearchBytes =
                     Math.max(timestampSearchBytes, MIN_TIMESTAMP_SEARCH_PACKETS * TS_PACKET);
         }
@@ -455,8 +613,27 @@ final class M2tsExtractor implements Extractor {
 
         private Extractor[] append(Extractor[] extractors) {
             final Extractor[] all = Arrays.copyOf(extractors, extractors.length + 1);
+            for (int i = 0; i < extractors.length; i++) {
+                if (all[i] instanceof TsExtractor) all[i] = createPlain();
+            }
             all[extractors.length] = create();
             return all;
+        }
+
+        /**
+         * Built as {@code DefaultExtractorsFactory} builds its TS extractor for the app (single
+         * program map, subtitles transcoded, no closed-caption formats), with the Blu-ray readers.
+         */
+        PlainTs createPlain() {
+            final PayloadReaders readers = new PayloadReaders(
+                    new DefaultTsPayloadReaderFactory(payloadReaderFlags), /* bluray= */ false);
+            return new PlainTs(new TsExtractor(
+                    TsExtractor.MODE_SINGLE_PMT,
+                    /* extractorFlags= */ 0,
+                    subtitleParserFactory,
+                    new TimestampAdjuster(0),
+                    readers,
+                    stockTimestampSearchBytes), readers);
         }
 
         M2tsExtractor create() {
@@ -465,7 +642,8 @@ final class M2tsExtractor implements Extractor {
                     /* extractorFlags= */ 0,
                     subtitleParserFactory,
                     new TimestampAdjuster(0),
-                    new PayloadReaders(new DefaultTsPayloadReaderFactory(payloadReaderFlags)),
+                    new PayloadReaders(new DefaultTsPayloadReaderFactory(payloadReaderFlags),
+                            /* bluray= */ true),
                     timestampSearchBytes));
         }
     }
