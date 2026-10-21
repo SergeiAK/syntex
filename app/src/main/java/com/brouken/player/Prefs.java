@@ -401,7 +401,7 @@ class Prefs {
     public boolean infoCardOpen = false;
     /** Buffer, network and bitrate on one line above the seek bar. */
     public boolean showTransfer = false;
-    /** Trickplay frames on the seek card, the film playing on under them (see PlayerActivity.keyScrubPreview). */
+    /** Long seeks aimed on the card - by trickplay frames where there are some - the film playing on (see PlayerActivity.keyScrubPreview). */
     public boolean seekPreview = true;
     public boolean systemVolume = true;
     /** How other people in a watch-together room see this device. Generated once, then editable. */

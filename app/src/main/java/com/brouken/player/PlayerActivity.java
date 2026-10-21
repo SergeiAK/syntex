@@ -1020,11 +1020,14 @@ public class PlayerActivity extends Activity {
     // A source that stops delivering frames must not freeze a held key: past this, step anyway.
     private static final long KEY_HOLD_STEP_CEILING_MS = 600;
     private final Runnable keyScrubCommit = this::commitKeyScrub;
-    // From a 30 s step, or a held key, a file with a trickplay set beside it is sought in by its frames: the
-    // card shows where the seek would land, the film plays on as it was, and the one jump is the commit's.
-    // Short steps keep the live picture: it catches up in 0.13-0.3 s, and a frame every 10 s would lie about
-    // a 3 s step. Once on, it stays on to the end of the burst, so the picture does not start jumping again
-    // when a reversal drops the ladder back to 3 s.
+    // From a 30 s step, or a held key, the seek is aimed on the card: it shows where the seek would land,
+    // with the trickplay frame where the file has a set beside it, the film plays on as it was, and the one
+    // jump is the commit's. Without a set the card carries only the time: a live picture cannot keep up with
+    // such steps - measured on Dune over SMB, a burst of twelve presses to +2:44 changed the 1080p picture
+    // two or three times under a spinner and started moving 2.4 s after the last press, and a 4K 120 Mbit/s
+    // file never left the spinner at all. Short steps keep the live picture: it catches up in 0.13-0.3 s, and
+    // a frame every 10 s would lie about a 3 s step. Once on, it stays on to the end of the burst, so the
+    // picture does not start jumping again when a reversal drops the ladder back to 3 s.
     private boolean keyScrubPreview;
     private static final long KEY_PREVIEW_STEP_MS = 30_000;
     // A passthrough AudioTrack that has been paused and resumed comes back silent on a fair number of TVs
@@ -3895,7 +3898,7 @@ public class PlayerActivity extends Activity {
             keyScrubTarget = snapped;
         }
         showKeySeekMessage(keyScrubTarget);
-        if (!keyScrubPreview && trickplay != null && mPrefs.seekPreview && (held || step >= KEY_PREVIEW_STEP_MS)) {
+        if (!keyScrubPreview && mPrefs.seekPreview && (held || step >= KEY_PREVIEW_STEP_MS)) {
             keyScrubPreview = true;
         }
         if (keyScrubPreview) {
