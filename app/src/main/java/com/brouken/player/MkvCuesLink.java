@@ -5,11 +5,16 @@ import android.net.Uri;
 import androidx.media3.common.C;
 import androidx.media3.common.ParserException;
 import androidx.media3.extractor.Extractor;
+import androidx.annotation.Nullable;
 import androidx.media3.extractor.ExtractorInput;
+import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.ExtractorsFactory;
 import androidx.media3.extractor.ForwardingExtractor;
+import androidx.media3.extractor.ForwardingExtractorOutput;
 import androidx.media3.extractor.ForwardingExtractorsFactory;
 import androidx.media3.extractor.PositionHolder;
+import androidx.media3.extractor.SeekMap;
+import androidx.media3.extractor.SeekPoint;
 import androidx.media3.extractor.mkv.MatroskaExtractor;
 
 import java.io.ByteArrayInputStream;
@@ -66,6 +71,16 @@ import java.util.Map;
  * stock reader resyncs only on an ID longer than four bytes. Here a malformed read once samples are
  * flowing skips to the next Cluster and plays on from it; see {@link #resync}. Just+ 2.4.2 does the same
  * inside its copy of the EBML reader.
+ *
+ * <p>Third job: a file with no Cues at all — no index anywhere, only Clusters — seeks too, the way ffmpeg
+ * and Kodi seek one. The {@code Unseekable} verdict is swapped for a map that guesses a byte offset from
+ * the average bitrate, and the guess is then narrowed by the Clusters themselves: each one opens with its
+ * own timestamp, so a few short peeks — find the next Cluster, read its time, interpolate again —
+ * bracket the target and the read resumes from the last Cluster at or before it. Measured on Ducks Take
+ * Off 1080p (CtrlHD, 21.10.2026): no SeekHead, no Cues, Segment of unknown size, a Cluster every
+ * ~1.5 MB. See {@link #search}. What it cannot do is find a keyframe: playback resumes at a Cluster, and
+ * the picture waits for the next keyframe after it, so a file with an eight-second GOP shows its picture
+ * up to eight seconds late (Ducks has two keyframes in 16 seconds).
  */
 final class MkvCuesLink extends ForwardingExtractor {
 
@@ -76,6 +91,20 @@ final class MkvCuesLink extends ForwardingExtractor {
     private static final int ID_SEEK_ID = 0x53AB;
     private static final int ID_SEEK_POSITION = 0x53AC;
     private static final int ID_CUES = 0x1C53BB6B;
+    private static final int ID_CLUSTER = 0x1F43B675;
+    private static final int ID_TIMECODE = 0xE7;
+    private static final int ID_CRC32 = 0xBF;
+
+    /**
+     * How far a search reads looking for the next Cluster before deciding the one it is inside is too
+     * big to step past. A mkvmerge Cluster holds up to five seconds: 1.5 MB at Ducks' 110 Mbit/s, ~60 at
+     * a 100 Mbit/s remux with long clusters — which is then bracketed from below rather than walked.
+     */
+    private static final long SEARCH_SCAN_BYTES = 8L * 1024 * 1024;
+    /** Close enough: the search stops at a Cluster at most this far before the target. */
+    private static final long SEARCH_CLOSE_US = 1_000_000;
+    /** Each step is a reopen of the stream at a new offset; past this many the best so far will do. */
+    private static final int SEARCH_MAX_STEPS = 10;
 
     /** How much a resync looks at per peek: Just+'s figure, and a few round trips per torrent piece. */
     private static final int RESYNC_WINDOW_BYTES = 64 * 1024;
@@ -89,7 +118,12 @@ final class MkvCuesLink extends ForwardingExtractor {
     private static final int PEEK_BYTES = 16 * 1024;
 
     /** Where the {@code Cues} position lands. Null if a Media3 release moved it — see the class doc. */
-    private static final Field CUES_CONTENT_POSITION = cuesContentPositionField();
+    private static final Field CUES_CONTENT_POSITION = matroskaField("cuesContentPosition");
+    /**
+     * Nanoseconds per Cluster timestamp tick, from Info. Read, not written; a Media3 release without it
+     * leaves the search on Matroska's default of a millisecond, which is what nearly every file uses.
+     */
+    private static final Field TIMECODE_SCALE = matroskaField("timecodeScale");
 
     private static final int STATE_READ_HEAD = 0;
     private static final int STATE_READ_CHAINED_SEEK_HEAD = 1;
@@ -107,9 +141,98 @@ final class MkvCuesLink extends ForwardingExtractor {
      */
     private boolean sampling;
 
+    /** The input of the read in progress — what the seek map callback, which gets none, measures. */
+    @Nullable private ExtractorInput currentInput;
+    /** Set once this file has got the estimating map instead of {@code Unseekable}. */
+    private boolean estimating;
+    /** Where the first Cluster's content starts: the estimate's zero. */
+    private long dataStart;
+    private long dataLength;
+    private long durationUs;
+
+    // The search in progress (see #search): a Cluster known at or before the target, one known after it.
+    private boolean searching;
+    private long targetUs;
+    private long loPosition;
+    private long loUs;
+    private long hiPosition;
+    private long hiUs;
+    private int steps;
+
     private MkvCuesLink(Extractor delegate, MatroskaExtractor matroska) {
         super(delegate);
         this.matroska = matroska;
+    }
+
+    @Override
+    public void init(ExtractorOutput output) {
+        super.init(new ForwardingExtractorOutput(output) {
+            @Override
+            public void seekMap(SeekMap seekMap) {
+                super.seekMap(estimate(seekMap));
+            }
+        });
+    }
+
+    /**
+     * Matroska's verdict, or the estimating map in place of an {@code Unseekable} one. Only that one:
+     * a map built from Cues is better than any guess. Needs what a guess is made of — the file's
+     * length and duration — and is called while the reader stands at the first Cluster's content.
+     */
+    private SeekMap estimate(SeekMap seekMap) {
+        final ExtractorInput input = currentInput;
+        if (seekMap.isSeekable() || input == null || input.getLength() == C.LENGTH_UNSET
+                || seekMap.getDurationUs() == C.TIME_UNSET || seekMap.getDurationUs() <= 0) {
+            return seekMap;
+        }
+        // The content of the first Cluster, less its header: at most a four-byte ID and an eight-byte
+        // size. The search finds the exact start from there.
+        dataStart = Math.max(0, input.getPosition() - 12);
+        dataLength = input.getLength();
+        durationUs = seekMap.getDurationUs();
+        estimating = true;
+        Utils.log("mkv no index: seeking by estimate, " + dataLength + " B, " + durationUs + " us");
+        return new SeekMap() {
+            @Override
+            public boolean isSeekable() {
+                return true;
+            }
+
+            @Override
+            public long getDurationUs() {
+                return durationUs;
+            }
+
+            @Override
+            public SeekPoints getSeekPoints(long timeUs) {
+                // Early for the same reason as the search's own guesses; see search().
+                return new SeekPoints(new SeekPoint(timeUs, guess(timeUs - SEARCH_CLOSE_US / 2,
+                        dataStart, 0, dataLength, durationUs)));
+            }
+        };
+    }
+
+    /** The offset where {@code timeUs} would be if the bitrate between the two known points were even. */
+    private static long guess(long timeUs, long fromPosition, long fromUs, long toPosition, long toUs) {
+        if (timeUs <= fromUs || toUs <= fromUs) {
+            return fromPosition;
+        }
+        final double share = Math.min(1, (double) (timeUs - fromUs) / (toUs - fromUs));
+        return fromPosition + (long) (share * (toPosition - fromPosition));
+    }
+
+    @Override
+    public void seek(long position, long timeUs) {
+        super.seek(position, timeUs);
+        searching = estimating;
+        if (searching) {
+            targetUs = timeUs;
+            loPosition = dataStart;
+            loUs = 0;
+            hiPosition = dataLength;
+            hiUs = durationUs;
+            steps = 0;
+        }
     }
 
     /**
@@ -159,7 +282,14 @@ final class MkvCuesLink extends ForwardingExtractor {
             default:
                 break;
         }
+        if (searching) {
+            final int searched = search(input, seekPosition);
+            if (searched != RESULT_CONTINUE) {
+                return searched;
+            }
+        }
         final int result;
+        currentInput = input;
         try {
             result = super.read(input, seekPosition);
         } catch (IllegalStateException | ParserException e) {
@@ -167,6 +297,8 @@ final class MkvCuesLink extends ForwardingExtractor {
                 throw e;
             }
             return resync(input, e);
+        } finally {
+            currentInput = null;
         }
         // Matroska returns CONTINUE only with a sample out (its read loops until one is).
         if (result == RESULT_CONTINUE) {
@@ -215,6 +347,175 @@ final class MkvCuesLink extends ForwardingExtractor {
             // Searched; drop it all but the last three bytes, so an ID across the seam is still seen.
             input.skipFully(filled - 3);
         }
+    }
+
+    /**
+     * One step of the search for {@link #targetUs}, from wherever the input stands: the next Cluster
+     * after it, by its timestamp, narrows the bracket. Returns {@code RESULT_SEEK} to try a new offset,
+     * or {@code RESULT_CONTINUE} once the input stands on the Cluster to play from and the extractor
+     * has been reset onto it. A file that stops making sense mid-search plays from the best Cluster
+     * found so far — at worst its first one — rather than failing.
+     */
+    private int search(ExtractorInput input, PositionHolder seekPosition) throws IOException {
+        final long from = input.getPosition();
+        if (from == loPosition && steps > 0) {
+            // Back on the Cluster the search settled on; see the end of this method. Found again
+            // rather than trusted: the lower bound starts out as the estimate's zero, a few bytes
+            // before the first Cluster, and stays there when nothing earlier than the target turned up.
+            final long[] cluster = nextCluster(input);
+            if (cluster != null) {
+                input.skipFully((int) (cluster[0] - input.getPosition()));
+            }
+            return land(input, input.getPosition());
+        }
+        steps++;
+        final long[] cluster = nextCluster(input);
+        if (cluster == null) {
+            // No Cluster starts in what was scanned: the one around `from` began before it.
+            hiPosition = Math.min(hiPosition, from);
+        } else if (cluster[1] <= targetUs) {
+            if (cluster[0] >= loPosition) {
+                loPosition = cluster[0];
+                loUs = cluster[1];
+            }
+        } else if (cluster[0] < hiPosition) {
+            hiPosition = cluster[0];
+            hiUs = cluster[1];
+        } else {
+            // Past the upper bound already known: nothing starts between `from` and it.
+            hiPosition = Math.min(hiPosition, from);
+        }
+        final boolean close = targetUs - loUs <= SEARCH_CLOSE_US;
+        // Aimed half the tolerance early: aimed at the target itself, a guess lands just past it as
+        // often as just before, and a bracket closed only from above creeps down a Cluster per step.
+        final long next = guess(targetUs - SEARCH_CLOSE_US / 2, loPosition, loUs, hiPosition, hiUs);
+        if (close || steps >= SEARCH_MAX_STEPS || hiPosition - loPosition <= RESYNC_WINDOW_BYTES
+                || next <= loPosition) {
+            Utils.log("mkv no index: " + targetUs + " us -> Cluster at " + loPosition + " (" + loUs
+                    + " us), " + steps + " steps");
+            if (cluster != null && cluster[0] == loPosition) {
+                input.skipFully((int) (loPosition - input.getPosition()));
+                return land(input, loPosition);
+            }
+            seekPosition.position = loPosition;
+            return RESULT_SEEK;
+        }
+        seekPosition.position = next;
+        return RESULT_SEEK;
+    }
+
+    /** Ends the search on the Cluster the input now stands on. */
+    private int land(ExtractorInput input, long position) {
+        searching = false;
+        super.seek(position, C.TIME_UNSET);
+        return RESULT_CONTINUE;
+    }
+
+    /**
+     * The first Cluster at or after the input's position, as {@code {position, timeUs}}, or null if
+     * none starts within {@link #SEARCH_SCAN_BYTES}. The input is left somewhere at or before the
+     * Cluster found: the bytes before it are read and dropped. A Cluster is an exact four-byte ID followed by a size and a Timecode — an ID
+     * alone turns up by chance in compressed video every few megabytes, the Timecode right behind it
+     * does not.
+     */
+    @Nullable
+    private long[] nextCluster(ExtractorInput input) throws IOException {
+        final byte[] window = new byte[RESYNC_WINDOW_BYTES];
+        // Room behind a candidate for its size, a CRC-32 and the Timecode, all in the same window.
+        final int tail = 4 + 8 + 6 + 1 + 8 + 8;
+        final long start = input.getPosition();
+        input.resetPeekPosition();
+        try {
+            while (input.getPosition() - start < SEARCH_SCAN_BYTES) {
+                int filled = 0;
+                while (filled < window.length) {
+                    final int count = input.peek(window, filled, window.length - filled);
+                    if (count == C.RESULT_END_OF_INPUT) {
+                        break;
+                    }
+                    filled += count;
+                }
+                final boolean last = filled < window.length;
+                final int end = last ? filled : filled - tail;
+                for (int i = 0; i + 4 <= end; i++) {
+                    if ((window[i] & 0xFF) == 0x1F && (window[i + 1] & 0xFF) == 0x43
+                            && (window[i + 2] & 0xFF) == 0xB6 && (window[i + 3] & 0xFF) == 0x75) {
+                        final long ticks = clusterTimecode(window, i + 4, filled);
+                        if (ticks >= 0) {
+                            return new long[] {input.getPosition() + i, ticks * timecodeScale() / 1000};
+                        }
+                    }
+                }
+                if (last) {
+                    return null;
+                }
+                // Drop what was searched and peek on from where the search stopped, so a candidate
+                // across the seam is seen whole in the next window. Skipped rather than peeked past:
+                // a peek keeps every byte in memory, and this may cover megabytes.
+                input.resetPeekPosition();
+                input.skipFully(end);
+            }
+            return null;
+        } finally {
+            input.resetPeekPosition();
+        }
+    }
+
+    /**
+     * The Timecode of the Cluster whose size starts at {@code at}, in ticks, or -1 if what follows
+     * the ID is not a Cluster's size and Timecode (a CRC-32 between them is allowed, as the spec does).
+     */
+    private static long clusterTimecode(byte[] b, int at, int limit) {
+        int p = at;
+        final int sizeLength = vintLength(b, p, limit);
+        if (sizeLength == 0) {
+            return -1;
+        }
+        p += sizeLength;
+        if (p + 6 <= limit && (b[p] & 0xFF) == ID_CRC32 && (b[p + 1] & 0xFF) == 0x84) {
+            p += 6;
+        }
+        if (p + 2 > limit || (b[p] & 0xFF) != ID_TIMECODE) {
+            return -1;
+        }
+        final int lengthByte = b[p + 1] & 0xFF;
+        // A Timecode is an unsigned integer of up to eight bytes, its size one byte of the 0x8n form.
+        if (lengthByte < 0x81 || lengthByte > 0x88) {
+            return -1;
+        }
+        final int n = lengthByte & 0x0F;
+        p += 2;
+        if (p + n > limit) {
+            return -1;
+        }
+        long value = 0;
+        for (int i = 0; i < n; i++) {
+            value = (value << 8) | (b[p + i] & 0xFF);
+        }
+        return value;
+    }
+
+    /** The length of the EBML varint at {@code p}, or 0 if there is none (a zero first byte). */
+    private static int vintLength(byte[] b, int p, int limit) {
+        if (p >= limit || b[p] == 0) {
+            return 0;
+        }
+        final int length = Integer.numberOfLeadingZeros(b[p] & 0xFF) - 23;
+        return p + length <= limit ? length : 0;
+    }
+
+    private long timecodeScale() {
+        if (TIMECODE_SCALE != null) {
+            try {
+                final long scale = TIMECODE_SCALE.getLong(matroska);
+                if (scale > 0) {
+                    return scale;
+                }
+            } catch (IllegalAccessException e) {
+                // Default below.
+            }
+        }
+        return 1_000_000;
     }
 
     /** Up to {@link #PEEK_BYTES} from the input's current position, leaving the read position alone. */
@@ -336,13 +637,14 @@ final class MkvCuesLink extends ForwardingExtractor {
         return found;
     }
 
-    private static Field cuesContentPositionField() {
+    @Nullable
+    private static Field matroskaField(String name) {
         try {
-            final Field field = MatroskaExtractor.class.getDeclaredField("cuesContentPosition");
+            final Field field = MatroskaExtractor.class.getDeclaredField(name);
             field.setAccessible(true);
             return field;
         } catch (Throwable t) {
-            Utils.log("mkv cues link: unavailable, " + t);
+            Utils.log("mkv cues link: no " + name + ", " + t);
             return null;
         }
     }
