@@ -192,6 +192,8 @@ final class ExtractorHarness {
     static final class Track implements TrackOutput {
         final int type;
         @Nullable Format format;
+        /** Formats given, the first included. */
+        int formats;
         int samples;
         /** Samples timed earlier than the one before them by more than a second. */
         int timeJumpsBack;
@@ -212,6 +214,7 @@ final class ExtractorHarness {
         @Override
         public void format(Format format) {
             this.format = format;
+            formats++;
         }
 
         @Override

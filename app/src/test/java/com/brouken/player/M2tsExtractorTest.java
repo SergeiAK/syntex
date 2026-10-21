@@ -34,6 +34,13 @@ import org.junit.Test;
  * (CRC recomputed): {@code eac3-retyped.m2ts} — {@code ac3.m2ts} with 0x81 → 0x84;
  * {@code dtshd-hra-retyped.ts} — {@code dtshd-ma.ts} with 0x86 → 0x85. They check the numbers are
  * read, not a real Dolby Digital Plus stream; the dependent frames are checked on bytes below.
+ *
+ * <p>Disc demos from kodi.wiki/view/Samples, heads of 192·40000 bytes: {@code eac3-71.m2ts} — "Safari_
+ * Dolby_Digital_Plus.m2ts" (Dolby Digital Plus 7.1, 0x84: AC-3 5.1 and E-AC-3 dependent frames in
+ * PES packets of their own, alternating); {@code helicopter.m2ts} — "Dolby ATMOS Helicopter.m2ts"
+ * (TrueHD 0x83 with its AC-3 core, Dolby Digital Plus 7.1 0x84); {@code dtshd-ma-71.m2ts} — "DTS-HD
+ * MA 7.1 'Dredd' Sound Check.m2ts" (0x86); {@code dtsx.m2ts} — "DTSX_Demo_2016.m2ts" (DTS-HD MA with
+ * DTS:X, 0x86).
  */
 public class M2tsExtractorTest {
 
@@ -134,8 +141,7 @@ public class M2tsExtractorTest {
                     createPlain(), ExtractorHarness.testFile(name), Integer.MAX_VALUE);
             assertEquals(name, 1, count(result, C.TRACK_TYPE_AUDIO));
             final ExtractorHarness.Track audio = result.track(C.TRACK_TYPE_AUDIO);
-            assertTrue(name + ": " + audio.format.sampleMimeType,
-                    audio.format.sampleMimeType.startsWith("audio/vnd.dts"));
+            assertEquals(name, MimeTypes.AUDIO_DTS_HD, audio.format.sampleMimeType);
             assertEquals(name, 6, audio.format.channelCount);
             // ffmpeg: 101 DTS frames.
             assertAbout(101, audio.samples);
@@ -157,6 +163,48 @@ public class M2tsExtractorTest {
         }
         // ffmpeg: 286 video frames, 507 AAC frames.
         assertAbout(286, ours.track(C.TRACK_TYPE_VIDEO).samples);
+    }
+
+    /** A real disc Dolby Digital Plus 7.1: one AC-3 5.1 format, never switched, every base frame. */
+    @Test
+    public void eac3DiscStreamPlaysIn51() throws IOException {
+        final ExtractorHarness.Result result = ExtractorHarness.readSamples(
+                create(), ExtractorHarness.testFile("eac3-71.m2ts"), Integer.MAX_VALUE);
+        final ExtractorHarness.Track audio = result.track(C.TRACK_TYPE_AUDIO);
+        assertEquals(MimeTypes.AUDIO_AC3, audio.format.sampleMimeType);
+        assertEquals(6, audio.format.channelCount);
+        assertEquals("formats", 1, audio.formats);
+        // ffmpeg: 218 frames (it counts an AC-3 frame and its dependent one as one).
+        assertAbout(218, audio.samples);
+    }
+
+    /** TrueHD with its core and a Dolby Digital Plus track: two AC-3 tracks. */
+    @Test
+    public void trueHdAndEac3OnOneDisc() throws IOException {
+        final ExtractorHarness.Result result = ExtractorHarness.readSamples(
+                create(), ExtractorHarness.testFile("helicopter.m2ts"), Integer.MAX_VALUE);
+        assertEquals(2, count(result, C.TRACK_TYPE_AUDIO));
+        for (ExtractorHarness.Track t : result.tracks) {
+            if (t.type != C.TRACK_TYPE_AUDIO) continue;
+            assertEquals(MimeTypes.AUDIO_AC3, t.format.sampleMimeType);
+            assertEquals(1, t.formats);
+            // ffmpeg: 118 AC-3 core frames, 118 Dolby Digital Plus frames.
+            assertAbout(118, t.samples);
+        }
+    }
+
+    @Test
+    public void dtsHdInM2ts() throws IOException {
+        for (String name : new String[]{"dtshd-ma-71.m2ts", "dtsx.m2ts"}) {
+            final ExtractorHarness.Result result = ExtractorHarness.readSamples(
+                    create(), ExtractorHarness.testFile(name), Integer.MAX_VALUE);
+            final ExtractorHarness.Track audio = result.track(C.TRACK_TYPE_AUDIO);
+            assertEquals(name, MimeTypes.AUDIO_DTS_HD, audio.format.sampleMimeType);
+            assertEquals(name, 8, audio.format.channelCount);
+            assertEquals(name, 1, audio.formats);
+            // ffmpeg: 346 and 260 frames.
+            assertAbout(name.startsWith("dtsx") ? 260 : 346, audio.samples);
+        }
     }
 
     /** AC-3 32 kbit/s (128 bytes), then E-AC-3 frames of 64 bytes, dependent or independent. */
