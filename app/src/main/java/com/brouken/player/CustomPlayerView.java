@@ -742,6 +742,11 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
         seekCard.showCentered((CustomDefaultTimeBar) exoProgress, deltaMs, targetMs);
     }
 
+    /** The trickplay frame on the seek card (see SeekCard.setStill). */
+    void seekStill(@androidx.annotation.Nullable final android.graphics.Bitmap frame) {
+        seekCard.setStill(frame);
+    }
+
     boolean isSeekCardShown() {
         return seekCard.getVisibility() == VISIBLE;
     }

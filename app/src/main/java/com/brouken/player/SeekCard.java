@@ -1,6 +1,7 @@
 package com.brouken.player;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -31,6 +32,9 @@ import androidx.core.content.ContextCompat;
  */
 final class SeekCard extends LinearLayout {
 
+    /** The trickplay frame over the line, during a long seek; GONE otherwise. */
+    private final ImageView still;
+    private final LinearLayout line;
     private final TextView left;
     private final ImageView icon;
     private final TextView right;
@@ -43,11 +47,15 @@ final class SeekCard extends LinearLayout {
     private final int barGap;
     private float pointerX;
     private boolean anchored;
+    // What the card was last placed by, so a frame arriving later (and growing the card) can place it again.
+    @Nullable private CustomDefaultTimeBar placedBar;
+    private long placedTargetMs;
+    private long placedDurationMs;
 
     SeekCard(final Context context) {
         super(context);
-        setOrientation(HORIZONTAL);
-        setGravity(Gravity.CENTER_VERTICAL);
+        setOrientation(VERTICAL);
+        setGravity(Gravity.CENTER_HORIZONTAL);
         setWillNotDraw(false);
         setFocusable(false);
         setClickable(false);
@@ -67,9 +75,22 @@ final class SeekCard extends LinearLayout {
         final LayoutParams iconLp = new LayoutParams(iconSize, iconSize);
         iconLp.leftMargin = Utils.dpToPx(10);
         iconLp.rightMargin = Utils.dpToPx(10);
-        addView(left);
-        addView(icon, iconLp);
-        addView(right);
+        line = new LinearLayout(context);
+        line.setOrientation(HORIZONTAL);
+        line.setGravity(Gravity.CENTER_VERTICAL);
+        line.addView(left);
+        line.addView(icon, iconLp);
+        line.addView(right);
+
+        still = new ImageView(context);
+        still.setScaleType(ImageView.ScaleType.FIT_XY);
+        still.setVisibility(GONE);
+        final LayoutParams stillLp = new LayoutParams(0, 0);
+        stillLp.bottomMargin = Utils.dpToPx(8);
+        addView(still, stillLp);
+        // Its own width, not the card's: a MATCH_PARENT child of a wrapping column is measured to the width of
+        // the others, and the line is a little wider than the frame, so it came out cut at the end.
+        addView(line, new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private static TextView text(final Context context) {
@@ -146,7 +167,43 @@ final class SeekCard extends LinearLayout {
     }
 
     void hide() {
+        setStill(null);
         setShown(false);
+    }
+
+    /**
+     * The frame for where the seek lands, over the line; null takes it away. 320 px on a 1080-line screen —
+     * a trickplay frame at its own size — and the same share of any other.
+     */
+    void setStill(@Nullable final Bitmap frame) {
+        if (frame == null) {
+            if (still.getVisibility() != GONE) {
+                still.setImageDrawable(null);
+                still.setVisibility(GONE);
+                replace();
+            }
+            return;
+        }
+        final View root = (View) getParent();
+        final int screen = root != null && root.getHeight() > 0 ? root.getHeight() : 1080;
+        final int width = Math.round(screen * 320f / 1080f);
+        final int height = Math.round(width * (float) frame.getHeight() / frame.getWidth());
+        final LayoutParams lp = (LayoutParams) still.getLayoutParams();
+        final boolean resized = lp.width != width || lp.height != height || still.getVisibility() != VISIBLE;
+        lp.width = width;
+        lp.height = height;
+        still.setImageBitmap(frame);
+        still.setVisibility(VISIBLE);
+        if (resized) {
+            still.setLayoutParams(lp);
+            replace();
+        }
+    }
+
+    private void replace() {
+        if (placedBar != null && getVisibility() == VISIBLE) {
+            place(placedBar, placedTargetMs, placedDurationMs);
+        }
     }
 
     private final int[] barAt = new int[2];
@@ -168,6 +225,9 @@ final class SeekCard extends LinearLayout {
 
     /** @param durationMs 0 to stand in the middle, with no point on the bar to stand over */
     private void place(final CustomDefaultTimeBar bar, final long targetMs, final long durationMs) {
+        placedBar = bar;
+        placedTargetMs = targetMs;
+        placedDurationMs = durationMs;
         final View root = (View) getParent();
         final int barX = durationMs > 0 ? bar.xOf(targetMs, durationMs) : 0;
         if (root == null || barX < 0) {

@@ -1017,6 +1017,13 @@ public class PlayerActivity extends Activity {
     // A source that stops delivering frames must not freeze a held key: past this, step anyway.
     private static final long KEY_HOLD_STEP_CEILING_MS = 600;
     private final Runnable keyScrubCommit = this::commitKeyScrub;
+    // From a 30 s step, or a held key, a file with a trickplay set beside it is sought in by its frames: the
+    // card shows where the seek would land, the film plays on as it was, and the one jump is the commit's.
+    // Short steps keep the live picture: it catches up in 0.13-0.3 s, and a frame every 10 s would lie about
+    // a 3 s step. Once on, it stays on to the end of the burst, so the picture does not start jumping again
+    // when a reversal drops the ladder back to 3 s.
+    private boolean keyScrubPreview;
+    private static final long KEY_PREVIEW_STEP_MS = 30_000;
     // A passthrough AudioTrack that has been paused and resumed comes back silent on a fair number of TVs
     // and receivers: the bitstream still leaves the box but nothing downstream re-locks onto it. Video keeps
     // playing and the position keeps advancing, so nothing in Media3 (nor recoverByRevokingAudioMime) ever
@@ -3819,8 +3826,9 @@ public class PlayerActivity extends Activity {
         // stride while the picture managed 270-330 ms, and by the end of a hold the number promised a
         // position nothing had drawn yet. Aiming is done by watching the picture, so the hold has to
         // keep the slower of the two rates.
+        // A preview has no frame of the player's to wait for: the card's frame is the one being aimed by.
         if (held && now - keyScrubLastMs
-                < (frameRendered ? KEY_HOLD_STEP_FLOOR_MS : KEY_HOLD_STEP_CEILING_MS))
+                < (frameRendered || keyScrubPreview ? KEY_HOLD_STEP_FLOOR_MS : KEY_HOLD_STEP_CEILING_MS))
             return true;
         playerView.removeCallbacks(playerView.textClearRunnable);
         // The bar the touch gestures raise is what lets their readout carry only the delta; the one path
@@ -3875,6 +3883,15 @@ public class PlayerActivity extends Activity {
             keyScrubTarget = snapped;
         }
         showKeySeekMessage(keyScrubTarget);
+        if (!keyScrubPreview && trickplay != null && (held || step >= KEY_PREVIEW_STEP_MS)) {
+            keyScrubPreview = true;
+        }
+        if (keyScrubPreview) {
+            showTrickplayFrame(keyScrubTarget, forward);
+            playerView.removeCallbacks(keyScrubCommit);
+            playerView.postDelayed(keyScrubCommit, 700);
+            return true;
+        }
         // Seek now if the previous seek has landed, so the picture and the bar follow the presses. A step
         // taken on the ceiling finds the gate still shut, so the commit below lands on the target once
         // the presses stop.
@@ -4104,6 +4121,7 @@ public class PlayerActivity extends Activity {
         keyScrubTarget = -1;
         keyScrubSeeked = -1;
         keyScrubSteps = 0;
+        endKeyScrubPreview();
     }
 
     private void commitKeyScrub() {
@@ -4112,6 +4130,9 @@ public class PlayerActivity extends Activity {
         keyScrubTarget = -1;
         keyScrubSeeked = -1;
         keyScrubSteps = 0;
+        // The frame stays with the readout until it clears; only new ones stop coming.
+        keyScrubPreview = false;
+        trickplayWanted.set(-1);
         if (target < 0 || player == null) {
             return;
         }
@@ -14020,6 +14041,56 @@ public class PlayerActivity extends Activity {
         worker.start();
     }
 
+    /** The position the card wants a frame for, or -1; a frame cut for any other is not shown. */
+    private final java.util.concurrent.atomic.AtomicLong trickplayWanted =
+            new java.util.concurrent.atomic.AtomicLong(-1);
+    /** One thread, so the sheets are read one at a time and a held key does not queue up decodes. */
+    @Nullable
+    private java.util.concurrent.ExecutorService trickplayWorker;
+
+    /**
+     * Puts the frame for a seek's target on its card, off the main thread. Only the latest ask is served:
+     * a hold steps faster than a new sheet reads over SMB (240-270 ms), and the frames in between are of
+     * places already left behind. The next sheet the way the seek goes is read after it, so the step
+     * that crosses into it finds it kept.
+     */
+    private void showTrickplayFrame(final long positionMs, final boolean forward) {
+        final Trickplay set = trickplay;
+        if (set == null) {
+            return;
+        }
+        trickplayWanted.set(positionMs);
+        if (trickplayWorker == null) {
+            trickplayWorker = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                final Thread t = new Thread(r, "trickplay-frames");
+                t.setDaemon(true);
+                return t;
+            });
+        }
+        trickplayWorker.execute(() -> {
+            if (trickplayWanted.get() != positionMs) {
+                return;
+            }
+            final Bitmap frame = set.frame(positionMs);
+            runOnUiThread(() -> {
+                if (frame != null && trickplayWanted.get() == positionMs && set == trickplay) {
+                    playerView.seekStill(frame);
+                }
+            });
+            if (trickplayWanted.get() == positionMs) {
+                set.prefetch(positionMs + (forward ? 1 : -1) * set.index.intervalMs * set.index.perSheet());
+            }
+        });
+    }
+
+    private void endKeyScrubPreview() {
+        keyScrubPreview = false;
+        trickplayWanted.set(-1);
+        if (playerView != null) {
+            playerView.seekStill(null);
+        }
+    }
+
     private void releaseTrickplay() {
         trickplayFor = null;
         if (trickplay != null) {
@@ -14067,6 +14138,7 @@ public class PlayerActivity extends Activity {
         keyScrubTarget = -1;
         keyScrubSeeked = -1;
         keyScrubSteps = 0;
+        endKeyScrubPreview();
         stopLoadingSpeed();
         // An error deferred until the controller is fully visible belongs to the playback session being
         // torn down here. Kept around, it would surface over whatever plays next — an error screen for a
