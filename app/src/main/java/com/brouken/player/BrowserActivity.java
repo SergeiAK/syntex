@@ -3,6 +3,7 @@ package com.brouken.player;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
@@ -85,6 +86,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.List;
@@ -235,6 +237,43 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
      * is decoded the old way.
      */
     private final Map<String, Uri> stills = new HashMap<>();
+    /**
+     * A video's address to the picture lying next to it ({@link SideArt}), out of the walk of its
+     * folder. Written by the walk's thread and read by the rows.
+     */
+    private final Map<String, String> sideArt = new ConcurrentHashMap<>();
+    /**
+     * When each picture found beside the videos - and each folder's only video - was written, by
+     * address: what its still is kept under, so a file replaced under the same name gets a new one.
+     */
+    private final Map<String, Long> pictureDates = new ConcurrentHashMap<>();
+    /** A season folder's address to the picture its series' folder has for it (season01-poster.jpg). */
+    private final Map<String, SideArt.Pick> seasonArt = new ConcurrentHashMap<>();
+    /** What is inside each folder row, once looked at - see {@link Look}. */
+    private final Map<String, Look> looks = new ConcurrentHashMap<>();
+
+    /**
+     * What a folder row says about the folder's inside: its picture, or the one video a picture can be
+     * taken of, and how many videos and folders it holds. One listing per folder row, once per screen;
+     * a folder that has been walked into has it from that walk.
+     */
+    private static final class Look {
+        @Nullable
+        final String picture;
+        /** The folder's only video, when it has no picture: the row shows what that video's row would. */
+        @Nullable
+        final String video;
+        final int videos;
+        final int folders;
+
+        Look(@Nullable final String picture, @Nullable final String video, final int videos,
+             final int folders) {
+            this.picture = picture;
+            this.video = video;
+            this.videos = videos;
+            this.folders = folders;
+        }
+    }
     /**
      * The day a file was written, numeric and in the viewer's locale's order: dd.MM.yyyy in Russian,
      * MM/dd/yyyy in American English. The year in full now that the date has a column of its own at
@@ -2431,6 +2470,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             e.printStackTrace();
             return folders;
         }
+        final SideArt side = !subtitles && picturesFrom(folder.getUri()) ? new SideArt() : null;
         for (final DocumentFile file : children) {
             final String name = file.getName();
             if (name == null || (!showHidden && name.startsWith("."))) {
@@ -2467,7 +2507,15 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             final boolean playable = subtitles
                     ? SubtitleUtils.hasSubtitleExtension(name.toLowerCase())
                     : local ? Utils.hasVideoExtension(name) : SubtitleUtils.isPlayableVideo(file);
+            if (side != null && !playable && SideArt.isPicture(name)) {
+                side.picture(name, file.getUri().toString());
+                pictureDates.put(file.getUri().toString(), file.lastModified());
+                continue;
+            }
             if (playable) {
+                if (side != null) {
+                    side.video();
+                }
                 files.add(new Item(name, file, false, false));
                 // Asked here, on the thread that is already reading this folder, rather than on the
                 // main thread once per row: it is the same stat either way and this is the cheaper
@@ -2478,10 +2526,175 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 }
             }
         }
+        if (side != null) {
+            for (final Item item : files) {
+                final String picture = side.forVideo(item.name);
+                if (picture != null) {
+                    sideArt.put(item.file.getUri().toString(), picture);
+                } else {
+                    sideArt.remove(item.file.getUri().toString());
+                }
+            }
+            // A series' folder: what it has for each season folder in it, by the number in the name.
+            // And what was seen inside each of them is forgotten: this listing is the moment to look
+            // again, so a picture replaced in a folder shows on its row the next time its parent opens.
+            for (final Item item : folders) {
+                looks.remove(item.file.getUri().toString());
+                seasonArt.remove(item.file.getUri().toString());
+                final int season = SideArt.seasonOf(item.name);
+                final SideArt.Pick pick = season < 0 ? null : side.forSeason(season);
+                if (pick != null) {
+                    seasonArt.put(item.file.getUri().toString(), pick);
+                }
+            }
+            final Item only = files.size() == 1 ? files.get(0) : null;
+            if (only != null) {
+                pictureDates.put(only.file.getUri().toString(), only.file.lastModified());
+            }
+            looks.put(folder.getUri().toString(), look(folder.getUri().toString(),
+                    String.valueOf(folder.getName()), side,
+                    only == null ? null : only.name, only == null ? null : only.file.getUri().toString(),
+                    folders.size()));
+        }
         order(folders, orderOf(folder));
         order(files, orderOf(folder));
         folders.addAll(files);
         return folders;
+    }
+
+    /**
+     * Where pictures next to the videos are looked for: on the device and on a share or a WebDAV
+     * server. Not on a torrent server, where reading a picture means fetching that piece of the
+     * torrent, nor on a media server, which sends its own artwork with the listing.
+     */
+    private static boolean picturesFrom(final Uri uri) {
+        final String scheme = uri.getScheme();
+        return "file".equals(scheme) || ContentResolver.SCHEME_CONTENT.equals(scheme)
+                || SmbSessions.SCHEME.equals(scheme) || DavFiles.speaks(uri);
+    }
+
+    /**
+     * What a folder row shows of the folder's inside, put together from one listing of it: the
+     * folder's own picture or the one its series' folder has for it as a season, whichever is the
+     * better kind; for a folder holding one video, that video's own pictures too and, failing all
+     * of them, the video itself - its cover or a frame, as its own row would have.
+     */
+    private Look look(final String key, final String folderName, final SideArt side,
+                      @Nullable final String onlyName, @Nullable final String onlyAddress,
+                      final int folders) {
+        final SideArt.Pick general = onlyName != null ? side.pickForVideo(onlyName) : side.forFolderPick();
+        // A season folder's own season01-poster.jpg - where tinyMediaManager puts it, inside the
+        // season's folder (measured on the owner's library, 21.10). Ahead of an episode's own thumb
+        // on a tie: the row is the season's.
+        SideArt.Pick pick = side.forSeason(SideArt.seasonOf(folderName));
+        pick = pick == null ? general : pick.or(general);
+        final SideArt.Pick parent = seasonArt.get(key);
+        if (parent != null) {
+            pick = pick == null ? parent : parent.or(pick);
+        }
+        return new Look(pick == null ? null : pick.address,
+                pick == null ? onlyAddress : null, side.videos(), folders);
+    }
+
+    /**
+     * The Look of a folder row, if the folder has been looked into; otherwise null now, a listing of
+     * it on the readers, and the row given what it shows when the listing is back. Once per folder
+     * per screen.
+     */
+    @Nullable
+    private Look lookInto(final Item item, final RowView row) {
+        final String key = item.file.getUri().toString();
+        final Look known = looks.get(key);
+        if (known != null) {
+            return known;
+        }
+        if (!picturesFrom(item.file.getUri())) {
+            return null;
+        }
+        // Taken before the listing starts, so a second bind of the row does not start a second one;
+        // the empty Look is what the row shows meanwhile - the glyph, and no count.
+        looks.put(key, new Look(null, null, -1, -1));
+        readers.execute(() -> {
+            final SideArt side = new SideArt();
+            int folders = 0;
+            String onlyName = null;
+            String onlyAddress = null;
+            try {
+                final boolean local = "file".equals(item.file.getUri().getScheme());
+                if (local) {
+                    // Names, and one stat for each to tell a folder: a DocumentFile per entry would
+                    // be a stat more, and a folder of photographs is thousands of them.
+                    final File dir = new File(pathOf(item.file));
+                    final File[] children = dir.listFiles();
+                    if (children != null) {
+                        for (final File child : children) {
+                            final String name = child.getName();
+                            if (name.startsWith(".")) {
+                                continue;
+                            }
+                            final String address = Uri.fromFile(child).toString();
+                            if (child.isDirectory()) {
+                                folders++;
+                            } else if (Utils.hasVideoExtension(name)) {
+                                side.video();
+                                onlyName = name;
+                                onlyAddress = address;
+                                pictureDates.put(address, child.lastModified());
+                            } else if (SideArt.isPicture(name)) {
+                                side.picture(name, address);
+                                pictureDates.put(address, child.lastModified());
+                            }
+                        }
+                    }
+                } else {
+                    for (final DocumentFile child : item.file.listFiles()) {
+                        final String name = child.getName();
+                        if (name == null || name.startsWith(".")) {
+                            continue;
+                        }
+                        final String address = child.getUri().toString();
+                        if (child.isDirectory()) {
+                            folders++;
+                        } else if (SubtitleUtils.isPlayableVideo(child)) {
+                            side.video();
+                            onlyName = name;
+                            onlyAddress = address;
+                            pictureDates.put(address, child.lastModified());
+                        } else if (SideArt.isPicture(name)) {
+                            side.picture(name, address);
+                            pictureDates.put(address, child.lastModified());
+                        }
+                    }
+                }
+            } catch (final Exception e) {
+                // A folder that cannot be listed says nothing; its row keeps the glyph.
+                e.printStackTrace();
+                looks.remove(key);
+                return;
+            }
+            final boolean one = side.videos() == 1;
+            final Look look = look(key, item.name, side, one ? onlyName : null, one ? onlyAddress : null,
+                    folders);
+            looks.put(key, look);
+            runOnUiThread(() -> row.look(item, look));
+        });
+        return null;
+    }
+
+    /**
+     * Binds the rows on screen again, in place: what a picture found after the listing needs. Not
+     * notifyDataSetChanged, which takes the rows out of the view tree and the remote's focus with them.
+     */
+    private void rebindVisible() {
+        if (list == null) {
+            return;
+        }
+        for (int i = 0; i < list.getChildCount(); i++) {
+            final RecyclerView.ViewHolder holder = list.getChildViewHolder(list.getChildAt(i));
+            if (holder instanceof RowView && holder.itemView.getTag() instanceof Item) {
+                ((RowView) holder).bind((Item) holder.itemView.getTag());
+            }
+        }
     }
 
     /**
@@ -2678,7 +2891,18 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                         missing.add(item);
                     }
                 }
-                if (missing.isEmpty() || !wanted.equals(bound)) {
+                if (!wanted.equals(bound)) {
+                    return;
+                }
+                if (missing.isEmpty()) {
+                    // The index lists videos and nothing else, so the pictures beside them are known
+                    // only now, from the walk: the rows already on screen are given theirs in place.
+                    for (final Item item : walked) {
+                        if (sideArt.containsKey(item.file.getUri().toString())) {
+                            rebindVisible();
+                            break;
+                        }
+                    }
                     return;
                 }
                 // Which row the remote is on, before the rows move under it. RecyclerView answers a
@@ -3409,10 +3633,40 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 served = favoriteArt.get(item.file.getUri().toString());
             }
 
-            final Uri indexed = item.folder ? null : stills.get(item.file.getUri().toString());
-            Utils.bindPreview(box, served == null ? null : Uri.parse(served),
-                    item.folder ? null : indexed != null ? indexed : item.file.getUri(),
-                    glyphFor(item), Utils.dpToPx(item.folder ? 32 : 24), true);
+            // Then a picture lying next to it, which somebody chose, ahead of a frame nobody did.
+            Uri artwork = served == null ? null : Uri.parse(served);
+            Uri media = null;
+            final Look look = item.folder && !item.volume ? lookInto(item, this) : null;
+            if (artwork == null && !item.volume) {
+                if (item.folder) {
+                    // A folder holding one video and no picture shows that video, as its row would.
+                    if (look != null && look.picture != null) {
+                        artwork = Uri.parse(look.picture);
+                    } else if (look != null && look.video != null) {
+                        media = Uri.parse(look.video);
+                    }
+                } else {
+                    final String beside = sideArt.get(item.file.getUri().toString());
+                    artwork = beside == null ? null : Uri.parse(beside);
+                }
+            }
+            if (!item.folder) {
+                // A Matroska file is asked for by its path even where the index has a still of it: its
+                // cover comes first (LocalCovers), and the system's still is a frame like any other.
+                final Uri indexed = MkvCover.speaks(item.name)
+                        ? null : stills.get(item.file.getUri().toString());
+                media = indexed != null ? indexed : item.file.getUri();
+            }
+            // When the picture was written, so a picture or a video replaced under the same name is a
+            // new still rather than the one kept on disk for the old.
+            final Long written = artwork != null ? pictureDates.get(artwork.toString())
+                    : media == null ? null
+                    : item.folder ? pictureDates.get(media.toString())
+                    : dates.containsKey(item.file.getUri().toString())
+                    ? dates.get(item.file.getUri().toString()) : (Long) item.file.lastModified();
+            Utils.folderBadge(box, item.folder && !item.volume);
+            Utils.bindPreview(box, artwork, media, glyphFor(item), Utils.dpToPx(item.folder ? 32 : 24),
+                    true, written == null ? 0 : written);
             if (!item.folder && !item.volume && lengths.containsKey(item.file.getUri().toString())) {
                 // The track is the scale the run sits on, so it appears where a run can: with a length
                 // known. A folder has no position at all, and a file whose length nobody can state -
@@ -3453,11 +3707,13 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 path.setVisibility(says ? View.VISIBLE : View.GONE);
             } else if (item.folder) {
                 // Where it is, which is the one thing a folder's name does not say — two folders
-                // called Movies on two volumes are otherwise the same row twice.
-                final String parent = parentOf(item);
+                // called Movies on two volumes are otherwise the same row twice. Inside a folder every
+                // row has the same answer, so there the line says what is in the folder instead.
+                final String parent = trail.isEmpty() ? parentOf(item) : null;
                 path.setText(parent);
                 path.setVisibility(parent == null ? View.GONE : View.VISIBLE);
                 describeFolder(item, this);
+                contents(item, look);
             } else {
                 path.setVisibility(View.GONE);
                 videoMeta(item, ctx);
@@ -3489,7 +3745,40 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             if (itemView.getTag() != item || source == null) {
                 return;
             }
+            // The folder's own picture, or its one video, stands over a frame of the newest below it.
+            final Look look = looks.get(item.file.getUri().toString());
+            if (look != null && (look.picture != null || look.video != null)) {
+                return;
+            }
             Utils.bindPreview(box, null, source, R.drawable.ic_folder_open_24dp, Utils.dpToPx(32));
+        }
+
+        /** What a folder holds, back from its listing (see lookInto): bound again with it. */
+        void look(final Item item, final Look look) {
+            if (itemView.getTag() != item) {
+                return;
+            }
+            bind(item);
+        }
+
+        /**
+         * The meta line of a folder row: how many folders and videos are directly in it. Where the
+         * media index has counted the whole tree below a folder (describeFolder), that count stands.
+         */
+        void contents(final Item item, @Nullable final Look look) {
+            if (look == null || look.videos < 0) {
+                return;
+            }
+            final Map<String, long[]> known = videoFolders;
+            if (!NetworkFiles.isNetwork(item.file.getUri()) && known != null
+                    && known.containsKey(pathOf(item.file))) {
+                return;
+            }
+            final String folders = look.folders > 0 ? getResources().getQuantityString(
+                    R.plurals.browse_folders, look.folders, look.folders) : null;
+            final String videos = look.videos > 0 ? getResources().getQuantityString(
+                    R.plurals.browse_videos, look.videos, look.videos) : null;
+            setMeta(folders != null ? folders : videos, folders != null ? videos : null);
         }
 
             /**

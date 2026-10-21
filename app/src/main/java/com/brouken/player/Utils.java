@@ -86,6 +86,7 @@ import androidx.core.view.WindowCompat;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.animation.AnimationUtils;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.signature.ObjectKey;
 import com.bumptech.glide.RequestBuilder;
 import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.GlideException;
@@ -657,6 +658,28 @@ public class Utils {
         final View run = new View(ctx);
         run.setVisibility(View.GONE);
         box.addView(run, new FrameLayout.LayoutParams(0, dpToPx(4), Gravity.BOTTOM | Gravity.START));
+
+        // The folder mark: a folder showing a picture of what is in it would otherwise be one more
+        // film in the list. Bottom right, just above where the played track runs: the top left is
+        // where a landscape picture puts its title, and the mark covered "SHE" of SHERLOCK (Dune,
+        // 21.10). On a dark plate and see-through, so it reads on any picture without hiding it.
+        // Shown only over a picture - over the glyph it would say it twice.
+        final ImageView mark = new ImageView(ctx);
+        mark.setImageResource(R.drawable.ic_folder_open_24dp);
+        mark.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        final android.graphics.drawable.GradientDrawable plate =
+                new android.graphics.drawable.GradientDrawable();
+        plate.setColor(0x80000000);
+        plate.setCornerRadius(dpToPx(6));
+        mark.setBackground(plate);
+        final int pad = dpToPx(4);
+        mark.setPadding(pad, pad, pad, pad);
+        mark.setAlpha(0.7f);
+        mark.setVisibility(View.GONE);
+        final FrameLayout.LayoutParams markLp = new FrameLayout.LayoutParams(dpToPx(28), dpToPx(28),
+                Gravity.BOTTOM | Gravity.END);
+        markLp.setMargins(0, 0, dpToPx(6), dpToPx(4 + 6));
+        box.addView(mark, markLp);
         return box;
     }
 
@@ -676,12 +699,35 @@ public class Utils {
      */
     static void bindPreview(final FrameLayout box, final Uri artwork, final Uri media,
                             final int glyphRes, final int glyphPx, final boolean overNetwork) {
+        bindPreview(box, artwork, media, glyphRes, glyphPx, overNetwork, 0);
+    }
+
+    /**
+     * Whether the still is a folder's: the folder mark goes on it while it shows a picture. Asked
+     * before bindPreview, which may keep the picture it has and so is not where the mark is set.
+     */
+    static void folderBadge(final FrameLayout box, final boolean folder) {
+        box.setTag(R.id.still_folder, folder);
+        final View poster = box.getChildAt(1);
+        final View blank = box.getChildAt(2);
+        box.getChildAt(5).setVisibility(folder && poster.getVisibility() == View.VISIBLE
+                && blank.getVisibility() != View.VISIBLE ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * @param written when the picture or the video was last written, or 0 where nobody said: part of
+     *                what the still is kept under, so a file replaced under the same name is decoded
+     *                again rather than shown as it was
+     */
+    static void bindPreview(final FrameLayout box, final Uri artwork, final Uri media,
+                            final int glyphRes, final int glyphPx, final boolean overNetwork,
+                            final long written) {
         // The same file as last time is the common case, not the exception: a list re-lists itself on
         // every arrival - coming back from the player, coming back from Settings - and clearing a
         // poster that already holds the right frame is a blank row for as long as the decode takes.
         // Asked here so nobody has to remember to ask it.
         final Uri wanted = artwork != null ? artwork : media;
-        final String key = (wanted == null ? "" : wanted.toString()) + " " + glyphRes;
+        final String key = (wanted == null ? "" : wanted.toString()) + " " + glyphRes + " " + written;
         if (key.equals(box.getTag())) {
             return;
         }
@@ -697,6 +743,7 @@ public class Utils {
         }
         box.getChildAt(3).setVisibility(View.GONE);
         box.getChildAt(4).setVisibility(View.GONE);
+        box.getChildAt(5).setVisibility(View.GONE);
         blank.setImageTintList(glyphTint(box.getContext()));
         blank.setImageResource(glyphRes);
         blank.setVisibility(View.VISIBLE);
@@ -719,6 +766,9 @@ public class Utils {
             // decodes it if the system cannot.
             request = request.frame(1_000_000L);
         }
+        if (written != 0) {
+            request = request.signature(new ObjectKey(written));
+        }
         request.listener(new RequestListener<Bitmap>() {
             @Override
             public boolean onLoadFailed(final GlideException e, final Object model,
@@ -738,6 +788,9 @@ public class Utils {
                                            final Target<Bitmap> target, final DataSource source,
                                            final boolean firstResource) {
                 blank.setVisibility(View.GONE);
+                if (Boolean.TRUE.equals(box.getTag(R.id.still_folder))) {
+                    box.getChildAt(5).setVisibility(View.VISIBLE);
+                }
                 // Out of the picture that just arrived rather than fetched again: a second request per
                 // row doubles what a media server is asked for at once, and a small one answers eight
                 // rows and sixteen requests by refusing some of them - which is one row in a list

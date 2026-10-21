@@ -2,6 +2,7 @@ package com.brouken.player;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.media.MediaDataSource;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
@@ -94,7 +95,44 @@ final class NetworkThumbs {
         }
         registered = true;
         Glide.get(context.getApplicationContext()).getRegistry()
-                .prepend(Uri.class, Bitmap.class, new Factory(context.getApplicationContext()));
+                .prepend(Uri.class, Bitmap.class, new Factory(context.getApplicationContext()))
+                .prepend(Uri.class, Bitmap.class, new LocalCovers.Factory());
+    }
+
+    /**
+     * A picture's bytes as a bitmap no bigger than the still needs: halved while both sides stay at
+     * or above it, so a 3000 px poster is decoded at a quarter of its size and not in full.
+     */
+    @Nullable
+    static Bitmap decodePicture(final byte[] bytes, final int width, final int height) {
+        final BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return null;
+        }
+        int sample = 1;
+        while (bounds.outWidth / (sample * 2) >= width && bounds.outHeight / (sample * 2) >= height) {
+            sample *= 2;
+        }
+        final BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sample;
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+    }
+
+    /** Exactly {@code size} bytes from {@code offset}, or an IOException. */
+    static byte[] readFully(final MkvCover.Input input, final long offset, final long size)
+            throws IOException {
+        final byte[] bytes = new byte[(int) size];
+        int done = 0;
+        while (done < bytes.length) {
+            final int read = input.readAt(offset + done, bytes, done, bytes.length - done);
+            if (read <= 0) {
+                throw new IOException("picture cut short at " + (offset + done) + " of " + size);
+            }
+            done += read;
+        }
+        return bytes;
     }
 
     /** From the player screen's onStart and onStop: no new stills in between. */
@@ -217,7 +255,10 @@ final class NetworkThumbs {
         @Override
         public LoadData<Bitmap> buildLoadData(@NonNull final Uri uri, final int width,
                                               final int height, @NonNull final Options options) {
-            return new LoadData<>(new ObjectKey("net " + uri + " " + width + "x" + height),
+            // A Matroska file's key changed when its cover started to come first: under the old one,
+            // the frame already kept on disk would have stood in front of the cover for good.
+            final String kind = MkvCover.speaks(uri.getLastPathSegment()) ? "net+cover " : "net ";
+            return new LoadData<>(new ObjectKey(kind + uri + " " + width + "x" + height),
                     new Fetcher(context, uri, width, height));
         }
 
@@ -245,6 +286,10 @@ final class NetworkThumbs {
         @Override
         public void loadData(@NonNull final Priority priority,
                              @NonNull final DataCallback<? super Bitmap> callback) {
+            if (SideArt.isPicture(uri.getLastPathSegment())) {
+                picture(callback);
+                return;
+            }
             ONE_AT_A_TIME.lock();
             try {
                 if (cancelled) {
@@ -270,6 +315,16 @@ final class NetworkThumbs {
                 final long start = SystemClock.elapsedRealtime();
                 current = source;
                 try {
+                    if (MkvCover.speaks(uri.getLastPathSegment())) {
+                        final Bitmap cover = cover(source);
+                        if (cover != null) {
+                            Log.d("NetworkThumbs", "cover in " + (SystemClock.elapsedRealtime() - start)
+                                    + " ms, read " + source.reads + " x / " + (source.bytes >> 10)
+                                    + " KiB: " + uri.getLastPathSegment());
+                            callback.onDataReady(cover);
+                            return;
+                        }
+                    }
                     retriever.setDataSource(source);
                     final long opened = SystemClock.elapsedRealtime();
                     final Bitmap frame = frame(retriever);
@@ -312,6 +367,59 @@ final class NetworkThumbs {
                 }
             } finally {
                 ONE_AT_A_TIME.unlock();
+            }
+        }
+
+        /**
+         * The cover among a Matroska file's attachments, or null to take a frame instead. A file the
+         * reader cannot make sense of is not a failure here - the retriever still gets its turn - but a
+         * read refused for a player or over the limit is, and goes up as it would from the retriever.
+         */
+        @Nullable
+        private Bitmap cover(final Source source) throws IOException {
+            try {
+                final MkvCover.Found found = MkvCover.find(source::readAt);
+                if (found == null) {
+                    return null;
+                }
+                return decodePicture(readFully(source::readAt, found.offset, found.size), width, height);
+            } catch (final IOException e) {
+                if (source.aborted || source.spent) {
+                    throw e;
+                }
+                Log.d("NetworkThumbs", "no cover read: " + uri.getLastPathSegment() + ": " + e);
+                return null;
+            }
+        }
+
+        /**
+         * A picture lying next to the video (see {@link SideArt}): read whole and decoded small. Not
+         * one at a time with the frames and not turned away for a player - it takes no decoder, and a
+         * poster of a few hundred kilobytes should not queue behind a frame of a 4K file.
+         */
+        private void picture(final DataCallback<? super Bitmap> callback) {
+            if (cancelled) {
+                callback.onLoadFailed(new IOException("cancelled"));
+                return;
+            }
+            final Source source = SmbSessions.SCHEME.equals(uri.getScheme())
+                    ? new SmbSource(context, uri) : new Source(context, uri);
+            try {
+                final long size = source.getSize();
+                if (size <= 0 || size > MkvCover.MAX_PICTURE) {
+                    callback.onLoadFailed(new IOException("picture of " + size + " B: " + uri));
+                    return;
+                }
+                final Bitmap picture = decodePicture(readFully(source::readAt, 0, size), width, height);
+                if (picture == null) {
+                    callback.onLoadFailed(new IOException("not a picture: " + uri));
+                } else {
+                    callback.onDataReady(picture);
+                }
+            } catch (final Exception e) {
+                callback.onLoadFailed(e);
+            } finally {
+                source.close();
             }
         }
 

@@ -638,6 +638,10 @@
         <item quantity="one">%d video</item>
         <item quantity="other">%d videos</item>
     </plurals>
+    <plurals name="browse_folders">
+        <item quantity="one">%d folder</item>
+        <item quantity="other">%d folders</item>
+    </plurals>
     <string name="pref_audio_sync">Audio delay</string>
     <string name="pref_audio_sync_passthrough">Audio delay over pass-through</string>
     <string name="pref_section_display">Display mode</string>
