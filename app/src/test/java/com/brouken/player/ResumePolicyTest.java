@@ -92,4 +92,37 @@ public class ResumePolicyTest {
         assertEquals(ASK, ResumePolicy.decide("someday", OPEN, 40 * MIN, FILM, null));
         assertEquals(CONTINUE, ResumePolicy.decide(null, NEXT, 40 * MIN, FILM, null));
     }
+
+    // The table of the playlist contract, section 2: ask_resume over the viewer's setting.
+
+    @Test
+    public void playlistWithoutAskResumeResumesTheStartAndAJump() {
+        final String mode = ResumePolicy.playlistMode(false);
+        assertEquals(CONTINUE, ResumePolicy.decide(mode, OPEN, 12 * MIN, FILM, null));
+        assertEquals(CONTINUE, ResumePolicy.decide(mode, NEXT, 12 * MIN, FILM, null));
+        // Without asking, a position under 30 s is taken as it is.
+        assertEquals(CONTINUE, ResumePolicy.decide(mode, OPEN, 20_000, FILM, null));
+    }
+
+    @Test
+    public void playlistWithAskResumeAsksOnTheStartAndAJump() {
+        final String mode = ResumePolicy.playlistMode(true);
+        assertEquals(ASK, ResumePolicy.decide(mode, OPEN, 12 * MIN, FILM, null));
+        assertEquals(ASK, ResumePolicy.decide(mode, NEXT, 12 * MIN, FILM, null));
+        assertEquals(START_OVER, ResumePolicy.decide(mode, OPEN, 20_000, FILM, null));
+    }
+
+    @Test
+    public void playlistWatchedPositionStartsOverEitherWay() {
+        // An episode of 45 min: the last 5 % begins at 42:45; credits from 41:00 to the end.
+        final long episode = 45 * MIN;
+        final long[][] credits = {{41 * MIN, episode}};
+        for (boolean ask : new boolean[]{false, true}) {
+            final String mode = ResumePolicy.playlistMode(ask);
+            assertEquals(START_OVER, ResumePolicy.decide(mode, OPEN, 43 * MIN, episode, null));
+            assertEquals(START_OVER, ResumePolicy.decide(mode, NEXT, 41 * MIN + 30_000, episode, credits));
+            // Length unknown: the position is used as it is.
+            assertEquals(ask ? ASK : CONTINUE, ResumePolicy.decide(mode, OPEN, 43 * MIN, 0, null));
+        }
+    }
 }

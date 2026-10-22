@@ -84,6 +84,11 @@ public class IntentSegmentsSource implements SkipSource {
         return ms / 1000.0;
     }
 
+    /** The length the timings were measured against ({@code duration_ms}); 0 when not given. */
+    public long referenceDurationMs() {
+        return Math.round(refDurationSec * 1000);
+    }
+
     @NonNull
     @Override
     public List<SkipSegment> getSegments(double durationSec) {

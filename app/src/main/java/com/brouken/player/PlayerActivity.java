@@ -1182,6 +1182,8 @@ public class PlayerActivity extends Activity {
     Parcelable apiPlaylistResultCallback;
     // What a `playlist` launch is answered with (section 7 of the contract); null for any other launch.
     PlaylistReport apiPlaylistReport;
+    // The resume mode a `playlist` launch plays by (its ask_resume), over the viewer's; null otherwise.
+    String apiPlaylistResumeMode;
     // Episode metadata received via the launch Intent (from LAMPA, com.justplus.player branch). Stored for
     // now; not consumed yet. apiSeason/apiEpisode are -1 when absent; the per-item lists hold null.
     int apiSeason = -1;
@@ -1690,7 +1692,8 @@ public class PlayerActivity extends Activity {
         } else if (launchIntent.getData() != null || launchIntent.hasExtra(API_PLAYLIST)) {
             // A playlist launch may leave the data out: what plays is named inside the playlist.
             handleViewIntent(launchIntent);
-        } else if (inheritedIntent != null && inheritedIntent.getData() != null) {
+        } else if (inheritedIntent != null
+                && (inheritedIntent.getData() != null || inheritedIntent.hasExtra(API_PLAYLIST))) {
             // The icon was tapped while a session was playing. The screen that owned it cannot be brought
             // forward — it sits in the launcher app's task, which needs REORDER_TASKS to raise — so carry
             // that session on here instead of opening the empty state over a video that is still running.
@@ -3668,6 +3671,7 @@ public class PlayerActivity extends Activity {
         apiTitle = Utils.unescapeHtml(request.title);
         apiHeaders = request.headers;
         apiPlaylistResultCallback = request.resultCallback;
+        apiPlaylistResumeMode = ResumePolicy.playlistMode(request.askResume);
 
         apiMediaItems.clear();
         apiPlaylistSegments.clear();
@@ -3741,9 +3745,10 @@ public class PlayerActivity extends Activity {
             mPrefs.updatePosition(start.positionMs);
         }
         searchSubtitles();
-        // The viewer's own resume setting does not apply to a playlist: the caller's position is taken as
-        // it is, and without one the item resumes where this player left it.
-        resumeStart = null;
+        // The viewer's own resume setting does not apply to a playlist: ask_resume decides (resumeMode()),
+        // and a watched position starts over either way. Without a position of the caller's the item
+        // resumes where this player left it, by the same rules.
+        resumeStart = ResumePolicy.Start.OPEN;
         focusPlay = true;
         checkRoomMedia(false, false);
     }
@@ -4613,6 +4618,7 @@ public class PlayerActivity extends Activity {
         // A new launch replacing the session: the old session's callback hears how it ended (section 8).
         sendPlaylistReport();
         apiPlaylistReport = null;
+        apiPlaylistResumeMode = null;
         apiAccess = false;
         apiAccessPartial = false;
         intentReturnResult = false;
@@ -13556,7 +13562,7 @@ public class PlayerActivity extends Activity {
             resumeStart = null;
             // "Always from the start" needs neither the length nor the credits, so it does not load the
             // remembered place only to leave it once the display has settled.
-            final boolean startOver = resumeCheck != null && ResumePolicy.NEVER.equals(mPrefs.resumeMode);
+            final boolean startOver = resumeCheck != null && ResumePolicy.NEVER.equals(resumeMode());
             if (startOver) {
                 resumeCheck = null;
             }
@@ -13869,10 +13875,10 @@ public class PlayerActivity extends Activity {
         }
         final long position = player.getCurrentPosition();
         final long duration = player.getDuration();
-        final ResumePolicy.Decision decision = ResumePolicy.decide(mPrefs.resumeMode, start, position,
+        final ResumePolicy.Decision decision = ResumePolicy.decide(resumeMode(), start, position,
                 duration == C.TIME_UNSET ? 0 : duration, creditsMs());
         Utils.log("resume: " + decision + " at " + position + " of " + duration + " ms, " + start
-                + ", " + mPrefs.resumeMode);
+                + ", " + resumeMode());
         if (decision == ResumePolicy.Decision.START_OVER) {
             player.seekTo(0);
         } else if (decision == ResumePolicy.Decision.ASK) {
@@ -13911,7 +13917,40 @@ public class PlayerActivity extends Activity {
         }
         final Uri uri = playlistUri(index);
         final Long length = uri == null ? null : Prefs.readLengths(this).get(uri.toString());
-        return length == null ? 0 : length;
+        if (length != null && length > 0) {
+            return length;
+        }
+        // Last, the length the caller's segments were measured against (playlist contract, section 2).
+        final String segments = index >= 0 && index < apiPlaylistSegments.size()
+                ? apiPlaylistSegments.get(index) : null;
+        return segments == null ? 0 : new IntentSegmentsSource(segments).referenceDurationMs();
+    }
+
+    /**
+     * The skip segments the caller sent for a playlist item, fitted to {@code lengthMs}, as the credits
+     * candidates of {@link ResumePolicy#finishedAt}: it keeps only those reaching into the last 5 %.
+     * Null when none were sent or the length is unknown.
+     */
+    private long[][] sentCreditsMs(final int index, final long lengthMs) {
+        if (lengthMs <= 0 || index < 0 || index >= apiPlaylistSegments.size()) {
+            return null;
+        }
+        final IntentSegmentsSource source = new IntentSegmentsSource(apiPlaylistSegments.get(index));
+        if (!source.hasSegments()) {
+            return null;
+        }
+        final List<long[]> credits = new ArrayList<>();
+        for (final SkipSegment segment : source.getSegments(lengthMs / 1000.0)) {
+            if (segment.type == SkipSegment.Type.SKIP) {
+                credits.add(new long[] {segment.startMs(), segment.endMs()});
+            }
+        }
+        return credits.isEmpty() ? null : credits.toArray(new long[0][]);
+    }
+
+    /** The resume mode in force: a playlist launch's own, else the viewer's setting. */
+    private String resumeMode() {
+        return apiPlaylistResumeMode != null ? apiPlaylistResumeMode : mPrefs.resumeMode;
     }
 
     /**
@@ -14692,11 +14731,12 @@ public class PlayerActivity extends Activity {
                     && newPosition.positionMs < 1000) {
                 final long saved = savedPlaylistPosition(newIndex);
                 // Another video inside the session, decided here and not when it is ready: the jump is
-                // where the saved place is either taken or not. Its credits are not known yet, so only
-                // the 95 % mark can call it watched.
+                // where the saved place is either taken or not. Its credits are known only from the
+                // segments the caller sent; otherwise only the 95 % mark can call it watched.
+                final long length = playlistLength(newIndex);
                 final ResumePolicy.Decision decision = saved <= 0 ? ResumePolicy.Decision.START_OVER
-                        : ResumePolicy.decide(mPrefs.resumeMode, ResumePolicy.Start.NEXT, saved,
-                                playlistLength(newIndex), null);
+                        : ResumePolicy.decide(resumeMode(), ResumePolicy.Start.NEXT, saved,
+                                length, sentCreditsMs(newIndex, length));
                 if (decision != ResumePolicy.Decision.START_OVER) {
                     // Exactly where it was left, and exact is also what keeps this off the trap in
                     // seekBackwards: a backwards tolerance is sticky for the life of the player, so a

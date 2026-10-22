@@ -74,6 +74,15 @@ final class ResumePolicy {
         return positionMs < MIN_ASK_MS ? Decision.START_OVER : Decision.ASK;
     }
 
+    /**
+     * The mode a {@code playlist} launch plays by, in place of the viewer's setting (contract section 2):
+     * {@code ask_resume} asks on the start item and on every jump, without it every position is taken.
+     * Either way a watched position starts over and, when asking, one under 30 s does too.
+     */
+    static String playlistMode(final boolean askResume) {
+        return askResume ? ASK_EVERY : ALWAYS;
+    }
+
     // A value this version does not know — a later one's, or a mangled file — is read as the default.
     private static boolean asksOnOpen(final String mode) {
         return !ASK_EVERY.equals(mode) && !ALWAYS.equals(mode) && !NEVER.equals(mode);
