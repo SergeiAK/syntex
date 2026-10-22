@@ -125,7 +125,11 @@ public class Utils {
 
     public static final String FEATURE_FIRE_TV = "amazon.hardware.fire_tv";
 
-    public static final String[] supportedExtensionsVideo = new String[] { "3gp", "avi", "m4v", "mkv", "mov", "mp4", "ts", "webm" };
+    // The program streams (mpg, vob) and FLV have extractors of their own here, the M2TS variants go
+    // through M2tsExtractor. WMV is left out on purpose: there is no ASF reader, and a listed file that
+    // cannot open is worse than one not listed.
+    public static final String[] supportedExtensionsVideo = new String[] { "3gp", "avi", "flv", "m2ts",
+            "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "mts", "ts", "vob", "webm" };
     public static final String[] supportedExtensionsSubtitle = new String[] { "srt", "ssa", "ass", "vtt", "ttml", "dfxp", "xml" };
 
     public static final String[] supportedMimeTypesVideo = new String[] {
