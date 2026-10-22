@@ -1039,6 +1039,10 @@ public class PlayerActivity extends Activity {
     // landing setting says: there is no moment at which a moving mark has been "let go of".
     private static final long[] GLIDE_MS_PER_S = {60_000, 120_000, 240_000, 480_000};
     private static final long GLIDE_TICK_MS = 100;
+    // A landing this close to the end stops there, paused: a second short of it still played out and moved
+    // on to the folder's next file (Shield 22.10). The viewer who drove to the end wants to see the end,
+    // not the next film (decision 22.10).
+    private static final long END_HOLD_MS = 5_000;
     private boolean glideOpen;
     private int glideTier = -1;           // -1 = standing
     private boolean glideForward;
@@ -4513,9 +4517,9 @@ public class PlayerActivity extends Activity {
         final long now = SystemClock.uptimeMillis();
         if (glideTier >= 0) {
             final long move = GLIDE_MS_PER_S[glideTier] * (now - glideTickAt) / 1000;
-            // A second short of the end: a landing on the very end finishes the file, and the folder's next
-            // one starts in its place (seen on Dune 22.10).
-            final long end = Math.max(0, player.getDuration() - 1000);
+            // Short of the end: a landing on the very end finishes the file, and the folder's next one
+            // starts in its place (seen on Dune 22.10). The commit pauses there - see END_HOLD_MS.
+            final long end = Math.max(0, player.getDuration() - END_HOLD_MS);
             final long next = Math.max(0, Math.min(end, keyScrubTarget + (glideForward ? move : -move)));
             if (next == keyScrubTarget) {
                 // At an end of the film: the mark stands there, the session stays open.
@@ -4605,6 +4609,14 @@ public class PlayerActivity extends Activity {
         keyScrubPreview = false;
         trickplayWanted.set(-1);
         if (target < 0 || player == null) {
+            return;
+        }
+        final long duration = player.getDuration();
+        if (duration != C.TIME_UNSET && !isLiveStream() && target >= duration - END_HOLD_MS) {
+            keyScrubResume = false;
+            playerView.setControllerAutoShow(true);
+            player.pause();
+            seekExact(Math.max(0, duration - END_HOLD_MS));
             return;
         }
         // Only when the target was never reached — which is exactly when the one-in-flight gate dropped
