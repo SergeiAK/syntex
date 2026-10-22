@@ -8664,15 +8664,162 @@ public class PlayerActivity extends Activity {
         updateMediaInfo();
     }
 
+    // The series' track picks — see TrackMemory. One file of preferences beside the main one, a value
+    // per series and track type. What has been applied is kept as the item's place and uri, so the many
+    // onTracksChanged of one item apply it once and the next episode applies it afresh.
+    private static final String TRACK_MEMORY_PREFS = "track_memory";
+    private String trackMemoryDoneFor;
+
+    @Nullable
+    private String currentSeriesKey() {
+        final MediaItem item = player == null ? null : player.getCurrentMediaItem();
+        if (item == null || item.localConfiguration == null) {
+            return null;
+        }
+        return TrackMemory.seriesKey(mediaIdAt(player.getCurrentMediaItemIndex()).tmdb,
+                item.localConfiguration.uri.toString());
+    }
+
+    private static int memoryKind(final int type, final Format format, @Nullable final String name) {
+        if (type == C.TRACK_TYPE_AUDIO) {
+            return (format.roleFlags & (C.ROLE_FLAG_COMMENTARY | C.ROLE_FLAG_DESCRIBES_VIDEO)) != 0
+                    ? TrackMemory.KIND_COMMENTARY : TrackMemory.KIND_MAIN;
+        }
+        if (ForcedSubtitles.isForced((format.selectionFlags & C.SELECTION_FLAG_FORCED) != 0, name)) {
+            return TrackMemory.KIND_FORCED;
+        }
+        return (format.roleFlags & C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND) != 0
+                ? TrackMemory.KIND_SDH : TrackMemory.KIND_MAIN;
+    }
+
+    /**
+     * The tracks of one type as the matching sees them; {@code groups} and {@code indices} are filled
+     * alongside with where each lives. Text skips what the picker skips — unsupported tracks, phantom
+     * captions, the second line's own track — so places count the way the viewer saw them.
+     */
+    private List<TrackMemory.Track> memoryTracks(final int type, final List<TrackGroup> groups,
+                                                 final List<Integer> indices) {
+        final List<TrackMemory.Track> tracks = new ArrayList<>();
+        if (player == null) {
+            return tracks;
+        }
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() != type) {
+                continue;
+            }
+            final TrackGroup trackGroup = group.getMediaTrackGroup();
+            for (int i = 0; i < group.length; i++) {
+                final Format format = trackGroup.getFormat(i);
+                if (type == C.TRACK_TYPE_TEXT && (!group.isTrackSupported(i)
+                        || isPhantomClosedCaption(format) || format.equals(secondaryTextTrack.get()))) {
+                    continue;
+                }
+                final String name = trackName(format);
+                tracks.add(new TrackMemory.Track(Utils.toIso3Language(format.language),
+                        memoryKind(type, format, name), name, tracks.size()));
+                groups.add(trackGroup);
+                indices.add(i);
+            }
+        }
+        return tracks;
+    }
+
+    /** A pick made by hand in the menu, kept for the series; a null group is subtitles off. */
+    private void rememberSeriesPick(final int type, @Nullable final TrackGroup group, final int index) {
+        final String key = currentSeriesKey();
+        if (key == null) {
+            return;
+        }
+        String value = TrackMemory.OFF;
+        if (group != null) {
+            final List<TrackGroup> groups = new ArrayList<>();
+            final List<Integer> indices = new ArrayList<>();
+            final List<TrackMemory.Track> tracks = memoryTracks(type, groups, indices);
+            value = null;
+            for (int i = 0; i < tracks.size(); i++) {
+                if (groups.get(i) == group && indices.get(i) == index) {
+                    value = TrackMemory.encode(tracks.get(i));
+                    break;
+                }
+            }
+            if (value == null) {
+                return;
+            }
+        }
+        getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE).edit()
+                .putString(key + (type == C.TRACK_TYPE_AUDIO ? "|audio" : "|text"), value).apply();
+        Utils.log("track memory: kept " + (type == C.TRACK_TYPE_AUDIO ? "audio " : "text ") + value);
+    }
+
+    /**
+     * Puts the series' picks on an episode once its tracks are known. The file's own remembered track
+     * wins on the file it was remembered for — the more particular answer — and a subtitle painted
+     * from a file is left alone.
+     */
+    private void applySeriesTracks() {
+        final MediaItem item = player == null ? null : player.getCurrentMediaItem();
+        if (item == null || item.localConfiguration == null
+                || player.getCurrentTracks().getGroups().isEmpty()) {
+            return;
+        }
+        final Uri uri = item.localConfiguration.uri;
+        final String done = player.getCurrentMediaItemIndex() + "#" + uri;
+        if (done.equals(trackMemoryDoneFor)) {
+            return;
+        }
+        trackMemoryDoneFor = done;
+        final String key = currentSeriesKey();
+        if (key == null) {
+            return;
+        }
+        final android.content.SharedPreferences memory =
+                getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE);
+        final boolean ownFile = uri.equals(mPrefs.mediaUri);
+        if (!(ownFile && mPrefs.audioTrackId != null)) {
+            final List<TrackGroup> groups = new ArrayList<>();
+            final List<Integer> indices = new ArrayList<>();
+            final int at = TrackMemory.match(memoryTracks(C.TRACK_TYPE_AUDIO, groups, indices),
+                    TrackMemory.decode(memory.getString(key + "|audio", null)));
+            if (at >= 0) {
+                Utils.log("track memory: audio " + at + " for " + key);
+                applyAudioTrack(groups.get(at), indices.get(at));
+            }
+        }
+        if (!(ownFile && mPrefs.subtitleTrackId != null) && paintedSubtitleUri == null) {
+            final String text = memory.getString(key + "|text", null);
+            if (TrackMemory.OFF.equals(text)) {
+                if (mainLineTrackSelected()) {
+                    Utils.log("track memory: subtitles off for " + key);
+                    disableSubtitles();
+                }
+            } else {
+                final List<TrackGroup> groups = new ArrayList<>();
+                final List<Integer> indices = new ArrayList<>();
+                final int at = TrackMemory.match(memoryTracks(C.TRACK_TYPE_TEXT, groups, indices),
+                        TrackMemory.decode(text));
+                if (at >= 0) {
+                    Utils.log("track memory: text " + at + " for " + key);
+                    applySubtitle(groups.get(at), indices.get(at));
+                }
+            }
+        }
+    }
+
     private void applyAudio(AudioChoice choice) {
-        if (player == null || choice == null || choice.group == null) {
+        if (choice == null) {
+            return;
+        }
+        applyAudioTrack(choice.group, choice.trackIndex);
+    }
+
+    private void applyAudioTrack(TrackGroup group, int index) {
+        if (player == null || group == null) {
             return;
         }
         player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                 .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-                .setOverrideForType(new TrackSelectionOverride(
-                        choice.group, Collections.singletonList(choice.trackIndex)))
+                .setOverrideForType(new TrackSelectionOverride(group, Collections.singletonList(index)))
                 .build());
     }
 
@@ -8696,7 +8843,10 @@ public class PlayerActivity extends Activity {
                 continue;
             }
             items.add(new Dialogs.MenuItem(choice.label, choice.detail, choice.selected,
-                    () -> applyAudio(choice)));
+                    () -> {
+                        applyAudio(choice);
+                        rememberSeriesPick(C.TRACK_TYPE_AUDIO, choice.group, choice.trackIndex);
+                    }));
             if (choice.selected) {
                 selectedLanguage = choice.language;
             }
@@ -9685,7 +9835,10 @@ public class PlayerActivity extends Activity {
             items.add(Dialogs.MenuItem.caption(getString(R.string.subtitle_main_title)));
         }
         items.add(new Dialogs.MenuItem(getString(R.string.subtitle_off), null, !textEnabled && !painting,
-                this::disableSubtitles));
+                () -> {
+                    disableSubtitles();
+                    rememberSeriesPick(C.TRACK_TYPE_TEXT, null, 0);
+                }));
         if (fileOnly != null) {
             // addSubtitleTrack rather than paintSubtitle: it carries the already-on-screen guard, so
             // tapping the ticked row costs nothing and tapping it after "off" puts the subtitle back.
@@ -9719,7 +9872,10 @@ public class PlayerActivity extends Activity {
                 // (SubtitleOffset drops the renderer's cues), and two ticked rows is a lie.
                 items.add(new Dialogs.MenuItem(text[0], text[1],
                         textEnabled && !painting && group.isTrackSelected(i),
-                        () -> applySubtitle(trackGroup, index)));
+                        () -> {
+                            applySubtitle(trackGroup, index);
+                            rememberSeriesPick(C.TRACK_TYPE_TEXT, trackGroup, index);
+                        }));
             }
         }
         // Last, and with no tick: it is an action rather than a track, so it sits under a rule of its
@@ -15247,6 +15403,8 @@ public class PlayerActivity extends Activity {
             // Before the search: a track whose name gives its language away answers what the search
             // would otherwise go looking for.
             selectSubtitleByName();
+            // After the automatic choices, so a pick made by hand in an earlier episode beats them.
+            applySeriesTracks();
             // What the first line is showing right now, before anything below can cost it that.
             rememberMainLineTrack();
             // The second line's renderer is turned on here rather than where the track is picked: the
