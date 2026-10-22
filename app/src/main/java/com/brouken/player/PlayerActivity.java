@@ -1180,6 +1180,8 @@ public class PlayerActivity extends Activity {
     long[] apiPlaylistPositions;
     // The PendingIntent a `playlist` launch asked to be answered through (result_callback); null otherwise.
     Parcelable apiPlaylistResultCallback;
+    // What a `playlist` launch is answered with (section 7 of the contract); null for any other launch.
+    PlaylistReport apiPlaylistReport;
     // Episode metadata received via the launch Intent (from LAMPA, com.justplus.player branch). Stored for
     // now; not consumed yet. apiSeason/apiEpisode are -1 when absent; the per-item lists hold null.
     int apiSeason = -1;
@@ -1588,6 +1590,7 @@ public class PlayerActivity extends Activity {
             videoFreezeTick();
             // And for the same reason on the same tick: what a launcher gets back is what played.
             rememberReport();
+            notePlaylistProgress();
             if (player != null && player.isPlaying()) {
                 playerView.postDelayed(this, SKIP_POLL_INTERVAL_MS);
             }
@@ -3195,6 +3198,8 @@ public class PlayerActivity extends Activity {
         if (handedOver) {
             return;
         }
+        // Every leave and every stop but a recreate (screen off, Home, Back, the task swiped away).
+        sendPlaylistReport();
         // With no session worth keeping (leaving for good, or nothing loaded) tear down as before —
         // the empty state and its pulse are only ever (re)built by initializePlayer.
         if (isFinishing() || player == null || !haveMedia) {
@@ -3327,6 +3332,12 @@ public class PlayerActivity extends Activity {
         }
         state.putLongArray("episodePositions", apiPlaylistPositions);
         state.putInt("stickyQuality", stickyQualityLines);
+        if (apiPlaylistReport != null) {
+            notePlaylistProgress();
+            state.putLongArray("playlistReport", apiPlaylistReport.save());
+            state.putString("playlistReportUri", apiPlaylistReport.uri());
+            state.putString("playlistReportError", apiPlaylistReport.errorMessage());
+        }
         state.putString("audioTrack", mPrefs.audioTrackId);
         state.putString("subtitleTrack", mPrefs.subtitleTrackId);
         state.putInt("aspectClass", mPrefs.aspectClass);
@@ -3372,6 +3383,14 @@ public class PlayerActivity extends Activity {
             apiPlaylistPositions = episodePositions;
         }
         stickyQualityLines = state.getInt("stickyQuality");
+        if (apiPlaylistReport != null) {
+            final PlaylistReport report = PlaylistReport.restore(state.getLongArray("playlistReport"),
+                    apiMediaItems.size(), state.getString("playlistReportUri"),
+                    state.getString("playlistReportError"));
+            if (report != null) {
+                apiPlaylistReport = report;
+            }
+        }
         // Both are memory-only writes here; initializePlayer re-asserts the track ids on the fresh player
         // and takes the position as the start position of its media item.
         // The shape first: updateMeta records the frame mode against it, and the next video size to
@@ -3493,7 +3512,10 @@ public class PlayerActivity extends Activity {
 
     @Override
     public void finish() {
-        if (intentReturnResult) {
+        if (apiPlaylistReport != null) {
+            notePlaylistProgress();
+            setResult(Activity.RESULT_OK, playlistResult(apiPlaylistReport.snapshot()));
+        } else if (intentReturnResult) {
             Intent intent = new Intent("com.mxtech.intent.result.VIEW");
             // Report which item finished so the launcher can attribute the position to the
             // correct playlist entry (and mark preceding ones watched), not just the launched one.
@@ -3703,6 +3725,7 @@ public class PlayerActivity extends Activity {
         }
         apiPlaylistStartIndex = request.startIndex;
         apiExtrasIndex = request.startIndex;
+        apiPlaylistReport = new PlaylistReport(size, request.startIndex);
         final PlaylistRequest.Item start = request.items.get(request.startIndex);
         apiSeason = start.season != null ? start.season : -1;
         apiEpisode = start.episode != null ? start.episode : -1;
@@ -3747,6 +3770,94 @@ public class PlayerActivity extends Activity {
             }
         }
         finish();
+    }
+
+    /** The item playing now into the playlist report, once it has really started (ready, or past 0). */
+    private void notePlaylistProgress() {
+        if (apiPlaylistReport == null || player == null || !haveMedia) {
+            return;
+        }
+        final int state = player.getPlaybackState();
+        if (state != Player.STATE_READY
+                && !(state == Player.STATE_BUFFERING && player.getCurrentPosition() > 0)) {
+            return;
+        }
+        final int index = player.getCurrentMediaItemIndex();
+        if (index < 0 || index >= apiMediaItems.size()) {
+            return;
+        }
+        final long duration = player.getDuration();
+        final Uri uri = currentMediaUri();
+        apiPlaylistReport.playing(index, uri != null ? uri.toString() : null,
+                player.isCurrentMediaItemSeekable() ? player.getCurrentPosition() : 0,
+                duration != C.TIME_UNSET ? duration : -1, System.currentTimeMillis() / 1000);
+    }
+
+    /** Playback stopped on an error the viewer was shown as {@code text}; it clears once something plays. */
+    private void notePlaylistFailure(final String text) {
+        if (apiPlaylistReport == null) {
+            return;
+        }
+        notePlaylistProgress();
+        final int index = player != null ? player.getCurrentMediaItemIndex() : apiPlaylistStartIndex;
+        final Uri uri = currentMediaUri();
+        apiPlaylistReport.failed(index, uri != null ? uri.toString() : null, text);
+    }
+
+    /** The session so far to the caller's result_callback; a snapshot the same as the last is not resent. */
+    private void sendPlaylistReport() {
+        if (apiPlaylistReport == null || !(apiPlaylistResultCallback instanceof PendingIntent)) {
+            return;
+        }
+        notePlaylistProgress();
+        final PlaylistReport.Snapshot snapshot = apiPlaylistReport.snapshotToSend();
+        if (snapshot == null) {
+            return;
+        }
+        try {
+            // Sent as fillIn: the caller's action, component and own extras stay, ours only add to them.
+            ((PendingIntent) apiPlaylistResultCallback).send(this, 0, playlistResult(snapshot));
+        } catch (PendingIntent.CanceledException ignored) {
+            // The caller is gone; setResult is all that is left.
+        }
+    }
+
+    /** Section 7.2 in the shell's scope, every time as both _sec and _ms. */
+    private Intent playlistResult(final PlaylistReport.Snapshot snapshot) {
+        final Intent result = new Intent(getPackageName() + ".result")
+                .putExtra("uri", snapshot.uri)
+                .putExtra("index", snapshot.index)
+                .putExtra("position_sec", (int) (snapshot.positionMs / 1000))
+                .putExtra("position_ms", snapshot.positionMs)
+                .putExtra("duration_sec", (int) (snapshot.durationMs / 1000))
+                .putExtra("duration_ms", snapshot.durationMs)
+                .putExtra("end_by", snapshot.endBy);
+        if (snapshot.uri != null) {
+            result.setData(Uri.parse(snapshot.uri));
+        }
+        final int[] positionsSec = new int[snapshot.positionsMs.length];
+        for (int i = 0; i < positionsSec.length; i++) {
+            positionsSec[i] = snapshot.positionsMs[i] < 0 ? -1 : (int) (snapshot.positionsMs[i] / 1000);
+        }
+        result.putExtra("positions_sec", positionsSec).putExtra("positions_ms", snapshot.positionsMs);
+        if (snapshot.errorMessage != null) {
+            result.putExtra("error_message", snapshot.errorMessage);
+        }
+        final Bundle[] history = new Bundle[snapshot.history.size()];
+        for (int i = 0; i < history.length; i++) {
+            final PlaylistReport.Visit visit = snapshot.history.get(i);
+            final Bundle entry = new Bundle();
+            entry.putInt("index", visit.index);
+            entry.putLong("started_at", visit.startedAtSec);
+            entry.putLong("ended_at", visit.endedAtSec);
+            entry.putInt("position_sec", (int) (visit.positionMs / 1000));
+            entry.putLong("position_ms", visit.positionMs);
+            entry.putInt("duration_sec", visit.durationMs < 0 ? -1 : (int) (visit.durationMs / 1000));
+            entry.putLong("duration_ms", visit.durationMs);
+            history[i] = entry;
+        }
+        result.putExtra("history", history);
+        return result;
     }
 
     /** As readQualityMap: from the highest resolution down, whatever order the sender used. */
@@ -4499,6 +4610,9 @@ public class PlayerActivity extends Activity {
     }
 
     void resetApiAccess() {
+        // A new launch replacing the session: the old session's callback hears how it ended (section 8).
+        sendPlaylistReport();
+        apiPlaylistReport = null;
         apiAccess = false;
         apiAccessPartial = false;
         intentReturnResult = false;
@@ -14601,6 +14715,10 @@ public class PlayerActivity extends Activity {
 
         @Override
         public void onMediaItemTransition(MediaItem mediaItem, int reason) {
+            // apiPlaylistStartIndex still names the item being left; an auto-advance means it played out.
+            if (apiPlaylistReport != null && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                apiPlaylistReport.ended(apiPlaylistStartIndex, System.currentTimeMillis() / 1000);
+            }
             // The link rides the trace so the app log names the file too, masked as the setting says.
             Utils.log("item transition reason=" + reason
                     + (player != null ? " index=" + player.getCurrentMediaItemIndex() : "")
@@ -15031,6 +15149,10 @@ public class PlayerActivity extends Activity {
             } else if (state == Player.STATE_ENDED && haveMedia) {
                 cancelLoadWatchdog();
                 playbackFinished = true;
+                if (apiPlaylistReport != null) {
+                    apiPlaylistReport.completed(player.getCurrentMediaItemIndex(),
+                            System.currentTimeMillis() / 1000);
+                }
                 // A single item, or the last of a playlist, ends here rather than in an end-of-item pause.
                 if (sleepAtEndOfItem) {
                     fireSleepTimer();
@@ -17017,6 +17139,7 @@ public class PlayerActivity extends Activity {
     // What stays usable is everything that never needed the player — the volume/brightness gestures, the
     // gear (and the settings screen behind it) and the playlist, if there is one to step through.
     private void stopWithMessage(final String text, final String details) {
+        notePlaylistFailure(text);
         showSnack(text, details);
         releasePlayer(false);
         playerView.setPlayer(null);
@@ -17527,6 +17650,7 @@ public class PlayerActivity extends Activity {
         // Every full-screen report from the player passes through here, so this is the one place that has
         // to keep the next resume from walking straight back into the failure (see the field's comment).
         heldAfterError = mPrefs.mediaUri;
+        notePlaylistFailure(summary);
         // Most callers release the player straight after, and onPause would then find nothing to save:
         // the clip has to come back where it failed, not where it was last saved. Only the position: the
         // renderers are down by now, so the tracks would be remembered as none.
