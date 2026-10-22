@@ -93,6 +93,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.window.OnBackInvokedDispatcher;
 
 import androidx.annotation.NonNull;
@@ -1144,6 +1145,8 @@ public class PlayerActivity extends Activity {
     static final String API_VIDEO_LIST_IMDB_ID = "video_list.imdb_id";
     static final String API_VIDEO_LIST_ID = "video_list.id";
     static final String API_VIDEO_LIST_SUBTITLES = "video_list.subtitles";
+    // The nested contract of Just+ 2.1.1+, which LAMPA's shell sends from 1.13.3 on: see PlaylistRequest.
+    static final String API_PLAYLIST = PlaylistRequest.EXTRA;
     static final String API_SEASON = "season";
     static final String API_EPISODE = "episode";
     static final String API_IMDB_ID = "imdb_id";
@@ -1175,6 +1178,8 @@ public class PlayerActivity extends Activity {
     // playlist item aligned by index; null when there is no playlist. Kept off the player so it survives
     // an onStop/release rebuild. See onPositionDiscontinuity()/savePlayer().
     long[] apiPlaylistPositions;
+    // The PendingIntent a `playlist` launch asked to be answered through (result_callback); null otherwise.
+    Parcelable apiPlaylistResultCallback;
     // Episode metadata received via the launch Intent (from LAMPA, com.justplus.player branch). Stored for
     // now; not consumed yet. apiSeason/apiEpisode are -1 when absent; the per-item lists hold null.
     int apiSeason = -1;
@@ -1679,7 +1684,8 @@ public class PlayerActivity extends Activity {
                     resumeStart = ResumePolicy.Start.OPEN;
                 }
             }
-        } else if (launchIntent.getData() != null) {
+        } else if (launchIntent.getData() != null || launchIntent.hasExtra(API_PLAYLIST)) {
+            // A playlist launch may leave the data out: what plays is named inside the playlist.
             handleViewIntent(launchIntent);
         } else if (inheritedIntent != null && inheritedIntent.getData() != null) {
             // The icon was tapped while a session was playing. The screen that owned it cannot be brought
@@ -3537,10 +3543,15 @@ public class PlayerActivity extends Activity {
         resetApiAccess();
         final Uri uri = intent.getData();
         final String type = intent.getType();
+        final Bundle extras = intent.getExtras();
+        if (extras != null && extras.containsKey(API_PLAYLIST)) {
+            handlePlaylistIntent(extras, type);
+            return;
+        }
         if (SubtitleUtils.isSubtitle(uri, type)) {
             handleSubtitles(uri);
         } else {
-            Bundle bundle = intent.getExtras();
+            Bundle bundle = extras;
             if (bundle != null) {
                 apiAccess = bundle.containsKey(API_POSITION) || bundle.containsKey(API_RETURN_RESULT)
                         || bundle.containsKey(API_SUBS) || bundle.containsKey(API_SUBS_ENABLE)
@@ -3616,6 +3627,139 @@ public class PlayerActivity extends Activity {
         checkRoomMedia(false, false);
     }
 
+    /**
+     * A launch with the nested {@code playlist} extra. What plays is {@code items[start_index]}; the
+     * intent's data is informational and is not read. The request is laid out into the same session
+     * fields a {@code video_list} launch fills, so everything downstream of the intent stays one path.
+     */
+    private void handlePlaylistIntent(final Bundle extras, final String type) {
+        final Bundle playlist = extras.getBundle(API_PLAYLIST);
+        final PlaylistRequest request = PlaylistRequest.read(playlist != null ? playlist : new Bundle());
+        if (request.error != null) {
+            refusePlaylist(request);
+            return;
+        }
+        apiAccess = true;
+        mPrefs.setPersistent(false);
+        // Every playlist launch is answered; the caller reads it from the result or its callback.
+        intentReturnResult = true;
+        apiTitle = Utils.unescapeHtml(request.title);
+        apiHeaders = request.headers;
+        apiPlaylistResultCallback = request.resultCallback;
+
+        apiMediaItems.clear();
+        apiPlaylistSegments.clear();
+        apiPlaylistSeasons.clear();
+        apiPlaylistEpisodes.clear();
+        apiPlaylistNames.clear();
+        apiPlaylistImdbIds.clear();
+        apiPlaylistTmdbIds.clear();
+        apiPlaylistQuality.clear();
+        final int size = request.items.size();
+        apiPlaylistPositions = new long[size];
+        for (int i = 0; i < size; i++) {
+            final PlaylistRequest.Item item = request.items.get(i);
+            final String title = Utils.unescapeHtml(request.displayTitle(i));
+            final MediaMetadata.Builder metadata = new MediaMetadata.Builder();
+            if (title != null) {
+                metadata.setTitle(title).setDisplayTitle(title);
+            }
+            if (item.thumbnail != null) {
+                metadata.setArtworkUri(Uri.parse(item.thumbnail));
+            }
+            final MediaItem.Builder builder = new MediaItem.Builder()
+                    .setUri(Uri.parse(item.uri))
+                    .setMediaMetadata(metadata.build());
+            final List<MediaItem.SubtitleConfiguration> subs = new ArrayList<>();
+            for (PlaylistRequest.Subtitle subtitle : item.subtitles) {
+                MediaItem.SubtitleConfiguration configuration = SubtitleUtils.buildSubtitle(this,
+                        Uri.parse(subtitle.uri), subtitle.label, subtitle.selected);
+                // The sender's word over the guess from the file name.
+                if (subtitle.language != null || subtitle.mime != null) {
+                    final MediaItem.SubtitleConfiguration.Builder named = configuration.buildUpon();
+                    if (subtitle.language != null) {
+                        named.setLanguage(subtitle.language);
+                    }
+                    if (subtitle.mime != null) {
+                        named.setMimeType(subtitle.mime);
+                    }
+                    configuration = named.build();
+                }
+                subs.add(configuration);
+            }
+            if (!subs.isEmpty()) {
+                builder.setSubtitleConfigurations(subs);
+            }
+            apiMediaItems.add(builder.build());
+            apiPlaylistSegments.add(item.segments);
+            apiPlaylistSeasons.add(item.season);
+            apiPlaylistEpisodes.add(item.episode);
+            apiPlaylistNames.add(item.episodeTitle != null ? item.episodeTitle : item.title);
+            apiPlaylistImdbIds.add(item.imdbId);
+            apiPlaylistTmdbIds.add(item.tmdbId);
+            apiPlaylistQuality.add(sortedQualities(item.qualities));
+            // A jump to another item from the playlist panel starts where the caller says it was left.
+            apiPlaylistPositions[i] = item.positionMs != null ? item.positionMs : C.TIME_UNSET;
+        }
+        apiPlaylistStartIndex = request.startIndex;
+        apiExtrasIndex = request.startIndex;
+        final PlaylistRequest.Item start = request.items.get(request.startIndex);
+        apiSeason = start.season != null ? start.season : -1;
+        apiEpisode = start.episode != null ? start.episode : -1;
+        apiImdbId = start.imdbId;
+        apiTmdbId = start.tmdbId;
+        apiSegments = start.segments;
+        if (start.thumbnail != null) {
+            apiThumbnailUri = Uri.parse(start.thumbnail);
+        }
+
+        mPrefs.updateMedia(this, Uri.parse(start.uri), type);
+        if (start.positionMs != null) {
+            mPrefs.updatePosition(start.positionMs);
+        }
+        searchSubtitles();
+        // The viewer's own resume setting does not apply to a playlist: the caller's position is taken as
+        // it is, and without one the item resumes where this player left it.
+        resumeStart = null;
+        focusPlay = true;
+        checkRoomMedia(false, false);
+    }
+
+    /**
+     * Section 6.3 of the contract: a short message, nothing played, and the answer at once — to the
+     * caller's result and its callback. Under the old api the caller got a silent black screen instead.
+     */
+    private void refusePlaylist(final PlaylistRequest request) {
+        Toast.makeText(this, getString(R.string.error_playlist_refused), Toast.LENGTH_LONG).show();
+        final Intent result = new Intent(getPackageName() + ".result")
+                .putExtra("index", -1)
+                .putExtra("end_by", "error")
+                .putExtra("error_message", request.error)
+                .putExtra("positions_sec", new int[0])
+                .putExtra("positions_ms", new long[0])
+                .putExtra("history", new Bundle[0]);
+        setResult(Activity.RESULT_OK, result);
+        if (request.resultCallback instanceof PendingIntent) {
+            try {
+                ((PendingIntent) request.resultCallback).send(this, 0, result);
+            } catch (PendingIntent.CanceledException ignored) {
+                // The caller is gone; the result above is all that is left to answer.
+            }
+        }
+        finish();
+    }
+
+    /** As readQualityMap: from the highest resolution down, whatever order the sender used. */
+    private static LinkedHashMap<String, String> sortedQualities(final LinkedHashMap<String, String> sent) {
+        final List<Map.Entry<String, String>> entries = new ArrayList<>(sent.entrySet());
+        Collections.sort(entries, (a, b) -> Integer.compare(qualityNumber(b.getKey()), qualityNumber(a.getKey())));
+        final LinkedHashMap<String, String> map = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : entries) {
+            map.put(entry.getKey(), entry.getValue());
+        }
+        return map;
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -3630,11 +3774,14 @@ public class PlayerActivity extends Activity {
 
             if (handleRoomIntent(intent)) {
                 // An invite link carries only a room code; what to play arrives over its channel.
-            } else if (Intent.ACTION_VIEW.equals(action) && uri != null) {
+            } else if (Intent.ACTION_VIEW.equals(action) && (uri != null || intent.hasExtra(API_PLAYLIST))) {
                 // Keep getIntent() pointing at what is actually playing (used by the intent report).
                 setIntent(intent);
                 handleViewIntent(intent);
-                initializePlayer();
+                // A refused playlist has already answered and is closing the player.
+                if (!isFinishing()) {
+                    initializePlayer();
+                }
             } else if (Intent.ACTION_SEND.equals(action) && "text/plain".equals(type)) {
                 String text = intent.getStringExtra(Intent.EXTRA_TEXT);
                 if (text != null) {
@@ -4367,6 +4514,7 @@ public class PlayerActivity extends Activity {
         apiPlaylistStartIndex = 0;
         apiExtrasIndex = 0;
         apiPlaylistPositions = null;
+        apiPlaylistResultCallback = null;
         resolvedMediaTypes.clear();
         apiSeason = -1;
         apiEpisode = -1;
