@@ -648,6 +648,7 @@
     </plurals>
     <string name="pref_audio_sync">Audio delay</string>
     <string name="pref_audio_sync_passthrough">Audio delay over pass-through</string>
+    <string name="audio_sync_ms">%1$s ms</string>
     <string name="pref_section_display">Display mode</string>
     <string name="pref_reset_section">Reset this section</string>
     <string name="pref_reset_all">Reset all settings</string>

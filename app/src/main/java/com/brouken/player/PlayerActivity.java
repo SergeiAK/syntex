@@ -1278,6 +1278,9 @@ public class PlayerActivity extends Activity {
      */
     private static final double SUBTITLE_OFFSET_MAX_SEC = 180;
     private static final double OFFSET_STEP_SEC = 0.25; // fine step (± buttons / D-pad)
+    // The audio delay: the settings list's own reach, in a step fine enough for lips.
+    private static final double AUDIO_SYNC_MAX_SEC = 1.5;
+    private static final double AUDIO_SYNC_STEP_SEC = 0.05;
     // Subtitle timing offset (seconds, positive = subtitles later) — session-only like the skip offset
     // above. Applied by SubtitleOffsetRenderer, which is rebuilt with the player and re-seeded from here.
     private double subtitleOffsetSec = 0;
@@ -11613,7 +11616,22 @@ public class PlayerActivity extends Activity {
         }
     }
 
-    /** What is on, in the words of the panel; null when both are off, like any row at rest. */
+    /** The delay of the route playing now, in milliseconds. */
+    private int audioSyncMs() {
+        return audioSink != null && audioSink.isPassthrough()
+                ? mPrefs.audioPassthroughSyncMs : mPrefs.audioSyncMs;
+    }
+
+    /** Moves the delay of the route playing now, live and for good. */
+    private void applyAudioSync(final double sec) {
+        final boolean passthrough = audioSink != null && audioSink.isPassthrough();
+        mPrefs.updateAudioSync(passthrough, (int) Math.round(sec * 1000));
+        if (audioSink != null) {
+            audioSink.setSyncMs(mPrefs.audioSyncMs, mPrefs.audioPassthroughSyncMs);
+        }
+    }
+
+    /** What is on, in the words of the panel; null when nothing is, like any row at rest. */
     private String soundSummary() {
         final List<String> on = new ArrayList<>();
         if (dynamicRangeOn()) {
@@ -11621,6 +11639,10 @@ public class PlayerActivity extends Activity {
         }
         if (centreBoostOn()) {
             on.add(getString(R.string.sound_summary_centre_boost));
+        }
+        final int syncMs = audioSyncMs();
+        if (syncMs != 0) {
+            on.add(OffsetPanel.format(this, syncMs / 1000.0));
         }
         return on.isEmpty() ? null : TextUtils.join(" · ", on);
     }
@@ -11641,6 +11663,7 @@ public class PlayerActivity extends Activity {
             soundDialog.dismiss();
         }
         soundDialog = OffsetPanel.create(this, ui, getString(R.string.sound_session_title),
+                AUDIO_SYNC_MAX_SEC, AUDIO_SYNC_STEP_SEC, new OffsetPanel.Toggle[]{
                 soundToggle(R.string.pref_dynamic_range, R.string.pref_dynamic_range_on,
                         R.string.pref_dynamic_range_off, dynamicRangeOn(), mPrefs.dynamicRange,
                         value -> {
@@ -11652,7 +11675,13 @@ public class PlayerActivity extends Activity {
                         value -> {
                             centreBoostSession = value;
                             applySoundSession();
-                        }));
+                        })},
+                // The delay of the route playing now, and kept: a late sound is a fact about the
+                // television or the receiver, not about this film. Named after the route, since the
+                // settings keep one value for each and this moves only one of them.
+                new OffsetPanel.Line(getString(audioSink != null && audioSink.isPassthrough()
+                        ? R.string.pref_audio_sync_passthrough : R.string.pref_audio_sync),
+                        audioSyncMs() / 1000.0, this::applyAudioSync));
         showPickerDialog(soundDialog);
     }
 
@@ -12842,8 +12871,11 @@ public class PlayerActivity extends Activity {
         // A negative value holds the first picture for its own length. That is what asking for the sound
         // early means, not a bug to clamp away: the renderer position starts around 1e12 microseconds
         // (the period offset), so nothing here can reach zero to be clamped in the first place.
-        private final long decodedOffsetUs;
-        private final long passthroughOffsetUs;
+        //
+        // Volatile and settable: the sound panel moves them mid-film, read on the playback thread on the
+        // next position query, so the picture slides into the new place without a rebuild.
+        private volatile long decodedOffsetUs;
+        private volatile long passthroughOffsetUs;
 
         AudioPassthroughDenylistSink(AudioSink sink, Set<String> initiallyDenied, boolean forceDecode,
                                      int decodedSyncMs, int passthroughSyncMs) {
@@ -12878,6 +12910,11 @@ public class PlayerActivity extends Activity {
 
         boolean isPassthrough() {
             return passthrough;
+        }
+
+        void setSyncMs(int decodedSyncMs, int passthroughSyncMs) {
+            decodedOffsetUs = decodedSyncMs * 1000L;
+            passthroughOffsetUs = passthroughSyncMs * 1000L;
         }
 
         @Override

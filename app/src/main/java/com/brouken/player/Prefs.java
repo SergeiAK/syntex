@@ -1245,6 +1245,21 @@ class Prefs {
         editor.apply();
     }
 
+    /**
+     * The delay set from the player's sound panel, for the route it was set on. Written as a string,
+     * like the list on the settings screen writes it — a value between the list's steps is still read
+     * back, and the screen names it in milliseconds.
+     */
+    public void updateAudioSync(final boolean passthrough, final int ms) {
+        if (passthrough) {
+            this.audioPassthroughSyncMs = ms;
+        } else {
+            this.audioSyncMs = ms;
+        }
+        mSharedPreferences.edit().putString(passthrough ? PREF_KEY_AUDIO_PASSTHROUGH_SYNC_MS
+                : PREF_KEY_AUDIO_SYNC_MS, String.valueOf(ms)).apply();
+    }
+
     public void updateBrightness(final int brightness) {
         if (brightness >= -1) {
             this.brightness = brightness;

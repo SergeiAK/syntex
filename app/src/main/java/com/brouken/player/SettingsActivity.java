@@ -519,6 +519,22 @@ public class SettingsActivity extends AppCompatActivity
                     return true;
                 });
             }
+            // The player's sound panel moves these in steps of 50 ms, and a value between the list's
+            // steps would leave the simple summary blank: such a one is named in milliseconds.
+            for (final String key : new String[]{"audioSyncMs", "audioPassthroughSyncMs"}) {
+                final ListPreference sync = findPreference(key);
+                if (sync != null) {
+                    sync.setSummaryProvider(preference -> {
+                        final CharSequence entry = sync.getEntry();
+                        if (entry != null) {
+                            return entry;
+                        }
+                        final String value = sync.getValue();
+                        return value == null ? null : getString(R.string.audio_sync_ms,
+                                value.startsWith("-") || "0".equals(value) ? value : "+" + value);
+                    });
+                }
+            }
             final androidx.preference.EditTextPreference preferencePassword =
                     findPreference("togetherPassword");
             if (preferencePassword != null) {

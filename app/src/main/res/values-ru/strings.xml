@@ -563,6 +563,7 @@
     <string name="browse_place_rename">Переименовать</string>
     <string name="pref_audio_sync">Задержка звука</string>
     <string name="pref_audio_sync_passthrough">Задержка звука при прямой передаче</string>
+    <string name="audio_sync_ms">%1$s мс</string>
     <string name="pref_screen_orientation">Ориентация экрана</string>
     <string name="pref_back_buffer">Держать проигранное для шага назад</string>
     <string name="pref_back_buffer_summary">%s. Держится в памяти для короткой перемотки, около 10 МБ на пять секунд. Не для локальных файлов</string>

@@ -176,7 +176,7 @@ final class OffsetPanel {
     static Dialog create(final Activity activity, final UiMetrics ui,
                          final String title, final double maxSec,
                          final double stepSec, final Line... lines) {
-        return create(activity, ui, title, maxSec, stepSec, null, lines);
+        return create(activity, ui, title, maxSec, stepSec, (Choice[]) null, lines);
     }
 
     /**
@@ -192,6 +192,13 @@ final class OffsetPanel {
     static Dialog create(final Activity activity, final UiMetrics ui, final String title,
                          final Toggle... toggles) {
         return create(activity, ui, title, 0, 1, null, toggles);
+    }
+
+    /** Switches above sliders: the session's answers, then what is nudged. */
+    static Dialog create(final Activity activity, final UiMetrics ui, final String title,
+                         final double maxSec, final double stepSec, final Toggle[] toggles,
+                         final Line... lines) {
+        return create(activity, ui, title, maxSec, stepSec, null, toggles, lines);
     }
 
     private static Dialog create(final Activity activity, final UiMetrics ui,
