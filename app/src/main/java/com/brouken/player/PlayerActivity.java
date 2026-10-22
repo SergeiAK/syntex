@@ -1620,6 +1620,7 @@ public class PlayerActivity extends Activity {
         // carries a session across an activity kill.
         Intent inheritedIntent = null;
         Bundle inheritedState = null;
+        boolean continuesInherited = false;
         if (live != null && live != this && !live.isFinishing()) {
             inheritedIntent = live.getIntent();
             inheritedState = new Bundle();
@@ -1700,6 +1701,7 @@ public class PlayerActivity extends Activity {
             setIntent(inheritedIntent);
             handleViewIntent(inheritedIntent);
             resumeStart = null;
+            continuesInherited = true;
         } else if (isLauncherStart(launchIntent)) {
             // Nothing came in — a launcher start opens on the empty state instead of resuming
             // whatever was last watched. Only a launcher start: every other way an activity is handed a
@@ -1707,7 +1709,11 @@ public class PlayerActivity extends Activity {
             mPrefs.suppressResume = true;
         }
         // After the intent, so a session being restored wins over the launch extras it was started with.
-        restoreApiSession(savedInstanceState != null ? savedInstanceState : inheritedState);
+        // The inherited state only when that session is what goes on here: a launch with media of its own
+        // (another app's task, so a new screen rather than onNewIntent) is a new session, and the old one's
+        // place, index and report journal would land on it.
+        restoreApiSession(savedInstanceState != null ? savedInstanceState
+                : continuesInherited ? inheritedState : null);
         if (savedInstanceState != null) {
             // The same intent handed back to an activity the system recreated: a return, not an opening.
             resumeStart = null;
@@ -3415,6 +3421,10 @@ public class PlayerActivity extends Activity {
      */
     private void handOver() {
         handedOver = true;
+        // onStop skips everything after a hand-over, the report too: the caller of this session hears
+        // now, while the player is still ours. A session carried on by the new screen reports again from
+        // there; a repeat is harmless (contract section 8).
+        sendPlaylistReport();
         finish();
         releasePlayer(true);
     }
