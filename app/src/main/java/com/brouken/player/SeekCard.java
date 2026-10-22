@@ -176,7 +176,8 @@ final class SeekCard extends LinearLayout {
             back = deltaMs < 0;
         }
         shownTargetMs = targetMs;
-        final String delta = Utils.formatMilisSign(deltaMs);
+        final CharSequence delta = rate == null ? Utils.formatMilisSign(deltaMs)
+                : Utils.formatMilisSign(deltaMs) + " " + rate;
         final CharSequence target = targetText.of(back);
         final CharSequence first = back ? target : delta;
         final CharSequence second = back ? delta : target;
@@ -185,6 +186,14 @@ final class SeekCard extends LinearLayout {
         right.setText(second);
         right.setVisibility(second != null ? VISIBLE : GONE);
         icon.setImageResource(back ? R.drawable.ic_rewind_24dp : R.drawable.ic_fast_forward_24dp);
+    }
+
+    /** The speed a gliding mark moves at, shown after the offset; null for none (see PlayerActivity.glideKey). */
+    @Nullable
+    private CharSequence rate;
+
+    void setRate(@Nullable final CharSequence rate) {
+        this.rate = rate;
     }
 
     void hide() {

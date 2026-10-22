@@ -373,4 +373,55 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         super.onTouchEvent(down);
         down.recycle();
     }
+
+    // ---- The seek trial: a D-pad scrub that waits for OK (Prefs.seekConfirmOk) ----------------------
+
+    private boolean holdForOk;
+
+    /** While on, a D-pad scrub does not end on the base class's own timeout: OK lands it, Back cancels it. */
+    void holdForOk(final boolean hold) {
+        holdForOk = hold;
+    }
+
+    @Override
+    public boolean onKeyDown(final int keyCode, final android.view.KeyEvent event) {
+        final boolean handled = super.onKeyDown(keyCode, event);
+        if (handled && holdForOk && (keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT
+                || keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            // Posted by the base class a moment ago; private there, so taken back by reflection.
+            final Runnable stop = baseField("stopScrubbingRunnable", Runnable.class);
+            if (stop != null) {
+                removeCallbacks(stop);
+            }
+        }
+        return handled;
+    }
+
+    /** Ends a scrub in progress as canceled; false when there was none to end. */
+    boolean cancelKeyScrub() {
+        if (!scrubbingNow) {
+            return false;
+        }
+        try {
+            final java.lang.reflect.Method stop = DefaultTimeBar.class.getDeclaredMethod("stopScrubbing", boolean.class);
+            stop.setAccessible(true);
+            stop.invoke(this, true);
+            return true;
+        } catch (ReflectiveOperationException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    @Nullable
+    private <T> T baseField(final String name, final Class<T> type) {
+        try {
+            final Field field = DefaultTimeBar.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return type.cast(field.get(this));
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
 }

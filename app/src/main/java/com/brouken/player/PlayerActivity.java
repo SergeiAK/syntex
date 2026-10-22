@@ -1031,6 +1031,19 @@ public class PlayerActivity extends Activity {
     // picture does not start jumping again when a reversal drops the ladder back to 3 s.
     private boolean keyScrubPreview;
     private static final long KEY_PREVIEW_STEP_MS = 30_000;
+    // The seek trial (Prefs.seekPauseWhileAiming): the film was playing when the card took over, so the
+    // landing - or Back - starts it again.
+    private boolean keyScrubResume;
+    // The seek trial's gliding mark (Prefs.seekHoldGlides): a hold sets the target moving on its own, as
+    // Plex does - 1, 2, 4, 8 minutes of film a second. It stays open until OK or Back, whatever the
+    // landing setting says: there is no moment at which a moving mark has been "let go of".
+    private static final long[] GLIDE_MS_PER_S = {60_000, 120_000, 240_000, 480_000};
+    private static final long GLIDE_TICK_MS = 100;
+    private boolean glideOpen;
+    private int glideTier = -1;           // -1 = standing
+    private boolean glideForward;
+    private long glideTickAt;
+    private final Runnable glideTick = this::glideTick;
     // A passthrough AudioTrack that has been paused and resumed comes back silent on a fair number of TVs
     // and receivers: the bitstream still leaves the box but nothing downstream re-locks onto it. Video keeps
     // playing and the position keeps advancing, so nothing in Media3 (nor recoverByRevokingAudioMime) ever
@@ -1808,9 +1821,13 @@ public class PlayerActivity extends Activity {
                 // With a trickplay set the card shows where the scrub is, so the film need not stop to show it:
                 // it plays on, and the one jump is the stop's. Without one, the live picture is the preview,
                 // and that needs the pause.
-                scrubPreview = trickplay != null && mPrefs.seekPreview;
+                // Frames from the file count as a set here; a card without a frame does not - the bar
+                // has its own picture to aim by, the live one (and the seek trial's "live" is that too).
+                scrubPreview = mPrefs.seekPreview && (trickplay != null
+                        || Prefs.SEEK_WITHOUT_SET_FRAMES.equals(mPrefs.seekWithoutSet));
                 scrubPreviewLast = position;
-                restorePlayState = !scrubPreview && player.isPlaying();
+                restorePlayState = (!scrubPreview || mPrefs.seekPauseWhileAiming) && player.isPlaying();
+                PlayerActivity.this.timeBar.holdForOk(mPrefs.seekConfirmOk);
                 if (restorePlayState) {
                     player.pause();
                 }
@@ -1832,6 +1849,7 @@ public class PlayerActivity extends Activity {
             public void onScrubStop(TimeBar timeBar, long position, boolean canceled) {
                 playerView.readout(null, 0);
                 isScrubbing = false;
+                final boolean wasPreview = scrubPreview;
                 if (scrubPreview) {
                     scrubPreview = false;
                     trickplayWanted.set(-1);
@@ -1845,6 +1863,10 @@ public class PlayerActivity extends Activity {
                 // while the picture is still held.
                 if (!canceled) {
                     seekExact(position);
+                } else if (!wasPreview && player != null) {
+                    // Only Back cancels (the seek trial): the live picture followed the scrub, so it goes
+                    // back to where the scrub began. A preview scrub never moved it.
+                    seekExact(scrubbingStart);
                 }
                 if (restorePlayState) {
                     restorePlayState = false;
@@ -3468,13 +3490,24 @@ public class PlayerActivity extends Activity {
                     // gate — nothing moved otherwise. Exact, because what is being restored is where the
                     // picture was, not the sync sample before it.
                     final boolean moved = keyScrubSeeked >= 0;
+                    final boolean resume = keyScrubResume;
                     cancelKeyScrub();
                     if (moved && player != null) {
                         player.setSeekParameters(SeekParameters.EXACT);
                         player.seekTo(keyScrubStart);
                     }
+                    if (resume) {
+                        playerView.setControllerAutoShow(true);
+                        if (player != null) {
+                            player.play();
+                        }
+                    }
                     playerView.removeCallbacks(playerView.textClearRunnable);
                     playerView.textClearRunnable.run();
+                    closedSomething = true;
+                } else if (isScrubbing && mPrefs.seekConfirmOk && timeBar.cancelKeyScrub()) {
+                    // The seek trial: a D-pad scrub on the bar waits for OK instead of its own timeout,
+                    // so Back is what takes it away (see onScrubStop, canceled).
                     closedSomething = true;
                 } else if (controllerVisible) {
                     // A timebar D-pad scrub needs no case of its own: it can only happen with the
@@ -3989,6 +4022,8 @@ public class PlayerActivity extends Activity {
             case KeyEvent.KEYCODE_BUTTON_L2:
             case KeyEvent.KEYCODE_MEDIA_REWIND:
                 if (!controllerVisibleFully || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
+                    if (glideKey(false, event.getRepeatCount() > 0))
+                        return true;
                     if (seekWithKey(false, event.getRepeatCount() > 0))
                         return true;
                 }
@@ -3997,6 +4032,8 @@ public class PlayerActivity extends Activity {
             case KeyEvent.KEYCODE_BUTTON_R2:
             case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
                 if (!controllerVisibleFully || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                    if (glideKey(true, event.getRepeatCount() > 0))
+                        return true;
                     if (seekWithKey(true, event.getRepeatCount() > 0))
                         return true;
                 }
@@ -4090,6 +4127,10 @@ public class PlayerActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_RIGHT:
             case KeyEvent.KEYCODE_BUTTON_R2:
             case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                if (keyAwaitsOk()) {
+                    // Nothing lands and nothing clears until OK or Back.
+                    break;
+                }
                 if (!isScrubbing) {
                     playerView.postDelayed(playerView.textClearRunnable, 1000);
                 }
@@ -4145,7 +4186,10 @@ public class PlayerActivity extends Activity {
         }
         // A reversal is the correction after an overshoot, so the ladder starts over: the step that
         // carried past the mark must not carry back past it just as fast.
-        keyScrubSteps = forward == keyScrubForward && (held || now - keyScrubLastMs < 450) ? keyScrubSteps + 1 : 0;
+        // With a fixed step (the seek trial) a click is worth the same however fast it follows the last, so
+        // only a hold climbs the ladder - from its foot, whatever clicks came before it.
+        keyScrubSteps = forward == keyScrubForward && (held || now - keyScrubLastMs < 450)
+                && (held || !mPrefs.seekFixedStep) ? keyScrubSteps + 1 : 0;
         keyScrubForward = forward;
         keyScrubLastMs = now;
         final long from;
@@ -4160,7 +4204,7 @@ public class PlayerActivity extends Activity {
             from = pos;
             keyScrubStart = pos;
         }
-        final long step = keyScrubStep(duration);
+        final long step = mPrefs.seekFixedStep && !held ? fixedKeyStep(forward, duration) : keyScrubStep(duration);
         keyScrubTarget = Math.max(0, Math.min(duration, from + (forward ? step : -step)));
         // Aimed at a keyframe where the file says where they are, so the landing is what the readout
         // is about to show and costs no decode. Where it does not - a container with no sync table, a
@@ -4171,13 +4215,17 @@ public class PlayerActivity extends Activity {
             keyScrubTarget = snapped;
         }
         showKeySeekMessage(keyScrubTarget);
-        if (!keyScrubPreview && mPrefs.seekPreview && (held || step >= KEY_PREVIEW_STEP_MS)) {
+        if (!keyScrubPreview && mPrefs.seekPreview && previewWithoutSet()
+                && (held || step >= KEY_PREVIEW_STEP_MS)) {
             keyScrubPreview = true;
+            pauseForAiming();
         }
         if (keyScrubPreview) {
             showTrickplayFrame(keyScrubTarget, forward);
             playerView.removeCallbacks(keyScrubCommit);
-            playerView.postDelayed(keyScrubCommit, 700);
+            if (!mPrefs.seekConfirmOk) {
+                playerView.postDelayed(keyScrubCommit, 700);
+            }
             return true;
         }
         // Seek now if the previous seek has landed, so the picture and the bar follow the presses. A step
@@ -4392,6 +4440,132 @@ public class PlayerActivity extends Activity {
         return cap;
     }
 
+    /** The seek trial's fixed step, capped by the same share of the film as the ladder's rungs. */
+    private long fixedKeyStep(final boolean forward, final long duration) {
+        final long cap = Math.max(3_000, duration / 10);
+        return Math.min(forward ? mPrefs.seekStepForwardMs : mPrefs.seekStepBackMs, cap);
+    }
+
+    /** A seek aimed on the card that waits for OK to land and Back to go away (Prefs.seekConfirmOk). */
+    private boolean keyAwaitsOk() {
+        return keyScrubTarget >= 0 && keyScrubPreview && (mPrefs.seekConfirmOk || glideOpen);
+    }
+
+    /**
+     * An arrow while the mark glides, or a hold that starts it gliding. False when the arrow is not the
+     * glide's to take: the setting is off, or a plain press with nothing gliding.
+     */
+    private boolean glideKey(final boolean forward, final boolean held) {
+        if (!mPrefs.seekHoldGlides || player == null || player.getDuration() <= 0) {
+            return false;
+        }
+        if (glideOpen) {
+            if (held) {
+                return true;
+            }
+            if (glideTier < 0) {
+                glideForward = forward;
+                glideTier = 0;
+            } else if (forward == glideForward) {
+                glideTier = Math.min(GLIDE_MS_PER_S.length - 1, glideTier + 1);
+            } else {
+                glideTier--;
+            }
+            showGlideRate();
+            glideTickAt = SystemClock.uptimeMillis();
+            return true;
+        }
+        if (!held) {
+            return false;
+        }
+        // From where the burst that the hold began with has got to - its first press was a step.
+        final long pos = player.getCurrentPosition();
+        if (keyScrubTarget < 0) {
+            keyScrubTarget = pos;
+            keyScrubStart = pos;
+        }
+        if (playerView.keySeekStart == -1) {
+            playerView.keySeekStart = pos;
+        }
+        playerView.removeCallbacks(keyScrubCommit);
+        playerView.removeCallbacks(playerView.textClearRunnable);
+        glideOpen = true;
+        glideForward = forward;
+        glideTier = 0;
+        if (!keyScrubPreview) {
+            keyScrubPreview = true;
+            pauseForAiming();
+        }
+        showGlideRate();
+        glideTickAt = SystemClock.uptimeMillis();
+        playerView.removeCallbacks(glideTick);
+        playerView.post(glideTick);
+        return true;
+    }
+
+    private void glideTick() {
+        if (!glideOpen || player == null) {
+            return;
+        }
+        final long now = SystemClock.uptimeMillis();
+        if (glideTier >= 0) {
+            final long move = GLIDE_MS_PER_S[glideTier] * (now - glideTickAt) / 1000;
+            // A second short of the end: a landing on the very end finishes the file, and the folder's next
+            // one starts in its place (seen on Dune 22.10).
+            final long end = Math.max(0, player.getDuration() - 1000);
+            final long next = Math.max(0, Math.min(end, keyScrubTarget + (glideForward ? move : -move)));
+            if (next == keyScrubTarget) {
+                // At an end of the film: the mark stands there, the session stays open.
+                glideTier = -1;
+                showGlideRate();
+            }
+            keyScrubTarget = next;
+            playerView.showSeekProgress();
+            showKeySeekMessage(keyScrubTarget);
+            showTrickplayFrame(keyScrubTarget, glideForward);
+        }
+        glideTickAt = now;
+        playerView.postDelayed(glideTick, GLIDE_TICK_MS);
+    }
+
+    /** The speed, on the card beside the offset: "×4"; nothing when the mark stands. */
+    private void showGlideRate() {
+        playerView.seekRate(glideTier < 0 ? null : "×" + (2 << glideTier));
+        if (keyScrubTarget >= 0) {
+            showKeySeekMessage(keyScrubTarget);
+        }
+    }
+
+    private void stopGlide() {
+        glideOpen = false;
+        glideTier = -1;
+        playerView.removeCallbacks(glideTick);
+        playerView.seekRate(null);
+    }
+
+    /**
+     * Stops the film for the card, if the seek trial asks for it (Prefs.seekPauseWhileAiming). Quietly: a
+     * pause raises the controls on its own, and over a seek aimed on the card they are only in the way.
+     */
+    private void pauseForAiming() {
+        if (mPrefs.seekPauseWhileAiming && player != null && player.isPlaying()) {
+            playerView.setControllerAutoShow(false);
+            player.pause();
+            keyScrubResume = true;
+        }
+    }
+
+    /** Starts the film again if the card stopped it; see keyScrubResume. */
+    private void resumeAfterAiming() {
+        if (keyScrubResume) {
+            keyScrubResume = false;
+            playerView.setControllerAutoShow(true);
+            if (player != null) {
+                player.play();
+            }
+        }
+    }
+
     private void showKeySeekMessage(long target) {
         // The offset answers "how far", not "where in the film" - and against a duration that is not on
         // screen at that moment, an absolute time is a division done in the head. So the target carries
@@ -4405,6 +4579,11 @@ public class PlayerActivity extends Activity {
 
     /** Forget a burst in progress: its target, the step it was on, and the commit it has armed. */
     private void cancelKeyScrub() {
+        stopGlide();
+        if (keyScrubResume) {
+            keyScrubResume = false;
+            playerView.setControllerAutoShow(true);
+        }
         playerView.removeCallbacks(keyScrubCommit);
         keyScrubTarget = -1;
         keyScrubSeeked = -1;
@@ -4413,6 +4592,7 @@ public class PlayerActivity extends Activity {
     }
 
     private void commitKeyScrub() {
+        stopGlide();
         final long target = keyScrubTarget;
         final long seeked = keyScrubSeeked;
         keyScrubTarget = -1;
@@ -4433,6 +4613,22 @@ public class PlayerActivity extends Activity {
             // The one seek the viewer stops on is the one that has to be true to the readout — seekExact.
             seekExact(target);
         }
+        resumeAfterAiming();
+    }
+
+    /** The keys that land a seek waiting for OK: the remote's OK and, as Plex has it, play/pause. */
+    private static boolean isConfirmKey(final int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+            case KeyEvent.KEYCODE_BUTTON_A:
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+            case KeyEvent.KEYCODE_MEDIA_PLAY:
+                return true;
+            default:
+                return false;
+        }
     }
 
     @Override
@@ -4451,6 +4647,15 @@ public class PlayerActivity extends Activity {
         if (locked && event.getKeyCode() != KeyEvent.KEYCODE_BACK) {
             if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
                 showSwipeToUnlock();
+            }
+            return true;
+        }
+
+        if (keyAwaitsOk() && isConfirmKey(event.getKeyCode())) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                commitKeyScrub();
+                playerView.removeCallbacks(playerView.textClearRunnable);
+                playerView.postDelayed(playerView.textClearRunnable, 400);
             }
             return true;
         }
@@ -13447,6 +13652,11 @@ public class PlayerActivity extends Activity {
         // that Dv7Converter still finds a MatroskaExtractor where it looks for one; see MkvCuesLink.
         final ExtractorsFactory seekableExtractorsFactory =
                 new MkvCuesLink.Factory(convertDV7 ? dv7Converter : baseExtractorsFactory);
+        // The preview frames' own extractor (FileFrames) reads through the same sources, without the
+        // wrappers that watch the player's bytes, and without the DV7 rewrite: a preview needs the base
+        // layer only.
+        frameSource = hashSource;
+        frameExtractors = new MkvCuesLink.Factory(baseExtractorsFactory);
         // Outside all of it, and unconditional: Dolby Vision profile 10 is an AV1 stream that Media3
         // hands to an AV1 decoder with a Dolby Vision profile written onto it, which is a number that
         // decoder does not have and some refuse to be configured with (see Dv10AsAv1). Nothing below
@@ -14388,6 +14598,9 @@ public class PlayerActivity extends Activity {
     private void showTrickplayFrame(final long positionMs, final boolean forward) {
         final Trickplay set = trickplay;
         if (set == null) {
+            if (Prefs.SEEK_WITHOUT_SET_FRAMES.equals(mPrefs.seekWithoutSet)) {
+                showFileFrame(positionMs);
+            }
             return;
         }
         // Within one frame of the set nothing changes on the card; a finger crosses a frame in many moves.
@@ -14420,6 +14633,79 @@ public class PlayerActivity extends Activity {
         });
     }
 
+    /**
+     * Whether a long seek is aimed on the card where the file has no set: not when the seek trial asked
+     * for the live picture, which is how every seek went before 0075.
+     */
+    private boolean previewWithoutSet() {
+        return trickplay != null || !Prefs.SEEK_WITHOUT_SET_LIVE.equals(mPrefs.seekWithoutSet);
+    }
+
+    // ---- Frames from the file itself (see FileFrames) ----------------------------------------------
+    // Opened on the first seek that wants a frame, not with the file: the open reads the index over the
+    // network, and the start of a film is the worst moment to compete with it. Everything below lives on
+    // the trickplay worker, one thread, so the extractor and the decoder are never used from two.
+    @Nullable
+    private FileFrames fileFrames;
+    @Nullable
+    private Uri fileFramesFor;
+    @Nullable
+    private androidx.media3.datasource.DataSource.Factory frameSource;
+    @Nullable
+    private ExtractorsFactory frameExtractors;
+
+    /** As showTrickplayFrame, on the same worker and by the same rule: only the latest ask is cut. */
+    private void showFileFrame(final long positionMs) {
+        final Uri uri = currentMediaUri();
+        final androidx.media3.datasource.DataSource.Factory source = frameSource;
+        final ExtractorsFactory extractors = frameExtractors;
+        if (uri == null || source == null || extractors == null || isLiveStream()) {
+            return;
+        }
+        // A second's grid: within it the keyframe before is nearly always the same one.
+        final long frameAt = positionMs / 1000 * 1000;
+        if (trickplayWanted.getAndSet(frameAt) == frameAt) {
+            return;
+        }
+        final long ask = trickplayAsked.incrementAndGet();
+        trickplayWorker().execute(() -> {
+            if (trickplayAsked.get() != ask) {
+                return;
+            }
+            if (!uri.equals(fileFramesFor)) {
+                if (fileFrames != null) {
+                    fileFrames.release();
+                }
+                fileFramesFor = uri;
+                // Null where nothing decodes the film's format beside it; asked once per file.
+                fileFrames = FileFrames.open(uri, source, extractors);
+            }
+            final FileFrames frames = fileFrames;
+            if (frames == null) {
+                return;
+            }
+            final Bitmap frame = frames.frame(frameAt);
+            runOnUiThread(() -> {
+                if (frame != null && trickplayWanted.get() >= 0 && ask > trickplayShown
+                        && uri.equals(currentMediaUri())) {
+                    trickplayShown = ask;
+                    playerView.seekStill(frame);
+                }
+            });
+        });
+    }
+
+    private java.util.concurrent.ExecutorService trickplayWorker() {
+        if (trickplayWorker == null) {
+            trickplayWorker = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                final Thread t = new Thread(r, "trickplay-frames");
+                t.setDaemon(true);
+                return t;
+            });
+        }
+        return trickplayWorker;
+    }
+
     private void endKeyScrubPreview() {
         keyScrubPreview = false;
         trickplayWanted.set(-1);
@@ -14430,6 +14716,16 @@ public class PlayerActivity extends Activity {
 
     private void releaseTrickplay() {
         trickplayFor = null;
+        if (trickplayWorker != null) {
+            // On the worker, so a frame being cut is not released under it.
+            trickplayWorker.execute(() -> {
+                if (fileFrames != null) {
+                    fileFrames.release();
+                    fileFrames = null;
+                }
+                fileFramesFor = null;
+            });
+        }
         if (trickplay != null) {
             trickplay.release();
             trickplay = null;
@@ -14472,6 +14768,10 @@ public class PlayerActivity extends Activity {
             // on whatever plays next.
             playerView.removeCallbacks(keyScrubCommit);
         }
+        if (playerView != null) {
+            stopGlide();
+        }
+        keyScrubResume = false;
         keyScrubTarget = -1;
         keyScrubSeeked = -1;
         keyScrubSteps = 0;

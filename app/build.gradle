@@ -166,6 +166,10 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:$media3_version") {
         exclude group: "androidx.media3", module: "media3-exoplayer"
     }
+    // A second extractor over the file being played, for seek preview frames cut out of it (see FileFrames).
+    implementation("androidx.media3:media3-inspector:$media3_version") {
+        exclude group: "androidx.media3", module: "media3-exoplayer"
+    }
     implementation "androidx.media3:media3-decoder:$media3_version"
     implementation "androidx.media3:media3-common:$media3_version"
     implementation "androidx.media3:media3-container:$media3_version"

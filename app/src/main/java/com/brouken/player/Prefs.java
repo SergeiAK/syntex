@@ -142,6 +142,14 @@ class Prefs {
     private static final String PREF_KEY_INFO_CARD_OPEN = "infoCardOpen";
     private static final String PREF_KEY_SHOW_TRANSFER = "showTransfer";
     private static final String PREF_KEY_SEEK_PREVIEW = "seekPreview";
+    // The seek trial: ways of seeking from the remote side by side, until one is chosen (roadmap, step 1).
+    private static final String PREF_KEY_SEEK_SHORT_PRESS = "seekShortPress";
+    private static final String PREF_KEY_SEEK_STEP_BACK = "seekStepBack";
+    private static final String PREF_KEY_SEEK_STEP_FORWARD = "seekStepForward";
+    private static final String PREF_KEY_SEEK_CONFIRM = "seekConfirm";
+    private static final String PREF_KEY_SEEK_WHILE_AIMING = "seekWhileAiming";
+    private static final String PREF_KEY_SEEK_HOLD = "seekHold";
+    private static final String PREF_KEY_SEEK_WITHOUT_SET = "seekWithoutSet";
     private static final String PREF_KEY_SYSTEM_VOLUME = "systemVolume";
     private static final String PREF_KEY_TOGETHER_NICK = "togetherNick";
     private static final String PREF_KEY_TOGETHER_PASSWORD = "togetherPassword";
@@ -403,6 +411,21 @@ class Prefs {
     public boolean showTransfer = false;
     /** Long seeks aimed on the card - by trickplay frames where there are some - the film playing on (see PlayerActivity.keyScrubPreview). */
     public boolean seekPreview = true;
+    /** A short press steps by a fixed amount each way instead of climbing the ladder; a hold still climbs it. */
+    public boolean seekFixedStep = false;
+    public long seekStepBackMs = 10_000;
+    public long seekStepForwardMs = 30_000;
+    /** A seek aimed on the card waits for OK, and Back takes it away; otherwise it lands on its own. */
+    public boolean seekConfirmOk = false;
+    /** The film stops while a seek is aimed on the card, and goes on from where the seek lands. */
+    public boolean seekPauseWhileAiming = false;
+    /** A held key sets the mark moving on its own, faster with each press the same way (as Plex does). */
+    public boolean seekHoldGlides = false;
+    /** What a long seek shows where the file has no trickplay set: see the SEEK_WITHOUT_SET_ values. */
+    public String seekWithoutSet = SEEK_WITHOUT_SET_CARD;
+    public static final String SEEK_WITHOUT_SET_CARD = "card";
+    public static final String SEEK_WITHOUT_SET_FRAMES = "frames";
+    public static final String SEEK_WITHOUT_SET_LIVE = "live";
     public boolean systemVolume = true;
     /** How other people in a watch-together room see this device. Generated once, then editable. */
     public String togetherNick = "";
@@ -595,6 +618,13 @@ class Prefs {
         infoCardOpen = mSharedPreferences.getBoolean(PREF_KEY_INFO_CARD_OPEN, infoCardOpen);
         showTransfer = mSharedPreferences.getBoolean(PREF_KEY_SHOW_TRANSFER, showTransfer);
         seekPreview = mSharedPreferences.getBoolean(PREF_KEY_SEEK_PREVIEW, seekPreview);
+        seekFixedStep = "fixed".equals(mSharedPreferences.getString(PREF_KEY_SEEK_SHORT_PRESS, "ladder"));
+        seekStepBackMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_STEP_BACK, "10"));
+        seekStepForwardMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_STEP_FORWARD, "30"));
+        seekConfirmOk = "ok".equals(mSharedPreferences.getString(PREF_KEY_SEEK_CONFIRM, "timer"));
+        seekPauseWhileAiming = "pause".equals(mSharedPreferences.getString(PREF_KEY_SEEK_WHILE_AIMING, "plays"));
+        seekHoldGlides = "glide".equals(mSharedPreferences.getString(PREF_KEY_SEEK_HOLD, "steps"));
+        seekWithoutSet = mSharedPreferences.getString(PREF_KEY_SEEK_WITHOUT_SET, seekWithoutSet);
         // Forced on for TV boxes, where the remote routes volume to the panel or receiver over CEC and
         // only the system stream responds — the setting is hidden there too.
         systemVolume = Utils.isTvBox(mContext) || mSharedPreferences.getBoolean(PREF_KEY_SYSTEM_VOLUME, systemVolume);

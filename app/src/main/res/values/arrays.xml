@@ -1,5 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+  <string-array name="seek_hold_entries">
+    <item>@string/pref_seek_hold_steps</item>
+    <item>@string/pref_seek_hold_glide</item>
+  </string-array>
+  <string-array name="seek_hold_values" translatable="false">
+    <item>steps</item>
+    <item>glide</item>
+  </string-array>
+  <string-array name="seek_without_set_entries">
+    <item>@string/pref_seek_without_set_card</item>
+    <item>@string/pref_seek_without_set_frames</item>
+    <item>@string/pref_seek_without_set_live</item>
+  </string-array>
+  <string-array name="seek_without_set_values" translatable="false">
+    <item>card</item>
+    <item>frames</item>
+    <item>live</item>
+  </string-array>
+  <string-array name="seek_short_press_entries">
+    <item>@string/pref_seek_short_press_ladder</item>
+    <item>@string/pref_seek_short_press_fixed</item>
+  </string-array>
+  <string-array name="seek_short_press_values" translatable="false">
+    <item>ladder</item>
+    <item>fixed</item>
+  </string-array>
+  <string-array name="seek_step_back_entries">
+    <item>@string/pref_seek_seconds_5</item>
+    <item>@string/pref_seek_seconds_10</item>
+    <item>@string/pref_seek_seconds_15</item>
+    <item>@string/pref_seek_seconds_20</item>
+    <item>@string/pref_seek_seconds_30</item>
+  </string-array>
+  <string-array name="seek_step_back_values" translatable="false">
+    <item>5</item>
+    <item>10</item>
+    <item>15</item>
+    <item>20</item>
+    <item>30</item>
+  </string-array>
+  <string-array name="seek_step_forward_entries">
+    <item>@string/pref_seek_seconds_10</item>
+    <item>@string/pref_seek_seconds_15</item>
+    <item>@string/pref_seek_seconds_20</item>
+    <item>@string/pref_seek_seconds_30</item>
+    <item>@string/pref_seek_seconds_60</item>
+  </string-array>
+  <string-array name="seek_step_forward_values" translatable="false">
+    <item>10</item>
+    <item>15</item>
+    <item>20</item>
+    <item>30</item>
+    <item>60</item>
+  </string-array>
+  <string-array name="seek_confirm_entries">
+    <item>@string/pref_seek_confirm_timer</item>
+    <item>@string/pref_seek_confirm_ok</item>
+  </string-array>
+  <string-array name="seek_confirm_values" translatable="false">
+    <item>timer</item>
+    <item>ok</item>
+  </string-array>
+  <string-array name="seek_while_aiming_entries">
+    <item>@string/pref_seek_while_aiming_plays</item>
+    <item>@string/pref_seek_while_aiming_pause</item>
+  </string-array>
+  <string-array name="seek_while_aiming_values" translatable="false">
+    <item>plays</item>
+    <item>pause</item>
+  </string-array>
   <string-array name="controller_timeout_entries">
     <item>@string/pref_controller_timeout_3</item>
     <item>@string/pref_controller_timeout_5</item>

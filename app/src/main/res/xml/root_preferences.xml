@@ -152,6 +152,70 @@
                 app:summaryOff="@string/pref_tv_single_back_off"
                 app:title="@string/pref_tv_single_back" />
 
+            <!-- The seek trial: kept apart so it can go whole once a way is chosen. -->
+            <PreferenceScreen
+                app:key="seekTrialScreen"
+                app:summary="@string/pref_seek_trial_header_summary"
+                app:title="@string/pref_seek_trial_header">
+
+                <ListPreference
+                    app:key="seekShortPress"
+                    app:defaultValue="ladder"
+                    app:entries="@array/seek_short_press_entries"
+                    app:entryValues="@array/seek_short_press_values"
+                    app:title="@string/pref_seek_short_press"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
+                    app:key="seekStepBack"
+                    app:defaultValue="10"
+                    app:entries="@array/seek_step_back_entries"
+                    app:entryValues="@array/seek_step_back_values"
+                    app:title="@string/pref_seek_step_back"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
+                    app:key="seekStepForward"
+                    app:defaultValue="30"
+                    app:entries="@array/seek_step_forward_entries"
+                    app:entryValues="@array/seek_step_forward_values"
+                    app:title="@string/pref_seek_step_forward"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
+                    app:key="seekHold"
+                    app:defaultValue="steps"
+                    app:entries="@array/seek_hold_entries"
+                    app:entryValues="@array/seek_hold_values"
+                    app:title="@string/pref_seek_hold"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
+                    app:key="seekConfirm"
+                    app:defaultValue="timer"
+                    app:entries="@array/seek_confirm_entries"
+                    app:entryValues="@array/seek_confirm_values"
+                    app:title="@string/pref_seek_confirm"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
+                    app:key="seekWhileAiming"
+                    app:defaultValue="plays"
+                    app:entries="@array/seek_while_aiming_entries"
+                    app:entryValues="@array/seek_while_aiming_values"
+                    app:title="@string/pref_seek_while_aiming"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
+                    app:key="seekWithoutSet"
+                    app:defaultValue="card"
+                    app:entries="@array/seek_without_set_entries"
+                    app:entryValues="@array/seek_without_set_values"
+                    app:title="@string/pref_seek_without_set"
+                    app:useSimpleSummaryProvider="true" />
+
+            </PreferenceScreen>
+
         </PreferenceScreen>
 
         <PreferenceScreen

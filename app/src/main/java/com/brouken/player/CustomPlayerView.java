@@ -749,6 +749,11 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
         seekCard.showCentered((CustomDefaultTimeBar) exoProgress, deltaMs, targetMs);
     }
 
+    /** The gliding mark's speed on the seek card (see SeekCard.setRate). */
+    void seekRate(@androidx.annotation.Nullable final CharSequence rate) {
+        seekCard.setRate(rate);
+    }
+
     /** The trickplay frame on the seek card (see SeekCard.setStill). */
     void seekStill(@androidx.annotation.Nullable final android.graphics.Bitmap frame) {
         seekCard.setStill(frame);
