@@ -13790,7 +13790,7 @@ public class PlayerActivity extends Activity {
 
             MediaItem.Builder mediaItemBuilder = new MediaItem.Builder()
                     .setUri(mPrefs.mediaUri)
-                    .setMimeType(mPrefs.mediaType);
+                    .setMimeType(StreamMime.of(mPrefs.mediaUri.getPath(), mPrefs.mediaType));
             String title;
             if (apiTitle != null) {
                 title = apiTitle;
