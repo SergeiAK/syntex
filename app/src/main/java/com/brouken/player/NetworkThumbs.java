@@ -14,9 +14,13 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.media3.common.C;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.ResolvingDataSource;
+import androidx.media3.datasource.TransferListener;
+import androidx.media3.extractor.DefaultExtractorsFactory;
+import androidx.media3.extractor.ExtractorsFactory;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.Priority;
@@ -31,6 +35,7 @@ import com.bumptech.glide.signature.ObjectKey;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -76,6 +81,8 @@ final class NetworkThumbs {
      */
     static final long MAX_BYTES = 48L << 20;
     private static final Set<String> NO_FRAME = ConcurrentHashMap.newKeySet();
+    /** The extractors of a still taken without the retriever (see Fetcher.ownFrame). */
+    private static final ExtractorsFactory EXTRACTORS = new MkvCuesLink.Factory(new DefaultExtractorsFactory());
     /** A still was refused or cut off while a player was up: the browser has rows to ask again. */
     private static volatile boolean missed;
     /** The browser's way to ask again, while it is started; see whenPlayerGone. */
@@ -276,7 +283,11 @@ final class NetworkThumbs {
                                               final int height, @NonNull final Options options) {
             // A Matroska file's key changed when its cover started to come first: under the old one,
             // the frame already kept on disk would have stood in front of the cover for good.
-            final String kind = MkvCover.speaks(uri.getLastPathSegment()) ? "net+cover " : "net ";
+            // So did an MP4's, when its embedded picture did; and a Matroska or AVI file's frame is now
+            // taken another way, at another place - a cached one of the old way would never be replaced.
+            final String name = uri.getLastPathSegment();
+            final String kind = MkvCover.speaks(name) ? "net+cover+own "
+                    : ownFrames(name) ? "net+own " : embedsPicture(name) ? "net+art " : "net ";
             return new LoadData<>(new ObjectKey(kind + uri + " " + width + "x" + height),
                     new Fetcher(context, uri, width, height));
         }
@@ -344,8 +355,35 @@ final class NetworkThumbs {
                             return;
                         }
                     }
+                    if (ownFrames(uri.getLastPathSegment())) {
+                        final Bitmap own = ownFrame(source);
+                        if (own != null) {
+                            Log.d("NetworkThumbs", "own frame in " + (SystemClock.elapsedRealtime() - start)
+                                    + " ms, read " + source.reads + " x / " + (source.bytes >> 10) + " KiB, jumps "
+                                    + source.jumps + ": " + uri.getLastPathSegment());
+                            callback.onDataReady(own);
+                            return;
+                        }
+                        if (source.aborted || source.spent) {
+                            // Sorted out below, as a retriever's failure would be.
+                            throw new IOException("own frame cut off");
+                        }
+                        Log.d("NetworkThumbs", "no own frame after " + (SystemClock.elapsedRealtime() - start)
+                                + " ms, " + (source.bytes >> 10) + " KiB, the retriever then: "
+                                + uri.getLastPathSegment());
+                    }
                     retriever.setDataSource(source);
                     final long opened = SystemClock.elapsedRealtime();
+                    if (embedsPicture(uri.getLastPathSegment())) {
+                        final byte[] art = retriever.getEmbeddedPicture();
+                        final Bitmap picture = art == null ? null : decodePicture(art, width, height);
+                        if (picture != null) {
+                            Log.d("NetworkThumbs", "embedded picture in " + (SystemClock.elapsedRealtime() - start)
+                                    + " ms, read " + (source.bytes >> 10) + " KiB: " + uri.getLastPathSegment());
+                            callback.onDataReady(picture);
+                            return;
+                        }
+                    }
                     final Bitmap frame = frame(retriever);
                     // What a still costs, by phase: worth having in the log while the cost is the
                     // question - a folder of fifty is fifty of these, one after another.
@@ -443,6 +481,66 @@ final class NetworkThumbs {
         }
 
         /**
+         * The keyframe a tenth of the way in, found through the container's own index by Media3 and
+         * decoded here (see FileFrames) - not by the retriever, which on a Matroska file walks the head
+         * of it for twenty keyframes to pick the largest (findThumbnails in the platform's extractor):
+         * 100-290 MB of a 720p cartoon, where this reads the head, the Cues and one cluster (measured on
+         * Shield, 22.10.2026). Null when the file or the decoder will not have it; the retriever then.
+         */
+        @Nullable
+        private Bitmap ownFrame(final Source source) {
+            final Reads reads = new Reads(uri, source);
+            final FileFrames frames = FileFrames.open(uri, () -> reads, EXTRACTORS, true);
+            if (frames == null) {
+                return null;
+            }
+            try {
+                if (frames.durationUs <= 0) {
+                    return frames.frame(1000, width);
+                }
+                // A fade or a title on black at a tenth in is a black tile (a cartoon of Christmas
+                // Favorites, Shield 23.10.2026): a keyframe further in costs one more cluster here.
+                final long durationMs = frames.durationUs / 1000;
+                final long[] tries = {Math.max(1000, Math.min(durationMs / 10, 600_000)),
+                        durationMs / 4, durationMs * 2 / 5};
+                Bitmap black = null;
+                for (final long at : tries) {
+                    final Bitmap frame = frames.frame(at, width);
+                    if (frame == null) {
+                        continue;
+                    }
+                    if (black != null) {
+                        black.recycle();
+                    }
+                    if (!dark(frame)) {
+                        return frame;
+                    }
+                    black = frame;
+                }
+                // Black all through, or nothing further in: the black one is still the file's picture.
+                return black;
+            } finally {
+                frames.release();
+            }
+        }
+
+        /** Whether a still is all but black: its mean brightness on a coarse grid. */
+        private static boolean dark(final Bitmap bitmap) {
+            final int w = bitmap.getWidth();
+            final int h = bitmap.getHeight();
+            long sum = 0;
+            int n = 0;
+            for (int j = 0; j < 9; j++) {
+                for (int i = 0; i < 16; i++) {
+                    final int c = bitmap.getPixel(i * w / 16, j * h / 9);
+                    sum += ((c >> 16) & 0xff) + ((c >> 8) & 0xff) + (c & 0xff);
+                    n += 3;
+                }
+            }
+            return sum / n < 24;
+        }
+
+        /**
          * A tenth of the way in, between a second and ten minutes: far enough past the logos and the
          * fade-in that it is a picture of the film, and close enough to the head of the file that a
          * container without an index does not have to be walked for it.
@@ -492,6 +590,85 @@ final class NetworkThumbs {
             // LOCAL so Glide keeps the decoded still on disk rather than trying to keep the "source",
             // which here is a whole film.
             return DataSource.LOCAL;
+        }
+    }
+
+    /** Matroska and AVI: a still of the file's own, ahead of the retriever (see Fetcher.ownFrame). */
+    static boolean ownFrames(@Nullable final String name) {
+        return MkvCover.speaks(name) || name != null && name.toLowerCase(Locale.ROOT).endsWith(".avi");
+    }
+
+    /** The MP4 family, where the retriever finds a cover in the file's metadata before taking a frame. */
+    static boolean embedsPicture(@Nullable final String name) {
+        if (name == null) {
+            return false;
+        }
+        final String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".mp4") || lower.endsWith(".m4v") || lower.endsWith(".mov");
+    }
+
+    /**
+     * A Source as a Media3 data source, for the extractor of a still of our own: every read is the
+     * Source's positioned one, so its held-open file, its window, its count and its limit all apply,
+     * and a player coming up cuts this off as it does the retriever.
+     */
+    private static final class Reads implements androidx.media3.datasource.DataSource {
+
+        private final Uri uri;
+        private final Source source;
+        private long position;
+        private long end;
+
+        Reads(final Uri uri, final Source source) {
+            this.uri = uri;
+            this.source = source;
+        }
+
+        @Override
+        public void addTransferListener(@NonNull final TransferListener listener) {
+        }
+
+        @Override
+        public long open(@NonNull final DataSpec spec) throws IOException {
+            position = spec.position;
+            final long size = source.getSize();
+            if (size < 0) {
+                end = -1;
+                return spec.length;
+            }
+            end = spec.length == C.LENGTH_UNSET ? size : Math.min(size, position + spec.length);
+            return end - position;
+        }
+
+        @Override
+        public int read(@NonNull final byte[] buffer, final int offset, final int length) throws IOException {
+            if (length == 0) {
+                return 0;
+            }
+            int ask = length;
+            if (end >= 0) {
+                if (position >= end) {
+                    return C.RESULT_END_OF_INPUT;
+                }
+                ask = (int) Math.min(length, end - position);
+            }
+            final int read = source.readAt(position, buffer, offset, ask);
+            if (read <= 0) {
+                return C.RESULT_END_OF_INPUT;
+            }
+            position += read;
+            return read;
+        }
+
+        @Nullable
+        @Override
+        public Uri getUri() {
+            return uri;
+        }
+
+        @Override
+        public void close() {
+            // The Source is the fetcher's, and closed by it.
         }
     }
 
