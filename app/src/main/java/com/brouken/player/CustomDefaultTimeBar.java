@@ -13,8 +13,6 @@ import androidx.annotation.Nullable;
 import androidx.media3.ui.DefaultTimeBar;
 import androidx.media3.ui.TimeBar;
 
-import androidx.core.content.ContextCompat;
-
 import java.lang.reflect.Field;
 
 class CustomDefaultTimeBar extends DefaultTimeBar {
@@ -30,11 +28,20 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
     private ValueAnimator barHeightAnimator;
     private static final long BAR_HEIGHT_DURATION_MS = 150;
     /**
-     * The track while the bar holds the focus: white at 50% over {@code timebar_track}, which is the
-     * resting rail lit rather than a second colour to explain. 4.21:1 against the rail at rest, 7.66:1
-     * on black — a line a television viewer can find without looking for it.
+     * The bar's own frame, drawn under Media3's rails: a dark rim around the whole bar and a light halo
+     * around the rim. A light played run on a light frame used to have no edge at all — on a Shield with
+     * the Monochrome accent, #E0E0E0 over a sunlit sky was a bar with no progress on it. The rim gives
+     * every fill a dark edge, the halo gives the rim a light one on a dark frame, so one of the two always
+     * reads. The same answer the poster bars in Lampa and Wholphin+ gave to the same problem.
      */
-    private static final int TRACK_FOCUSED = 0xFF9C9C9E;
+    private static final int RIM = 0xFF0A0A0C;
+    private static final int HALO_REST = 0x59FFFFFF;
+    /**
+     * While the bar holds the focus the halo goes fully white: a contour around the bar, the mark a
+     * television viewer reads as "here", where the lit grey track it replaces fought the played run.
+     */
+    private static final int HALO_FOCUSED = 0xFFFFFFFF;
+    private final Paint framePaint = new Paint();
     private boolean seekLook;
     private long seekTargetMs = -1;
     private long seekTargetDurationMs;
@@ -46,6 +53,9 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
     // The dot's own colour, kept because the band is painted over it and it has to be put back (see
     // onDraw). Media3 keeps its scrubber paint private and the app sets the colour itself anyway.
     private final Paint playheadPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint playheadRing = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private Field scrubberScaleField;
+    private Field durationField;
     private final Paint skipPaint = new Paint();
     private long[] skipStartsMs;
     private long[] skipEndsMs;
@@ -81,6 +91,10 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
             barHeightField = DefaultTimeBar.class.getDeclaredField("barHeight");
             barHeightField.setAccessible(true);
             barHeightRest = barHeightField.getInt(this);
+            scrubberScaleField = DefaultTimeBar.class.getDeclaredField("scrubberScale");
+            scrubberScaleField.setAccessible(true);
+            durationField = DefaultTimeBar.class.getDeclaredField("duration");
+            durationField.setAccessible(true);
         } catch (NoSuchFieldException | IllegalAccessException e) {
             barHeightField = null;
             e.printStackTrace();
@@ -171,16 +185,76 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         final float radius = getResources().getDimensionPixelSize(R.dimen.exo_styled_progress_enabled_thumb_size) / 2f;
         final float cy = progressBar.exactCenterY();
         // A hairline of black around it, so a light dot still reads where it lands on the light played part.
-        seekTargetRing.setColor(0xFF000000);
-        canvas.drawCircle(x, cy, radius + Utils.dpToPx(1), seekTargetRing);
+        seekTargetRing.setColor(RIM);
+        canvas.drawCircle(x, cy, radius + rimWidth(), seekTargetRing);
         canvas.drawCircle(x, cy, radius, playheadPaint);
+    }
+
+    /** ~1.5dp: the hairline width the segment edges already use, so the bar has one line weight. */
+    private static int rimWidth() {
+        return Math.max(2, Utils.dpToPx(3) / 2);
+    }
+
+    /** Halo, then rim, under the rails Media3 is about to paint into {@code progressBar}. */
+    private void drawFrame(final Canvas canvas) {
+        if (progressBar == null || progressBar.width() <= 0) {
+            return;
+        }
+        final int rim = rimWidth();
+        final int halo = Math.max(1, Utils.dpToPx(1));
+        framePaint.setColor(isFocused() && !seekLook ? HALO_FOCUSED : HALO_REST);
+        canvas.drawRect(progressBar.left - rim - halo, progressBar.top - rim - halo,
+                progressBar.right + rim + halo, progressBar.bottom + rim + halo, framePaint);
+        framePaint.setColor(RIM);
+        canvas.drawRect(progressBar.left - rim, progressBar.top - rim,
+                progressBar.right + rim, progressBar.bottom + rim, framePaint);
+    }
+
+    /**
+     * The dot, painted again over Media3's own with a dark ring, so a light dot on the light played run
+     * keeps its edge. Inside a segment it takes the segment's colour, opaque: the viewer sees at the dot
+     * itself that they are in the credits, not only by a band the dot sits on. Same size and visibility
+     * rules as DefaultTimeBar.drawPlayhead, including the scale it hides the dot with.
+     */
+    private void drawPlayhead(final Canvas canvas, final int segmentColor) {
+        if (scrubberBar == null || progressBar == null || scrubberScaleField == null) {
+            return;
+        }
+        final float scale;
+        try {
+            if (durationField.getLong(this) <= 0) {
+                return;
+            }
+            scale = scrubberScaleField.getFloat(this);
+        } catch (IllegalAccessException e) {
+            scrubberScaleField = null;
+            return;
+        }
+        final int radius = (int) (playheadRadius() * scale);
+        if (radius <= 0) {
+            return;
+        }
+        final int x = Math.min(Math.max(scrubberBar.right, scrubberBar.left), progressBar.right);
+        final int y = scrubberBar.centerY();
+        playheadRing.setColor(RIM);
+        canvas.drawCircle(x, y, radius + rimWidth(), playheadRing);
+        if (segmentColor != 0) {
+            final int dotColor = playheadPaint.getColor();
+            playheadPaint.setColor(segmentColor | 0xFF000000);
+            canvas.drawCircle(x, y, radius, playheadPaint);
+            playheadPaint.setColor(dotColor);
+        } else {
+            canvas.drawCircle(x, y, radius, playheadPaint);
+        }
     }
 
     @Override
     public void onDraw(Canvas canvas) {
+        drawFrame(canvas);
         super.onDraw(canvas);
 
         if (skipStartsMs == null || skipDurationMs <= 0 || progressBar == null) {
+            drawPlayhead(canvas, 0);
             drawSeekTarget(canvas);
             return;
         }
@@ -195,14 +269,13 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         // segment shorter than about a hundred seconds disappeared under it at exactly the moment the
         // player was offering to skip it - measured on the owner's phone. So the band goes through and the
         // dot is painted back on top of it: it stays the frontmost mark, and the segment stays visible.
-        final int playheadRadius = playheadRadius();
         final int playheadX = scrubberBar != null
-                ? Math.min(Math.max(scrubberBar.right, scrubberBar.left), progressBar.right) : 0;
+                ? Math.min(Math.max(scrubberBar.right, scrubberBar.left), progressBar.right) : -1;
         // Each segment gets a soft fill band across its whole width, plus ~1.5dp crisp hairlines on the
         // boundaries (chapter-divider style). The band demarcates the region while the edges frame it,
         // both staying lighter in weight than the coral scrubber.
         final int hairWidth = Math.max(2, Utils.dpToPx(3) / 2);
-        boolean playheadCovered = false;
+        int segmentColor = 0;
         for (int i = 0; i < skipStartsMs.length; i++) {
             float startFraction = clamp((float) skipStartsMs[i] / skipDurationMs);
             float endFraction = clamp((float) skipEndsMs[i] / skipDurationMs);
@@ -221,14 +294,11 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
             if (right - left > hairWidth * 2) {
                 drawBand(canvas, right - hairWidth, right);
             }
-            if (playheadRadius > 0 && right > playheadX - playheadRadius
-                    && left < playheadX + playheadRadius) {
-                playheadCovered = true;
+            if (skipFillColors != null && right > left && playheadX >= left && playheadX <= right) {
+                segmentColor = skipFillColors[i];
             }
         }
-        if (playheadCovered && scrubberBar != null) {
-            canvas.drawCircle(playheadX, scrubberBar.centerY(), playheadRadius, playheadPaint);
-        }
+        drawPlayhead(canvas, segmentColor);
         drawSeekTarget(canvas);
     }
 
@@ -244,12 +314,11 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
     protected void onFocusChanged(final boolean gainFocus, final int direction,
                                   @Nullable final Rect previouslyFocusedRect) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
-        // The rail ahead of the playhead lights up. Height alone was the whole mark and it was not
-        // enough: measured on tv_720p, focus moved the rail from 3px to 6px of a 720px screen, three
-        // pixels of the same dark grey, which is nothing at three metres. Lit, the track reads 4.21:1
-        // against its own resting tone — the state change is now a colour as well as a size, and the
-        // colour is the one a viewer sees from the sofa.
-        applyTrackColor(gainFocus);
+        // The halo goes white (see drawFrame). Height alone was the whole mark and it was not enough:
+        // measured on tv_720p, focus moved the rail from 3px to 6px of a 720px screen, which is nothing at
+        // three metres. A contour is a colour change a viewer sees from the sofa, and unlike the lit grey
+        // track it once was, it does not touch the contrast between played and unplayed.
+        invalidate();
         if (barHeightField == null) {
             return;
         }
@@ -274,10 +343,8 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
 
     /**
      * The bar is up only to show where a remote seek is going, with the controls hidden. The focus it holds
-     * then is left over from the controls, not something the viewer moved, so the lit track would announce a
-     * state nobody asked about — and under a light accent it took the contrast away from the played part:
-     * on a Shield with the Monochrome accent, #E0E0E0 over the lit #9C9C9E is about 2:1, read from the sofa
-     * as a white bar with no progress on it. The height still follows the focus; only the light goes.
+     * then is left over from the controls, not something the viewer moved, so the focus contour would
+     * announce a state nobody asked about. The height still follows the focus; the halo stays at rest.
      */
     void setSeekLook(final boolean seekLook) {
         if (this.seekLook == seekLook) {
@@ -287,12 +354,7 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         if (!seekLook) {
             seekTargetMs = -1;
         }
-        applyTrackColor(isFocused());
-    }
-
-    private void applyTrackColor(final boolean focused) {
-        setUnplayedColor(focused && !seekLook ? TRACK_FOCUSED
-                : ContextCompat.getColor(getContext(), R.color.timebar_track));
+        invalidate();
     }
 
     private int currentBarHeight() {

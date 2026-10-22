@@ -65,10 +65,12 @@
     <!-- Full-frame dim behind the controls; fades with the controller via @id/exo_controls_background. -->
     <color name="controls_scrim">#66000000</color>
 
-    <!-- Progress bar: the played run and its scrubber take the accent ink (?attr/colorPrimary in the
-         player theme), the same tone as the Play glyph the bar sits under, over a solid dark rail ahead
-         of the playhead (not a wash of the frame behind it). -->
-    <color name="timebar_track">#FF38393C</color>
+    <!-- Progress bar: a neutral light played run and dot over a rail the colour of the bar's own dark rim
+         (CustomDefaultTimeBar.drawFrame), a mid grey buffered lead between the two. No accent: on a light
+         frame or under a light accent the old accent-on-grey bar lost its edge. -->
+    <color name="timebar_track">#FF0A0A0C</color>
+    <color name="timebar_played">#FFE8E8E8</color>
+    <color name="timebar_buffered">#FF5C5C60</color>
 
     <!-- Volume/brightness OSD bar (LevelBar); the boost segment is everything above 100%. -->
     <color name="level_bar_track">#4DFFFFFF</color>
@@ -106,8 +108,6 @@
     <!-- Hairlines, grooves and the unfilled part of a track. -->
     <color name="divider">#1AFFFFFF</color>
     <color name="track_white">#33FFFFFF</color>
-    <!-- Buffered lead ahead of the playhead; used on network sources only, see the call site. -->
-    <color name="buffered_white">#C0FFFFFF</color>
 
     <!-- Press feedback is the accent at 0.20 — see res/color/ripple_chrome.xml. -->
 

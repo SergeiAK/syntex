@@ -2676,10 +2676,11 @@ public class PlayerActivity extends Activity {
         });
         timeBar.setAdMarkerColor(Color.argb(0x00, 0xFF, 0xFF, 0xFF));
         timeBar.setPlayedAdMarkerColor(Color.argb(0x98, 0xFF, 0xFF, 0xFF));
-        // Brand the timeline: the played portion and the scrubber (the surfaces the user actually touches)
-        // share the accent ink of the Play glyph above, over a solid dark rail instead of Media3's wash
-        // of the frame behind.
-        final int timeBarPlayed = brandColor();
+        // A neutral light played run and dot over a dark rail, framed by the bar itself (see
+        // CustomDefaultTimeBar.drawFrame). Not the accent: colour on this bar is kept for meaning - the
+        // segment bands, and the dot when it is inside one - and a light accent (Monochrome) left the
+        // played run the same tone as the buffered lead.
+        final int timeBarPlayed = ContextCompat.getColor(this, R.color.timebar_played);
         timeBar.setPlayedColor(timeBarPlayed);
         timeBar.setScrubberColor(timeBarPlayed);
         timeBar.setUnplayedColor(ContextCompat.getColor(this, R.color.timebar_track));
@@ -13973,12 +13974,13 @@ public class PlayerActivity extends Activity {
             Utils.setOrientation(this, mPrefs.orientation);
             mBrightnessControl.setActive(true, !Utils.isReducedMotion(this));
             if (isNetworkUri) {
-                // Reads as a light rail ahead of the playhead, the way the design shows a buffering stream.
-                timeBar.setBufferedColor(ContextCompat.getColor(this, R.color.buffered_white));
+                // A mid grey lead ahead of the playhead: between the dark rail and the light played run, so
+                // all three read apart (the near-white it was matched the played run under a light accent).
+                timeBar.setBufferedColor(ContextCompat.getColor(this, R.color.timebar_buffered));
             } else {
-                // Local files report the whole file as buffered, so anything brighter floods the bar:
+                // Local files report the whole file as buffered, so anything but the rail floods the bar:
                 // https://github.com/google/ExoPlayer/issues/5765
-                timeBar.setBufferedColor(ContextCompat.getColor(this, R.color.track_white));
+                timeBar.setBufferedColor(ContextCompat.getColor(this, R.color.timebar_track));
             }
 
             applyStoredFrameMode();
