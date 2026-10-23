@@ -282,23 +282,51 @@ final class SeekCard extends LinearLayout {
         invalidate();
     }
 
+    @Nullable private Paint outlinePaint;
+    private final Path outline = new Path();
+
+    /**
+     * A hairline round the plate and its pointer, the bottom card's own (PlayerActivity.tvBottomPlate): the
+     * card stands up out of that card while a seek is aimed, and without the line the two darks run into
+     * one another with nothing to say where the seek's card begins.
+     */
+    void setOutlined(final boolean outlined) {
+        if (outlined && outlinePaint == null) {
+            outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            outlinePaint.setStyle(Paint.Style.STROKE);
+            outlinePaint.setStrokeWidth(Math.max(1, Utils.dpToPx(1)));
+            outlinePaint.setColor(0x24FFFFFF);
+        } else if (!outlined) {
+            outlinePaint = null;
+        }
+        invalidate();
+    }
+
     @Override
     protected void onDraw(final Canvas canvas) {
         final float bottom = getHeight() - pointerHeight;
         plate.set(0, 0, getWidth(), bottom);
         final float r = Math.min(radius, bottom / 2f);
         canvas.drawRoundRect(plate, r, r, platePaint);
-        if (!anchored) {
-            // The pointer's band stays empty, so the plate stands as high as an anchored one does.
-            super.onDraw(canvas);
-            return;
+        if (anchored) {
+            pointer.reset();
+            pointer.moveTo(pointerX - pointerHeight, bottom);
+            pointer.lineTo(pointerX + pointerHeight, bottom);
+            pointer.lineTo(pointerX, getHeight());
+            pointer.close();
+            canvas.drawPath(pointer, platePaint);
         }
-        pointer.reset();
-        pointer.moveTo(pointerX - pointerHeight, bottom);
-        pointer.lineTo(pointerX + pointerHeight, bottom);
-        pointer.lineTo(pointerX, getHeight());
-        pointer.close();
-        canvas.drawPath(pointer, platePaint);
+        // else: the pointer's band stays empty, so the plate stands as high as an anchored one does.
+        if (outlinePaint != null) {
+            final float half = outlinePaint.getStrokeWidth() / 2f;
+            outline.reset();
+            plate.set(half, half, getWidth() - half, bottom - half);
+            outline.addRoundRect(plate, r - half, r - half, Path.Direction.CW);
+            if (anchored) {
+                outline.op(pointer, Path.Op.UNION);
+            }
+            canvas.drawPath(outline, outlinePaint);
+        }
         super.onDraw(canvas);
     }
 }

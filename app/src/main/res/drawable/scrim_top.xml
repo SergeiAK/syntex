@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Top control scrim: opaque-ish at the very top, fading to transparent so the video breathes.
-     Replaces the flat opaque header band. -->
+     Replaces the flat opaque header band. All the way to nothing: it used to stop at 12% black, which
+     drew the header's bottom as a hard line across the picture. Held dark through the meta lines and
+     only then let go, so they keep their ground. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
         android:angle="270"
         android:startColor="#D9000000"
-        android:endColor="#1F000000" />
+        android:centerY="0.7"
+        android:centerColor="#8C000000"
+        android:endColor="#00000000" />
 </shape>

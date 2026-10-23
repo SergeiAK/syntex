@@ -4,7 +4,9 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.animation.PathInterpolator;
 import android.view.MotionEvent;
@@ -42,6 +44,18 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
      */
     private static final int HALO_FOCUSED = 0xFFFFFFFF;
     private final Paint framePaint = new Paint();
+    /**
+     * TV: a rounded rail on the bottom block's plate, with no contour. The plate gives the rail its ground,
+     * so the white frame around the whole bar - the loudest line on the screen - goes, and the focus is the
+     * ring round the dot plus the height the rail already grows by. The dark rim stays, as a hairline on the
+     * rounded shape: with the controls down a remote seek shows the bar on its own, over the picture.
+     */
+    private boolean roundLook;
+    private static final int FOCUS_RING = 0x47FFFFFF;
+    private final Paint roundRimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint focusRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path barClip = new Path();
+    private final RectF barRect = new RectF();
     private boolean seekLook;
     private long seekTargetMs = -1;
     private long seekTargetDurationMs;
@@ -195,12 +209,26 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         return Math.max(2, Utils.dpToPx(3) / 2);
     }
 
+    /** See {@link #roundLook}. */
+    void setRoundLook(final boolean roundLook) {
+        this.roundLook = roundLook;
+        roundRimPaint.setColor(RIM);
+        focusRingPaint.setColor(FOCUS_RING);
+        invalidate();
+    }
+
     /** Halo, then rim, under the rails Media3 is about to paint into {@code progressBar}. */
     private void drawFrame(final Canvas canvas) {
         if (progressBar == null || progressBar.width() <= 0) {
             return;
         }
         final int rim = rimWidth();
+        if (roundLook) {
+            barRect.set(progressBar.left - rim, progressBar.top - rim, progressBar.right + rim, progressBar.bottom + rim);
+            final float r = barRect.height() / 2f;
+            canvas.drawRoundRect(barRect, r, r, roundRimPaint);
+            return;
+        }
         final int halo = Math.max(1, Utils.dpToPx(1));
         framePaint.setColor(isFocused() && !seekLook ? HALO_FOCUSED : HALO_REST);
         canvas.drawRect(progressBar.left - rim - halo, progressBar.top - rim - halo,
@@ -236,6 +264,9 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         }
         final int x = Math.min(Math.max(scrubberBar.right, scrubberBar.left), progressBar.right);
         final int y = scrubberBar.centerY();
+        if (roundLook && isFocused() && !seekLook) {
+            canvas.drawCircle(x, y, radius + Utils.dpToPx(7), focusRingPaint);
+        }
         playheadRing.setColor(RIM);
         canvas.drawCircle(x, y, radius + rimWidth(), playheadRing);
         if (segmentColor != 0) {
@@ -251,18 +282,37 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
     @Override
     public void onDraw(Canvas canvas) {
         drawFrame(canvas);
+        // The rails and the bands are rectangles in Media3; the round look rounds them by a clip. The dot
+        // Media3 draws in there is clipped with them and is drawn whole again below, as it always was.
+        final boolean clip = roundLook && progressBar != null && progressBar.width() > 0;
+        if (clip) {
+            canvas.save();
+            barRect.set(progressBar);
+            final float r = barRect.height() / 2f;
+            barClip.reset();
+            barClip.addRoundRect(barRect, r, r, Path.Direction.CW);
+            canvas.clipPath(barClip);
+        }
         super.onDraw(canvas);
-
-        if (skipStartsMs == null || skipDurationMs <= 0 || progressBar == null) {
-            drawPlayhead(canvas, 0);
-            drawSeekTarget(canvas);
+        final boolean segments = skipStartsMs != null && skipDurationMs > 0 && progressBar != null;
+        if (segments && progressBar.width() <= 0) {
+            if (clip) {
+                canvas.restore();
+            }
             return;
         }
+        final int segmentColor = segments ? drawSegments(canvas) : 0;
+        if (clip) {
+            canvas.restore();
+        }
+        drawPlayhead(canvas, segmentColor);
+        drawSeekTarget(canvas);
+    }
+
+    /** The skip segments' bands; returns the fill of the one the dot is in, 0 when it is in none. */
+    private int drawSegments(final Canvas canvas) {
         final int barLeft = progressBar.left;
         final int barWidth = progressBar.width();
-        if (barWidth <= 0) {
-            return;
-        }
         // Media3 paints the playhead inside super.onDraw above, so everything below lands on top of it and
         // the fill is opaque. The patch used to be kept clear for that reason, which hid the segment the
         // viewer is actually inside: the dot is 12dp wide, and on a 50-minute film 1dp is 8.5s, so every
@@ -298,8 +348,7 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
                 segmentColor = skipFillColors[i];
             }
         }
-        drawPlayhead(canvas, segmentColor);
-        drawSeekTarget(canvas);
+        return segmentColor;
     }
 
     /** Paints a bar-height band. */

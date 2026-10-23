@@ -60,6 +60,7 @@ import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.SpannableString;
+import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -951,6 +952,11 @@ public class PlayerActivity extends Activity {
     private boolean focusAudioOnShow;
     /** TV: the picker row, standing above the seek bar on the right rather than in the bottom bar. */
     private HorizontalScrollView tvButtonRow;
+    /** TV: the card or the fade the bottom block stands on (Prefs.osdStyle). */
+    private View tvBottomPlate;
+    /** TV: the bottom and the side insets the bottom block was last placed with. */
+    private int tvBottomInset;
+    private int tvSideInset;
     private ImageButton exoSettings;
     private ImageButton exoSubtitle;
     private ImageButton exoPlayPause;
@@ -2011,8 +2017,20 @@ public class PlayerActivity extends Activity {
         slotParams.setMarginEnd(ui.dpS(16));
         slotParams.gravity = Gravity.TOP;
         posterSlot.setLayoutParams(slotParams);
-        posterSlot.setBackgroundColor(ContextCompat.getColor(this, R.color.placeholder_card));
-        final int posterCornerRadius = Utils.dpToPx(4);
+        final int posterCornerRadius;
+        if (isTvBox) {
+            // TV: the empty frame in the chips' language - a light hairline round a faint fill - rather
+            // than a solid grey block, the one opaque thing left in the header.
+            posterCornerRadius = ui.dpS(10);
+            final GradientDrawable slot = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                    new int[]{0x2EFFFFFF, 0x0FFFFFFF});
+            slot.setCornerRadius(posterCornerRadius);
+            slot.setStroke(Math.max(1, Utils.dpToPx(1)), 0x59FFFFFF);
+            posterSlot.setBackground(slot);
+        } else {
+            posterCornerRadius = Utils.dpToPx(4);
+            posterSlot.setBackgroundColor(ContextCompat.getColor(this, R.color.placeholder_card));
+        }
         posterSlot.setClipToOutline(true);
         posterSlot.setOutlineProvider(new ViewOutlineProvider() {
             @Override
@@ -2665,6 +2683,8 @@ public class PlayerActivity extends Activity {
                 }
 
                 if (isTvBox) {
+                    tvBottomInset = bottomBarPaddingBottom;
+                    tvSideInset = insetH;
                     placeTvTransport(bottomBarPaddingBottom, barHeight);
                     placeTvSideChrome();
                 }
@@ -2684,7 +2704,9 @@ public class PlayerActivity extends Activity {
         final int timeBarPlayed = ContextCompat.getColor(this, R.color.timebar_played);
         timeBar.setPlayedColor(timeBarPlayed);
         timeBar.setScrubberColor(timeBarPlayed);
-        timeBar.setUnplayedColor(ContextCompat.getColor(this, R.color.timebar_track));
+        timeBar.setUnplayedColor(ContextCompat.getColor(this,
+                isTvBox ? R.color.timebar_track_tv : R.color.timebar_track));
+        timeBar.setRoundLook(isTvBox);
 
         try {
             trackNameProvider = new CustomDefaultTrackNameProvider(getResources());
@@ -2849,14 +2871,46 @@ public class PlayerActivity extends Activity {
             // TV: the row stands above the seek bar on the right, and the transfer line takes its old
             // place in the bottom bar. The row lives in the controller, beside the bar rather than in
             // it, so it is shown and hidden with the controls; the bar fades it as it parks (see
-            // BottomBarLayout.setCompanion). Its offsets are set with the insets, next to the seek bar's.
+            // BottomBarLayout.addCompanion). Its offsets are set with the insets, next to the seek bar's.
             tvButtonRow = horizontalScrollView;
             final BottomBarLayout bar = findViewById(R.id.exo_bottom_bar);
             final ViewGroup controller = (ViewGroup) bar.getParent();
             controller.addView(horizontalScrollView, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM | Gravity.END));
-            bar.setCompanion(horizontalScrollView);
+            bar.addCompanion(horizontalScrollView);
+            // One ground under the whole bottom block - the transfer line and the row, the seek bar, the
+            // times and the transport - instead of a pill per cluster and a gradient only as tall as the
+            // time line: on a bright frame the times and the discs stood on the picture itself. A card or a
+            // fade, by the viewer's choice (Prefs.osdStyle); placed with the row (placeTvSideChrome), and
+            // faded with the bar like the row, so a seek with the controls down leaves the bar on its own.
+            tvBottomPlate = new View(this);
+            tvBottomPlate.setFocusable(false);
+            if (Prefs.OSD_STYLE_GRADIENT.equals(mPrefs.osdStyle)) {
+                tvBottomPlate.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                        new int[]{0xE0000000, 0x99000000, 0x00000000}));
+            } else {
+                final GradientDrawable card = new GradientDrawable();
+                card.setColor(0xD1121212);
+                card.setCornerRadius(ui.dpS(20));
+                card.setStroke(Math.max(1, Utils.dpToPx(1)), 0x24FFFFFF);
+                tvBottomPlate.setBackground(card);
+                playerView.setSeekCardOutlined(true);
+            }
+            // Behind everything but the full-screen dim: index 0 is exo_controls_background.
+            controller.addView(tvBottomPlate, 1, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, Gravity.BOTTOM));
+            bar.addCompanion(tvBottomPlate);
+            bar.setBackground(null);
+            // The focused dot and its ring are taller than the seek bar's view - its rail sits on the view's
+            // bottom - so the controller lets it draw past its bounds instead of cutting the ring's lower half.
+            ((ViewGroup) controller).setClipChildren(false);
+            // On the plate the clusters need no grounds of their own.
+            controls.setBackground(null);
+            if (transferView != null) {
+                transferView.setBackground(null);
+                transferView.setPadding(0, 0, 0, 0);
+            }
             // The bar under the seek bar is a time line: elapsed at the start, remaining at the end, the
             // transport between them (see placeTvTransport). The total moved up into the header's video
             // line, so the slot at the end only counts down. The transfer line stays floating, over the
@@ -2901,6 +2955,15 @@ public class PlayerActivity extends Activity {
             for (View transport : new View[]{exoPrev, exoPlayPause, exoNext, loadingProgressBar}) {
                 if (transport != null) {
                     transport.setNextFocusUpId(R.id.exo_progress);
+                }
+            }
+            // On the plate the discs take the row's focus mark: a white disc under a dark glyph wherever the
+            // focus is, and a faint disc where it is not - the hero is told apart by its size and its glyph,
+            // not by a fill it wore whether it had the focus or not.
+            styleTvDisc(exoPlayPause, ui.heroInset(), brandColor());
+            for (View disc : new View[]{exoPrev, exoNext, findViewById(R.id.next), findViewById(R.id.delete)}) {
+                if (disc instanceof ImageButton) {
+                    styleTvDisc((ImageButton) disc, 0, Color.WHITE);
                 }
             }
         } else {
@@ -6414,11 +6477,50 @@ public class PlayerActivity extends Activity {
         view.setMaxLines(1);
         view.setEllipsize(TextUtils.TruncateAt.END);
         final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                isTvBox ? ViewGroup.LayoutParams.WRAP_CONTENT : ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = topMargin;
         view.setLayoutParams(lp);
+        if (isTvBox) {
+            // TV: the line is one capsule as wide as its text - a dark fill in a light hairline - with the
+            // fields inside it parted by bars (setInfoLine). A chip a field scattered the facts across the
+            // header; one ground a line keeps them a line, and still reads apart from the title above.
+            final GradientDrawable capsule = new GradientDrawable();
+            capsule.setColor(0x66000000);
+            capsule.setCornerRadius(ui.dpS(8));
+            capsule.setStroke(Math.max(1, Utils.dpToPx(1)), 0x4DFFFFFF);
+            view.setBackground(capsule);
+            view.setPadding(ui.dpS(10), ui.dpS(2), ui.dpS(10), ui.dpS(2));
+            view.setTextColor(ContextCompat.getColor(this, R.color.ink_medium));
+        }
         view.setVisibility(View.GONE);
         return view;
+    }
+
+    /**
+     * TV: the header line's fields - what " · " parts in it - parted by a dimmed bar instead, the bar the
+     * capsule's own edge goes with. A field wholly in square brackets loses them: in the capsule they only
+     * box in what is already boxed.
+     */
+    private static CharSequence capsuleLine(final String line) {
+        final SpannableStringBuilder b = new SpannableStringBuilder();
+        for (String field : line.split("\\s*·\\s*")) {
+            field = field.trim();
+            if (field.length() > 2 && field.startsWith("[") && field.endsWith("]")) {
+                field = field.substring(1, field.length() - 1);
+            }
+            if (field.isEmpty()) {
+                continue;
+            }
+            if (b.length() > 0) {
+                final int start = b.length();
+                b.append("  |  ");
+                b.setSpan(new ForegroundColorSpan(0x59FFFFFF), start, b.length(),
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            b.append(field.replace(' ', ' '));
+        }
+        return b;
     }
 
     void updateMediaInfo() {
@@ -6438,7 +6540,9 @@ public class PlayerActivity extends Activity {
             appendField(b, videoLine);
             final long duration = player.getContentDuration();
             if (!isLiveStream() && duration != C.TIME_UNSET && duration > 0) {
-                appendField(b, Util.getStringForTime(timeBuilder, timeFormatter, duration));
+                // Named: a bare 01:42:10 among the codec and the frame rate read as one more code.
+                appendField(b, getString(R.string.header_duration,
+                        Util.getStringForTime(timeBuilder, timeFormatter, duration)));
             }
             videoLine = b.toString();
         }
@@ -6481,12 +6585,12 @@ public class PlayerActivity extends Activity {
         return paintedSubtitleUri != null ? getString(R.string.header_subtitles_on) : null;
     }
 
-    private static void setInfoLine(TextView view, String text) {
+    private void setInfoLine(TextView view, String text) {
         if (view == null) {
             return;
         }
         if (text != null && !text.isEmpty()) {
-            view.setText(text);
+            view.setText(isTvBox ? capsuleLine(text) : text);
             view.setVisibility(View.VISIBLE);
         } else {
             view.setVisibility(View.GONE);
@@ -7174,15 +7278,20 @@ public class PlayerActivity extends Activity {
         int transferHeight = 0;
         if (transferView != null && transferView.getLayoutParams() instanceof CoordinatorLayout.LayoutParams) {
             final CoordinatorLayout.LayoutParams lp = (CoordinatorLayout.LayoutParams) transferView.getLayoutParams();
-            if (lp.bottomMargin != rowBottom) {
-                lp.bottomMargin = rowBottom;
-                transferView.setLayoutParams(lp);
-            }
             transferHeight = transferView.getHeight();
             if (transferHeight == 0) {
                 transferView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
                 transferHeight = transferView.getMeasuredHeight();
             }
+            // On the row's centre line, not on its bottom: with the line's own pill gone the two share one
+            // ground, and a line sitting low beside the icons read as a second row (measured on the Dune).
+            final int rowHeight = tvButtonRow.getHeight() > 0 ? tvButtonRow.getHeight() : ui.clusterBox();
+            final int bottom = rowBottom + Math.max(0, (rowHeight - transferHeight) / 2);
+            if (lp.bottomMargin != bottom) {
+                lp.bottomMargin = bottom;
+                transferView.setLayoutParams(lp);
+            }
+            transferHeight += bottom - rowBottom;
         }
         if (roomPill != null && roomPill.getLayoutParams() instanceof CoordinatorLayout.LayoutParams) {
             final CoordinatorLayout.LayoutParams lp = (CoordinatorLayout.LayoutParams) roomPill.getLayoutParams();
@@ -7191,6 +7300,44 @@ public class PlayerActivity extends Activity {
                 lp.bottomMargin = bottom;
                 roomPill.setLayoutParams(lp);
             }
+        }
+        placeTvBottomPlate(rowBottom);
+    }
+
+    /**
+     * TV: the plate under the bottom block, from just under the transport up to just over the row. The
+     * card stops short of the screen's edges by the content grid less its own padding, so what is on it
+     * keeps the lines it had; the fade runs the full width from the edge and a little higher, since it has
+     * no edge of its own to stop at - it has to be nearly gone where the row's top is.
+     */
+    private void placeTvBottomPlate(final int rowBottom) {
+        if (tvBottomPlate == null || !(tvBottomPlate.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        final int rowHeight = tvButtonRow.getHeight() > 0 ? tvButtonRow.getHeight() : ui.clusterBox();
+        final int top = rowBottom + rowHeight;
+        final FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tvBottomPlate.getLayoutParams();
+        final int bottom;
+        final int side;
+        final int height;
+        if (Prefs.OSD_STYLE_GRADIENT.equals(mPrefs.osdStyle)) {
+            bottom = 0;
+            side = 0;
+            height = top + ui.dpS(56);
+        } else {
+            bottom = Math.max(ui.dpS(8), tvBottomInset - ui.dpS(12));
+            side = Math.max(0, tvSideInset + ui.gridH() - ui.dpS(20));
+            // Over the row's box by the card's own side padding less a little: the box is the glyphs and
+            // their focus disc, with little air of its own once the row came down to 30dp (measured on the
+            // Dune, where 8dp into it left the row and the transfer line standing over the card's edge).
+            height = top + ui.dpS(12) - bottom;
+        }
+        if (lp.bottomMargin != bottom || lp.leftMargin != side || lp.rightMargin != side || lp.height != height) {
+            lp.bottomMargin = bottom;
+            lp.leftMargin = side;
+            lp.rightMargin = side;
+            lp.height = height;
+            tvBottomPlate.setLayoutParams(lp);
         }
     }
 
@@ -7410,7 +7557,8 @@ public class PlayerActivity extends Activity {
         // there is the line break, and a dot at the end of every row is only clutter.
         final boolean portrait =
                 getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
-        transferView.setText(TextUtils.join(portrait ? "\n" : " · ", fields));
+        // TV: bars between the figures, which stand apart better than dots in a monospaced line on the plate.
+        transferView.setText(TextUtils.join(portrait ? "\n" : isTvBox ? "  |  " : " · ", fields));
         // Stop short of the Skip pill rather than step aside for it: the pill stands for a whole opening
         // or a whole set of credits, and the figures would be gone for all of it. The pill's own width is
         // the only thing that has to be read, and it is read on the tick that is running anyway.
@@ -11595,6 +11743,29 @@ public class PlayerActivity extends Activity {
     // the glyph at the standard 24dp. Nothing is drawn at rest — the pill behind is the frame. Focus draws a
     // contour on the box less 4dp on every side, so the line has air against the pill's edge and against its
     // neighbour, and keeps the pill's own corner language rather than cutting a circle into it.
+    /**
+     * TV transport disc on the bottom plate: a faint disc at rest and the row's white focus disc under a
+     * dark glyph (see styleClusterButton), with the press wash on the disc and no contour.
+     *
+     * @param inset   how far inside the view the disc is drawn
+     * @param restInk the glyph without the focus - the brand on the hero, white on the rest
+     */
+    private void styleTvDisc(@Nullable final ImageButton button, final int inset, final int restInk) {
+        if (button == null) {
+            return;
+        }
+        final int[][] states = {{android.R.attr.state_focused}, {}};
+        final GradientDrawable disc = new GradientDrawable();
+        disc.setShape(GradientDrawable.OVAL);
+        disc.setColor(new ColorStateList(states, new int[]{0xFFF5F5F5, 0x24FFFFFF}));
+        button.setBackground(new InsetDrawable(disc, inset));
+        button.setImageTintList(new ColorStateList(states, new int[]{0xFF121212, restInk}));
+        button.setForeground(Utils.coveringRipple(
+                Utils.pressOnly(ContextCompat.getColor(this, R.color.ripple_chrome)),
+                new ColorDrawable(Color.TRANSPARENT),
+                new InsetDrawable(Utils.shape(Color.WHITE, Utils.CIRCLE), inset)));
+    }
+
     private void styleClusterButton(final ImageButton button) {
         if (button == null) {
             return;
@@ -13990,11 +14161,14 @@ public class PlayerActivity extends Activity {
             if (isNetworkUri) {
                 // A mid grey lead ahead of the playhead: between the dark rail and the light played run, so
                 // all three read apart (the near-white it was matched the played run under a light accent).
-                timeBar.setBufferedColor(ContextCompat.getColor(this, R.color.timebar_buffered));
+                timeBar.setBufferedColor(ContextCompat.getColor(this,
+                        isTvBox ? R.color.timebar_buffered_tv : R.color.timebar_buffered));
             } else {
                 // Local files report the whole file as buffered, so anything but the rail floods the bar:
                 // https://github.com/google/ExoPlayer/issues/5765
-                timeBar.setBufferedColor(ContextCompat.getColor(this, R.color.timebar_track));
+                // On TV the rail is translucent, and the rail's colour over itself would double it: nothing.
+                timeBar.setBufferedColor(isTvBox ? Color.TRANSPARENT
+                        : ContextCompat.getColor(this, R.color.timebar_track));
             }
 
             applyStoredFrameMode();

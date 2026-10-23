@@ -230,6 +230,7 @@
     <string name="time_ends_at">Закінчиться о %s</string>
     <string name="time_ends_at_inline">до %1$s</string>
     <string name="time_live">● ЕФІР</string>
+    <string name="header_duration">тривалість: %1$s</string>
     <string name="header_subtitles">субтитри: %1$s</string>
     <string name="header_subtitles_on">субтитри увімкнено</string>
     <string name="playlist">Список відтворення</string>
@@ -363,6 +364,9 @@
     <string name="pref_show_transfer">Рядок передачі</string>
     <string name="pref_show_transfer_on">Буфер, мережа й бітрейт стоять над смугою внизу</string>
     <string name="pref_show_transfer_off">Приховані; вони є в картці статистики (Ще → Статистика)</string>
+    <string name="pref_osd_style">Нижня панель</string>
+    <string name="pref_osd_style_card">Картка навколо керування</string>
+    <string name="pref_osd_style_gradient">Затемнення від нижнього краю</string>
     <string name="pref_seek_preview">Прев\'ю під час перемотування</string>
     <string name="pref_seek_preview_on">Якщо поруч із файлом є кадри trickplay, під час довгого перемотування вони видні над смугою, фільм іде далі, перехід — один наприкінці</string>
     <string name="pref_seek_preview_off">Кожне перемотування одразу рухає картинку</string>

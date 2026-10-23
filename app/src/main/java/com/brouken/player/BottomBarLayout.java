@@ -5,6 +5,9 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.widget.FrameLayout;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * The bottom control bar, with one thing added: it travels as far as it is tall.
  *
@@ -22,8 +25,11 @@ public class BottomBarLayout extends FrameLayout {
 
     private float travelScale = 1f;
     private float travel;
-    /** A view that is part of the bar without being inside it - the TV's button row above the seek bar. */
-    private View companion;
+    /**
+     * Views that are part of the bar without being inside it - on TV the button row above the seek bar,
+     * and the plate the whole bottom block stands on.
+     */
+    private final List<View> companions = new ArrayList<>();
 
     public BottomBarLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -49,17 +55,20 @@ public class BottomBarLayout extends FrameLayout {
      * and a row above the seek bar moved by as much would be parked over the picture - so it fades by
      * how far the bar has travelled: whole at rest, gone once the bar is parked.
      */
-    void setCompanion(View view) {
-        companion = view;
+    void addCompanion(View view) {
+        companions.add(view);
         follow();
     }
 
     private void follow() {
-        if (companion == null) {
+        if (companions.isEmpty()) {
             return;
         }
         final float height = getHeight();
-        companion.setAlpha(height <= 0 ? 1f
-                : Math.max(0f, Math.min(1f, 1f - Math.abs(super.getTranslationY()) / height)));
+        final float alpha = height <= 0 ? 1f
+                : Math.max(0f, Math.min(1f, 1f - Math.abs(super.getTranslationY()) / height));
+        for (View companion : companions) {
+            companion.setAlpha(alpha);
+        }
     }
 }

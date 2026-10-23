@@ -759,6 +759,11 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
         seekCard.setStill(frame);
     }
 
+    /** See SeekCard.setOutlined. */
+    void setSeekCardOutlined(final boolean outlined) {
+        seekCard.setOutlined(outlined);
+    }
+
     boolean isSeekCardShown() {
         return seekCard.getVisibility() == VISIBLE;
     }

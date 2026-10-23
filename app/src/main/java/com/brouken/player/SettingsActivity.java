@@ -601,6 +601,11 @@ public class SettingsActivity extends AppCompatActivity
                 // the TV's screensaver, which takes the audio output and the process down with it.
                 preferenceKeepAwake.setVisible(false);
             }
+            Preference preferenceOsdStyle = findPreference("osdStyle");
+            if (preferenceOsdStyle != null && !Utils.isTvBox(getContext())) {
+                // Only the TV layout gathers the bottom controls into one block; a phone keeps its bars.
+                preferenceOsdStyle.setVisible(false);
+            }
             // Three ordered language lists, one shape. Several hundred locales, resolved and sorted
             // once for all of them.
             final LinkedHashMap<String, String> languages = Utils.allLanguages();

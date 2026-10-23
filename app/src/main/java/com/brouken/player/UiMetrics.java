@@ -77,8 +77,10 @@ final class UiMetrics {
     // a circle cut into a rounded box.
     int contourInset()      { return dpS(4); }
     int contourCorner()     { return dpS(4); }
-    int clusterBox()        { return dpS(40); }
-    int clusterPad()        { return dpS(8); }
+    // A quarter smaller on TV: there the row stands on the bottom card beside the transfer line, and at the
+    // phone's size its glyphs were the biggest thing on the card, bigger than the transport they serve.
+    int clusterBox()        { return dpS(t(40, 40, 40, 30)); }
+    int clusterPad()        { return dpS(t(8, 8, 8, 6)); }
     int heroBox()           { return dpS(90); }   // central play/pause tap target (was exo_icon_size)
     int heroInset()         { return dpS(10); }   // coral disc inset within the hero box
     int episodeDisc()       { return dpS(46); }

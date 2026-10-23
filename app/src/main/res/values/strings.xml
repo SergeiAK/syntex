@@ -322,6 +322,7 @@
     <string name="time_ends_at">Ends at %s</string>
     <string name="time_ends_at_inline">until %1$s</string>
     <string name="time_live">● LIVE</string>
+    <string name="header_duration">duration: %1$s</string>
     <string name="header_subtitles">subtitles: %1$s</string>
     <string name="header_subtitles_on">subtitles on</string>
     <string name="playlist">Playlist</string>
@@ -459,6 +460,9 @@
     <string name="pref_show_transfer">Transfer line</string>
     <string name="pref_show_transfer_on">Buffer, network and bitrate sit above the seek bar</string>
     <string name="pref_show_transfer_off">Hidden; the statistics card (More → Statistics) still has them</string>
+    <string name="pref_osd_style">Bottom panel</string>
+    <string name="pref_osd_style_card">A card around the controls</string>
+    <string name="pref_osd_style_gradient">A fade up from the bottom edge</string>
     <string name="pref_seek_preview">Seek preview</string>
     <string name="pref_seek_preview_on">A long seek shows where it will land, with a trickplay frame where the file has them beside it; the film plays on and jumps once at the end</string>
     <string name="pref_seek_preview_off">Every seek moves the picture itself</string>

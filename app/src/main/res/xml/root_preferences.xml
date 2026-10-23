@@ -245,6 +245,14 @@
                 app:summaryOff="@string/pref_show_transfer_off"
                 app:title="@string/pref_show_transfer" />
 
+            <ListPreference
+                app:key="osdStyle"
+                app:defaultValue="card"
+                app:entries="@array/osd_style_entries"
+                app:entryValues="@array/osd_style_values"
+                app:title="@string/pref_osd_style"
+                app:useSimpleSummaryProvider="true" />
+
             <SwitchPreferenceCompat
                 app:key="seekPreview"
                 app:defaultValue="true"

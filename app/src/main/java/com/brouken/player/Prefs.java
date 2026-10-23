@@ -141,6 +141,7 @@ class Prefs {
     // The old side panel's switch was "showStats"; a new key, so a panel left on does not open the card.
     private static final String PREF_KEY_INFO_CARD_OPEN = "infoCardOpen";
     private static final String PREF_KEY_SHOW_TRANSFER = "showTransfer";
+    private static final String PREF_KEY_OSD_STYLE = "osdStyle";
     private static final String PREF_KEY_SEEK_PREVIEW = "seekPreview";
     // The seek trial: ways of seeking from the remote side by side, until one is chosen (roadmap, step 1).
     private static final String PREF_KEY_SEEK_SHORT_PRESS = "seekShortPress";
@@ -409,6 +410,10 @@ class Prefs {
     public boolean infoCardOpen = false;
     /** Buffer, network and bitrate on one line above the seek bar. */
     public boolean showTransfer = false;
+    /** TV: what the bottom controls stand on - one card around all of them, or a fade up from the edge. */
+    public String osdStyle = OSD_STYLE_CARD;
+    public static final String OSD_STYLE_CARD = "card";
+    public static final String OSD_STYLE_GRADIENT = "gradient";
     /** Long seeks aimed on the card - by trickplay frames where there are some - the film playing on (see PlayerActivity.keyScrubPreview). */
     public boolean seekPreview = true;
     /** A short press steps by a fixed amount each way instead of climbing the ladder; a hold still climbs it. */
@@ -619,6 +624,7 @@ class Prefs {
         timeRemaining = mSharedPreferences.getBoolean(PREF_KEY_TIME_REMAINING, timeRemaining);
         infoCardOpen = mSharedPreferences.getBoolean(PREF_KEY_INFO_CARD_OPEN, infoCardOpen);
         showTransfer = mSharedPreferences.getBoolean(PREF_KEY_SHOW_TRANSFER, showTransfer);
+        osdStyle = mSharedPreferences.getString(PREF_KEY_OSD_STYLE, osdStyle);
         seekPreview = mSharedPreferences.getBoolean(PREF_KEY_SEEK_PREVIEW, seekPreview);
         seekFixedStep = "fixed".equals(mSharedPreferences.getString(PREF_KEY_SEEK_SHORT_PRESS, "ladder"));
         seekStepBackMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_STEP_BACK, "10"));

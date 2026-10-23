@@ -230,6 +230,7 @@
     <string name="time_ends_at">Закончится в %s</string>
     <string name="time_ends_at_inline">до %1$s</string>
     <string name="time_live">● ЭФИР</string>
+    <string name="header_duration">длительность: %1$s</string>
     <string name="header_subtitles">субтитры: %1$s</string>
     <string name="header_subtitles_on">субтитры включены</string>
     <string name="playlist">Плейлист</string>
@@ -354,6 +355,9 @@
     <string name="pref_show_transfer">Строка передачи</string>
     <string name="pref_show_transfer_on">Буфер, сеть и битрейт стоят над полосой перемотки</string>
     <string name="pref_show_transfer_off">Скрыты; они есть в карточке статистики (Ещё → Статистика)</string>
+    <string name="pref_osd_style">Нижняя панель</string>
+    <string name="pref_osd_style_card">Карточка вокруг управления</string>
+    <string name="pref_osd_style_gradient">Затемнение от нижнего края</string>
     <string name="pref_seek_preview">Превью при перемотке</string>
     <string name="pref_seek_preview_on">При длинной перемотке видно, куда придёт переход, а если рядом с файлом есть кадры trickplay — и кадр; фильм идёт дальше, переход — один в конце</string>
     <string name="pref_seek_preview_off">Каждая перемотка сразу двигает картинку</string>
