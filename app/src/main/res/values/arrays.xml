@@ -2,10 +2,12 @@
 <resources>
   <string-array name="seek_hold_entries">
     <item>@string/pref_seek_hold_steps</item>
+    <item>@string/pref_seek_hold_fixed</item>
     <item>@string/pref_seek_hold_glide</item>
   </string-array>
   <string-array name="seek_hold_values" translatable="false">
     <item>steps</item>
+    <item>fixed</item>
     <item>glide</item>
   </string-array>
   <string-array name="seek_without_set_entries">
@@ -27,6 +29,7 @@
     <item>fixed</item>
   </string-array>
   <string-array name="seek_step_back_entries">
+    <item>@string/pref_seek_seconds_3</item>
     <item>@string/pref_seek_seconds_5</item>
     <item>@string/pref_seek_seconds_10</item>
     <item>@string/pref_seek_seconds_15</item>
@@ -34,6 +37,7 @@
     <item>@string/pref_seek_seconds_30</item>
   </string-array>
   <string-array name="seek_step_back_values" translatable="false">
+    <item>3</item>
     <item>5</item>
     <item>10</item>
     <item>15</item>
@@ -41,6 +45,7 @@
     <item>30</item>
   </string-array>
   <string-array name="seek_step_forward_entries">
+    <item>@string/pref_seek_seconds_5</item>
     <item>@string/pref_seek_seconds_10</item>
     <item>@string/pref_seek_seconds_15</item>
     <item>@string/pref_seek_seconds_20</item>
@@ -48,6 +53,7 @@
     <item>@string/pref_seek_seconds_60</item>
   </string-array>
   <string-array name="seek_step_forward_values" translatable="false">
+    <item>5</item>
     <item>10</item>
     <item>15</item>
     <item>20</item>

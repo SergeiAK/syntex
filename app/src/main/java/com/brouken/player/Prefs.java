@@ -421,6 +421,8 @@ class Prefs {
     public boolean seekPauseWhileAiming = false;
     /** A held key sets the mark moving on its own, faster with each press the same way (as Plex does). */
     public boolean seekHoldGlides = false;
+    /** A held key repeats the fixed step (seekStepBackMs / seekStepForwardMs) instead of climbing the ladder. */
+    public boolean seekHoldFixed = false;
     /** What a long seek shows where the file has no trickplay set: see the SEEK_WITHOUT_SET_ values. */
     public String seekWithoutSet = SEEK_WITHOUT_SET_CARD;
     public static final String SEEK_WITHOUT_SET_CARD = "card";
@@ -624,6 +626,7 @@ class Prefs {
         seekConfirmOk = "ok".equals(mSharedPreferences.getString(PREF_KEY_SEEK_CONFIRM, "timer"));
         seekPauseWhileAiming = "pause".equals(mSharedPreferences.getString(PREF_KEY_SEEK_WHILE_AIMING, "plays"));
         seekHoldGlides = "glide".equals(mSharedPreferences.getString(PREF_KEY_SEEK_HOLD, "steps"));
+        seekHoldFixed = "fixed".equals(mSharedPreferences.getString(PREF_KEY_SEEK_HOLD, "steps"));
         seekWithoutSet = mSharedPreferences.getString(PREF_KEY_SEEK_WITHOUT_SET, seekWithoutSet);
         // Forced on for TV boxes, where the remote routes volume to the panel or receiver over CEC and
         // only the system stream responds — the setting is hidden there too.

@@ -672,6 +672,7 @@
     <string name="pref_seek_short_press_fixed">Fixed step, set below</string>
     <string name="pref_seek_step_back">Fixed step back</string>
     <string name="pref_seek_step_forward">Fixed step forward</string>
+    <string name="pref_seek_seconds_3">3 seconds</string>
     <string name="pref_seek_seconds_5">5 seconds</string>
     <string name="pref_seek_seconds_10">10 seconds</string>
     <string name="pref_seek_seconds_15">15 seconds</string>
@@ -686,6 +687,7 @@
     <string name="pref_seek_while_aiming_pause">The film pauses</string>
     <string name="pref_seek_hold">Holding the key</string>
     <string name="pref_seek_hold_steps">Steps that grow: 3, 10, 30, 60 s</string>
+    <string name="pref_seek_hold_fixed">Fixed step, as set above</string>
     <string name="pref_seek_hold_glide">The mark moves on its own: press again for 2x to 16x, the other way to slow down and stop; OK lands, Back goes back</string>
     <string name="pref_seek_without_set">Without trickplay frames beside the file</string>
     <string name="pref_seek_without_set_card">Time on the card, no picture</string>

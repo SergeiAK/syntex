@@ -651,6 +651,7 @@
     <string name="pref_seek_short_press_fixed">Постоянный шаг, задаётся ниже</string>
     <string name="pref_seek_step_back">Постоянный шаг назад</string>
     <string name="pref_seek_step_forward">Постоянный шаг вперёд</string>
+    <string name="pref_seek_seconds_3">3 секунды</string>
     <string name="pref_seek_seconds_5">5 секунд</string>
     <string name="pref_seek_seconds_10">10 секунд</string>
     <string name="pref_seek_seconds_15">15 секунд</string>
@@ -665,6 +666,7 @@
     <string name="pref_seek_while_aiming_pause">Фильм на паузе</string>
     <string name="pref_seek_hold">Удержание кнопки</string>
     <string name="pref_seek_hold_steps">Шаги растут: 3, 10, 30, 60 с</string>
+    <string name="pref_seek_hold_fixed">Постоянный шаг, как задан выше</string>
     <string name="pref_seek_hold_glide">Отметка едет сама: ещё нажатие — быстрее, ×2…×16, в обратную сторону — медленнее и стоп; OK — переход, Back — обратно</string>
     <string name="pref_seek_without_set">Если рядом с файлом нет кадров trickplay</string>
     <string name="pref_seek_without_set_card">Табличка со временем, без картинки</string>

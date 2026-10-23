@@ -4213,7 +4213,11 @@ public class PlayerActivity extends Activity {
             from = pos;
             keyScrubStart = pos;
         }
-        final long step = mPrefs.seekFixedStep && !held ? fixedKeyStep(forward, duration) : keyScrubStep(duration);
+        // The fixed step for whichever of the two the trial fixed: a click (seekFixedStep), a hold
+        // (seekHoldFixed), or both. A held fixed step is the key's own repeat rate times the step - at
+        // 5 s and the floor below, some 25 s of film a second.
+        final long step = (held ? mPrefs.seekHoldFixed : mPrefs.seekFixedStep)
+                ? fixedKeyStep(forward, duration) : keyScrubStep(duration);
         keyScrubTarget = Math.max(0, Math.min(duration, from + (forward ? step : -step)));
         // Aimed at a keyframe where the file says where they are, so the landing is what the readout
         // is about to show and costs no decode. Where it does not - a container with no sync table, a
@@ -11929,9 +11933,11 @@ public class PlayerActivity extends Activity {
             items.add(new Dialogs.MenuItem(R.drawable.ic_info_24dp,
                     getString(R.string.stats_title), null, false, this::toggleInfoCard));
         }
-        // Rides the statistics card: the details it reports are the ones on screen, and the row would be
-        // noise for everyone who has not opened it.
-        if (player != null && infoCardOpen) {
+        // Always, as Just+ has it under More since 1.1.4. It used to ride the statistics card, on the
+        // grounds that the report carries what the card shows - but the report is what is sent when
+        // something is wrong, and having to open a card first to find the way to send it hid it from
+        // exactly the people it is for (asked for 23.10.2026).
+        if (player != null) {
             items.add(new Dialogs.MenuItem(R.drawable.ic_content_copy_24dp,
                     getString(R.string.stats_report_title), null, false, this::showPlayerState));
         }
