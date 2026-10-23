@@ -954,6 +954,8 @@ public class PlayerActivity extends Activity {
     private HorizontalScrollView tvButtonRow;
     /** TV: the card or the fade the bottom block stands on (Prefs.osdStyle). */
     private View tvBottomPlate;
+    /** TV: the name of the row's focused button, under it (showTvFocusLabel). */
+    private TextView tvFocusLabel;
     /** TV: the bottom and the side insets the bottom block was last placed with. */
     private int tvBottomInset;
     private int tvSideInset;
@@ -2614,9 +2616,10 @@ public class PlayerActivity extends Activity {
                 if (tvButtonRow != null) {
                     final FrameLayout.LayoutParams rowLp =
                             (FrameLayout.LayoutParams) tvButtonRow.getLayoutParams();
+                    // 20dp over the line, and the focused button's name under the row on top of that.
                     rowLp.bottomMargin = progressBarMarginBottom
                             + getResources().getDimensionPixelSize(R.dimen.exo_styled_progress_margin_bottom)
-                            + ui.dpS(20);
+                            + ui.dpS(20) + ui.focusLabelRoom();
                     rowLp.rightMargin = marginRight + paddingRight + ui.gridH();
                     tvButtonRow.setLayoutParams(rowLp);
                 }
@@ -2879,6 +2882,30 @@ public class PlayerActivity extends Activity {
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM | Gravity.END));
             bar.addCompanion(horizontalScrollView);
+            // The focused button's name under it: six glyphs in a row are not all their own explanation
+            // from across the room - a wave, a frame with HD in it - and a name only while focused costs
+            // the row nothing at rest. Placed under the row with it (placeTvSideChrome), across under the
+            // button that has the focus.
+            tvFocusLabel = new TextView(this);
+            tvFocusLabel.setTextColor(0xE6FFFFFF);
+            tvFocusLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textFocusLabel());
+            tvFocusLabel.setSingleLine(true);
+            tvFocusLabel.setFocusable(false);
+            tvFocusLabel.setVisibility(View.INVISIBLE);
+            controller.addView(tvFocusLabel, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM | Gravity.LEFT));
+            bar.addCompanion(tvFocusLabel);
+            for (int i = 0; i < controls.getChildCount(); i++) {
+                controls.getChildAt(i).setOnFocusChangeListener((v, hasFocus) -> {
+                    if (hasFocus) {
+                        showTvFocusLabel(v);
+                    } else {
+                        // After the move: the focus may have gone to the next button of the row.
+                        tvFocusLabel.post(this::hideTvFocusLabelOffRow);
+                    }
+                });
+            }
             // One ground under the whole bottom block - the transfer line and the row, the seek bar, the
             // times and the transport - instead of a pill per cluster and a gradient only as tall as the
             // time line: on a bright frame the times and the discs stood on the picture itself. A card or a
@@ -2951,6 +2978,12 @@ public class PlayerActivity extends Activity {
                 controls.getChildAt(i).setNextFocusDownId(R.id.exo_progress);
             }
             timeBar.setNextFocusUpId(buttonAudio.getId());
+            // Audio hides when a file has one track to offer, and an Up aimed at a gone view fell through
+            // to the plain focus search, which from the seek bar landed on play/pause below it - the row
+            // was out of reach (measured on the Dune, 23.10.2026). Re-aimed whenever the row lays out,
+            // which is what a button appearing or going does.
+            controls.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) ->
+                    timeBar.setNextFocusUpId(rowEntryId(controls)));
             timeBar.setNextFocusDownId(R.id.exo_play_pause);
             for (View transport : new View[]{exoPrev, exoPlayPause, exoNext, loadingProgressBar}) {
                 if (transport != null) {
@@ -6473,7 +6506,7 @@ public class PlayerActivity extends Activity {
     private TextView createInfoLine(int topMargin) {
         final TextView view = new TextView(this);
         view.setTextColor(ContextCompat.getColor(this, R.color.ink_secondary));
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textInfo());
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textHeaderInfo());
         view.setMaxLines(1);
         view.setEllipsize(TextUtils.TruncateAt.END);
         final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -6482,45 +6515,94 @@ public class PlayerActivity extends Activity {
         lp.topMargin = topMargin;
         view.setLayoutParams(lp);
         if (isTvBox) {
-            // TV: the line is one capsule as wide as its text - a dark fill in a light hairline - with the
-            // fields inside it parted by bars (setInfoLine). A chip a field scattered the facts across the
-            // header; one ground a line keeps them a line, and still reads apart from the title above.
-            final GradientDrawable capsule = new GradientDrawable();
-            capsule.setColor(0x66000000);
-            capsule.setCornerRadius(ui.dpS(8));
-            capsule.setStroke(Math.max(1, Utils.dpToPx(1)), 0x4DFFFFFF);
-            view.setBackground(capsule);
-            view.setPadding(ui.dpS(10), ui.dpS(2), ui.dpS(10), ui.dpS(2));
-            view.setTextColor(ContextCompat.getColor(this, R.color.ink_medium));
+            // TV: no ground of its own. The main facts carry the tags (HeaderTagSpan) and what is left of
+            // the line is dimmed text beside them, so the line reads as the two or three facts that matter.
+            view.setTextColor(0xA6FFFFFF);
         }
         view.setVisibility(View.GONE);
         return view;
     }
 
     /**
-     * TV: the header line's fields - what " · " parts in it - parted by a dimmed bar instead, the bar the
-     * capsule's own edge goes with. A field wholly in square brackets loses them: in the capsule they only
-     * box in what is already boxed.
+     * TV header line: the main facts of the file as tags first, then the rest as dimmed text parted by
+     * dots. Tags first, because a tag after plain text read as a new line starting in the middle of one.
      */
-    private static CharSequence capsuleLine(final String line) {
-        final SpannableStringBuilder b = new SpannableStringBuilder();
-        for (String field : line.split("\\s*·\\s*")) {
-            field = field.trim();
-            if (field.length() > 2 && field.startsWith("[") && field.endsWith("]")) {
-                field = field.substring(1, field.length() - 1);
+    private final class TvHeaderLine {
+        private final SpannableStringBuilder b = new SpannableStringBuilder();
+        private boolean hasText;
+
+        void tag(@Nullable final String field) {
+            if (field == null || field.isEmpty()) {
+                return;
             }
-            if (field.isEmpty()) {
-                continue;
+            final int start = b.length();
+            b.append(field.replace(' ', ' '));
+            b.setSpan(new HeaderTagSpan(0x2BFFFFFF, Color.WHITE, ui.dpS(5), ui.dpS(5), ui.dpS(4)),
+                    start, b.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+
+        void text(@Nullable final String field) {
+            if (field == null || field.isEmpty()) {
+                return;
             }
-            if (b.length() > 0) {
+            if (hasText) {
                 final int start = b.length();
-                b.append("  |  ");
+                b.append("  ·  ");
                 b.setSpan(new ForegroundColorSpan(0x59FFFFFF), start, b.length(),
                         Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
+            hasText = true;
             b.append(field.replace(' ', ' '));
         }
-        return b;
+
+        CharSequence build() {
+            return b;
+        }
+    }
+
+    /** TV: resolution, codec and HDR as tags; the container, the frame rate and the running time as text. */
+    private CharSequence tvVideoLine(final Format video, @Nullable final String container,
+                                     @Nullable final String duration) {
+        final TvHeaderLine line = new TvHeaderLine();
+        line.tag(resolutionClass(video.width, video.height));
+        line.tag(codecName(video));
+        line.tag(hdrName(video.colorInfo));
+        line.text(container);
+        final float frameRate = videoFrameRate();
+        if (frameRate > 0) {
+            line.text(String.format(Locale.US, "%.2f fps", frameRate));
+        }
+        line.text(duration);
+        return line.build();
+    }
+
+    /**
+     * TV: the audio format - codec and channels - as the tag; its bitrate, the track's name and language
+     * and the subtitles on screen as text.
+     */
+    private CharSequence tvAudioLine(@Nullable final Format audio, @Nullable final String subtitles) {
+        final TvHeaderLine line = new TvHeaderLine();
+        if (audio != null) {
+            String tech = CustomDefaultTrackNameProvider.techInfo(audio);
+            String bitrate = null;
+            final int cut = tech.lastIndexOf(' ');
+            if (cut > 0 && tech.endsWith("k") && Character.isDigit(tech.charAt(cut + 1))) {
+                bitrate = tech.substring(cut + 1);
+                tech = tech.substring(0, cut);
+            }
+            line.tag(tech);
+            line.text(bitrate);
+            final String language = languageDisplayName(audio.language);
+            final String name = trackName(audio);
+            if (name != null && !name.isEmpty()) {
+                line.text(name);
+            }
+            line.text(language);
+        }
+        if (subtitles != null) {
+            line.text(getString(R.string.header_subtitles, subtitles));
+        }
+        return line.build();
     }
 
     void updateMediaInfo() {
@@ -6528,6 +6610,23 @@ public class PlayerActivity extends Activity {
             return;
         }
         final Format video = player.getVideoFormat();
+        if (isTvBox) {
+            String duration = null;
+            final long contentDuration = player.getContentDuration();
+            if (!isLiveStream() && contentDuration != C.TIME_UNSET && contentDuration > 0) {
+                duration = getString(R.string.header_duration,
+                        Util.getStringForTime(timeBuilder, timeFormatter, contentDuration));
+            }
+            String container = null;
+            if (video != null) {
+                final Uri playing = currentMediaUri();
+                container = ContainerName.of(video.containerMimeType,
+                        playing != null ? playing.getLastPathSegment() : null);
+            }
+            setInfoLine(videoInfoView, video != null ? tvVideoLine(video, container, duration) : null);
+            setInfoLine(audioInfoView, tvAudioLine(getSelectedAudioFormat(), selectedSubtitleName()));
+            return;
+        }
         String videoLine = buildVideoInfo(video, videoFrameRate());
         if (videoLine != null) {
             // The container leads and the running time closes the line: the bottom bar counts what is
@@ -6585,12 +6684,12 @@ public class PlayerActivity extends Activity {
         return paintedSubtitleUri != null ? getString(R.string.header_subtitles_on) : null;
     }
 
-    private void setInfoLine(TextView view, String text) {
+    private void setInfoLine(TextView view, CharSequence text) {
         if (view == null) {
             return;
         }
-        if (text != null && !text.isEmpty()) {
-            view.setText(isTvBox ? capsuleLine(text) : text);
+        if (text != null && text.length() > 0) {
+            view.setText(text);
             view.setVisibility(View.VISIBLE);
         } else {
             view.setVisibility(View.GONE);
@@ -7301,7 +7400,85 @@ public class PlayerActivity extends Activity {
                 roomPill.setLayoutParams(lp);
             }
         }
+        if (tvFocusLabel != null && tvFocusLabel.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            final FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tvFocusLabel.getLayoutParams();
+            tvFocusLabel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            // Just under the row's box: the box is the focus disc with 2dp to spare.
+            final int bottom = Math.max(0, rowBottom - tvFocusLabel.getMeasuredHeight());
+            if (lp.bottomMargin != bottom) {
+                lp.bottomMargin = bottom;
+                tvFocusLabel.setLayoutParams(lp);
+            }
+        }
         placeTvBottomPlate(rowBottom);
+    }
+
+    /** TV: where Up from the seek bar enters the row - audio, else subtitles, else the row's last button. */
+    private int rowEntryId(final ViewGroup row) {
+        if (isVisible(buttonAudio)) {
+            return buttonAudio.getId();
+        }
+        if (isVisible(exoSubtitle)) {
+            return exoSubtitle.getId();
+        }
+        for (int i = row.getChildCount() - 1; i >= 0; i--) {
+            final View child = row.getChildAt(i);
+            if (child.getVisibility() == View.VISIBLE && child.isFocusable() && child.getId() != View.NO_ID) {
+                return child.getId();
+            }
+        }
+        return buttonAudio.getId();
+    }
+
+    /** TV: what the label under the row calls a button - short names, not the longer content descriptions. */
+    @Nullable
+    private String tvFocusLabelFor(final View button) {
+        if (button == buttonAudio) return getString(R.string.button_audio_track);
+        if (button == exoSubtitle) return getString(R.string.subtitle_title);
+        if (button == buttonQuality) return getString(R.string.button_quality);
+        if (button == buttonPlaylist) return getString(R.string.playlist);
+        if (button == buttonPiP) return getString(R.string.button_pip);
+        if (button == buttonMore) return getString(R.string.button_more);
+        if (button == buttonUpdate) return getString(R.string.button_update);
+        final CharSequence description = button.getContentDescription();
+        return description != null ? description.toString() : null;
+    }
+
+    /** TV: puts the focused button's name under it, centred on it but not past the row's end. */
+    private void showTvFocusLabel(final View button) {
+        if (tvFocusLabel == null || tvButtonRow == null) {
+            return;
+        }
+        final String text = tvFocusLabelFor(button);
+        if (text == null || text.isEmpty()) {
+            tvFocusLabel.setVisibility(View.INVISIBLE);
+            return;
+        }
+        tvFocusLabel.setText(text);
+        tvFocusLabel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        final int width = tvFocusLabel.getMeasuredWidth();
+        final int[] at = new int[2];
+        final int[] origin = new int[2];
+        final int[] row = new int[2];
+        button.getLocationInWindow(at);
+        ((View) tvFocusLabel.getParent()).getLocationInWindow(origin);
+        tvButtonRow.getLocationInWindow(row);
+        float x = at[0] - origin[0] + (button.getWidth() - width) / 2f;
+        x = Math.min(x, row[0] - origin[0] + tvButtonRow.getWidth() - width);
+        tvFocusLabel.setTranslationX(Math.max(0f, x));
+        tvFocusLabel.setVisibility(View.VISIBLE);
+    }
+
+    private void hideTvFocusLabelOffRow() {
+        if (tvFocusLabel == null) {
+            return;
+        }
+        for (View v = getCurrentFocus(); v != null; v = v.getParent() instanceof View ? (View) v.getParent() : null) {
+            if (v == tvButtonRow) {
+                return;
+            }
+        }
+        tvFocusLabel.setVisibility(View.INVISIBLE);
     }
 
     /**

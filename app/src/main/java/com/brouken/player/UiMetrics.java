@@ -81,6 +81,7 @@ final class UiMetrics {
     // phone's size its glyphs were the biggest thing on the card, bigger than the transport they serve.
     int clusterBox()        { return dpS(t(40, 40, 40, 30)); }
     int clusterPad()        { return dpS(t(8, 8, 8, 6)); }
+    int focusLabelRoom()    { return dpS(16); }   // TV: under the row, for the focused button's name
     int heroBox()           { return dpS(90); }   // central play/pause tap target (was exo_icon_size)
     int heroInset()         { return dpS(10); }   // coral disc inset within the hero box
     int episodeDisc()       { return dpS(46); }
@@ -92,7 +93,7 @@ final class UiMetrics {
 
     int posterHeight() {
         switch (deviceClass) {
-            case TV:            return dp(96);
+            case TV:            return dp(76);
             case TABLET_LARGE:  return dp(88);
             case TABLET_MEDIUM: return dp(80);
             default:            return dp(74);
@@ -160,11 +161,17 @@ final class UiMetrics {
     float textCaption()     { return t(13, 14, 15, 16); }   // row details / subtitle
     float textSupporting()  { return t(14, 15, 16, 17); }   // second line of a Material list item
     float textList()        { return t(15, 16, 17, 18); }   // playlist row
-    float textInfo()        { return t(12, 13, 13, 14); }   // header meta lines
-    float textHeaderTitle() { return t(22, 24, 25, 26); }   // header title (larger than a picker header)
-    float textClock()       { return t(20, 21, 22, 22); }   // clock, header + overlay (must match)
-    float textEndsAt()      { return t(16, 17, 18, 18); }   // "until …", a step below the clock
+    float textInfo()        { return t(12, 13, 13, 14); }   // info lines: the transfer line, the resume prompt
+    // The header's own meta lines: a step under textInfo on a television, where the whole header came down
+    // by a fifth (23.10.2026) - at 14sp with tags round the main facts the lines stood taller than the title.
+    float textHeaderInfo()  { return t(12, 13, 13, 12.5f); }
+    // 21 on a television, not 26: the header was the largest block on screen while the controls were up,
+    // a title over the film rather than a caption to it (23.10.2026).
+    float textHeaderTitle() { return t(22, 24, 25, 21); }   // header title
+    float textClock()       { return t(20, 21, 22, 20); }   // clock, header + overlay (must match)
+    float textEndsAt()      { return t(16, 17, 18, 15); }   // "until …", a step below the clock
     float textSkip()        { return t(13, 14, 14, 15); }   // skip pill + notification
+    float textFocusLabel()  { return t(11, 11, 12, 12); }   // TV: the focused row button's name
     float textBadge()       { return t(11, 11, 12, 13); }   // poster number chip
     // 32 on a television, not 48: the readout was the largest thing on screen while a panel was open,
     // larger than the panel's own title, and on the Shield it took a third of the sound panel (23.10.2026).
@@ -177,7 +184,7 @@ final class UiMetrics {
     float textPanelValue()      { return t(20, 22, 22, 24); }   // a readout beside its caption
     float textPromptTitle()     { return t(24, 28, 30, 32); }   // what the resume prompt waits on
     float textAction()      { return t(15, 16, 16, 18); }   // reset pill
-    float textPlaceholder() { return t(20, 21, 22, 22); }   // poster fallback
+    float textPlaceholder() { return t(20, 21, 22, 18); }   // poster fallback
 
     /** True when a config change would not affect any adaptive size (skip the re-apply pass). */
     boolean sameClassAndWidth(UiMetrics other) {
