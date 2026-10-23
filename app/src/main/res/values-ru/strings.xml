@@ -353,8 +353,9 @@
     <string name="stats_v_stalls">остановок: %1$d, %2$d с</string>
     <string name="stats_v_by_frames">по кадрам</string>
     <string name="pref_show_transfer">Строка передачи</string>
-    <string name="pref_show_transfer_on">Буфер, сеть и битрейт стоят над полосой перемотки</string>
-    <string name="pref_show_transfer_off">Скрыты; они есть в карточке статистики (Ещё → Статистика)</string>
+    <string name="pref_transfer_line_off">Выкл. (цифры есть в карточке статистики)</string>
+    <string name="pref_transfer_line_online">Онлайн-источники: потоки и торренты</string>
+    <string name="pref_transfer_line_always">Всегда</string>
     <string name="pref_osd_style">Нижняя панель</string>
     <string name="pref_osd_style_card">Карточка вокруг управления</string>
     <string name="pref_osd_style_gradient">Затемнение от нижнего края</string>
@@ -661,6 +662,10 @@
     <string name="pref_seek_seconds_15">15 секунд</string>
     <string name="pref_seek_seconds_20">20 секунд</string>
     <string name="pref_seek_seconds_30">30 секунд</string>
+    <string name="pref_seek_bar_step">Шаг по полосе перемотки</string>
+    <string name="pref_seek_bar_step_auto">По длине: 1 минута, у коротких — 1/20</string>
+    <string name="pref_seek_seconds_120">2 минуты</string>
+    <string name="pref_seek_seconds_300">5 минут</string>
     <string name="pref_seek_seconds_60">1 минута</string>
     <string name="pref_seek_confirm">Переход по табличке</string>
     <string name="pref_seek_confirm_timer">Сам, когда нажатия кончились</string>

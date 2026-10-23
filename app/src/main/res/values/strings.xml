@@ -458,8 +458,9 @@
     <string name="stats_v_stalls">stalls: %1$d, %2$d s</string>
     <string name="stats_v_by_frames">by frames</string>
     <string name="pref_show_transfer">Transfer line</string>
-    <string name="pref_show_transfer_on">Buffer, network and bitrate sit above the seek bar</string>
-    <string name="pref_show_transfer_off">Hidden; the statistics card (More → Statistics) still has them</string>
+    <string name="pref_transfer_line_off">Off (the statistics card has the figures)</string>
+    <string name="pref_transfer_line_online">Online sources: streams and torrents</string>
+    <string name="pref_transfer_line_always">Always</string>
     <string name="pref_osd_style">Bottom panel</string>
     <string name="pref_osd_style_card">A card around the controls</string>
     <string name="pref_osd_style_gradient">A fade up from the bottom edge</string>
@@ -682,6 +683,10 @@
     <string name="pref_seek_seconds_15">15 seconds</string>
     <string name="pref_seek_seconds_20">20 seconds</string>
     <string name="pref_seek_seconds_30">30 seconds</string>
+    <string name="pref_seek_bar_step">Step on the seek bar</string>
+    <string name="pref_seek_bar_step_auto">By length: 1 minute, a twentieth of a short file</string>
+    <string name="pref_seek_seconds_120">2 minutes</string>
+    <string name="pref_seek_seconds_300">5 minutes</string>
     <string name="pref_seek_seconds_60">1 minute</string>
     <string name="pref_seek_confirm">A seek shown on the card lands</string>
     <string name="pref_seek_confirm_timer">On its own, once the presses stop</string>

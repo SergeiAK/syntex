@@ -183,6 +183,14 @@
                     app:useSimpleSummaryProvider="true" />
 
                 <ListPreference
+                    app:key="seekBarStep"
+                    app:defaultValue="0"
+                    app:entries="@array/seek_bar_step_entries"
+                    app:entryValues="@array/seek_bar_step_values"
+                    app:title="@string/pref_seek_bar_step"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
                     app:key="seekHold"
                     app:defaultValue="steps"
                     app:entries="@array/seek_hold_entries"
@@ -238,12 +246,13 @@
                 app:summaryOff="@string/pref_time_remaining_off"
                 app:title="@string/pref_time_remaining" />
 
-            <SwitchPreferenceCompat
-                app:key="showTransfer"
-                app:defaultValue="false"
-                app:summaryOn="@string/pref_show_transfer_on"
-                app:summaryOff="@string/pref_show_transfer_off"
-                app:title="@string/pref_show_transfer" />
+            <ListPreference
+                app:key="transferLine"
+                app:defaultValue="off"
+                app:entries="@array/transfer_line_entries"
+                app:entryValues="@array/transfer_line_values"
+                app:title="@string/pref_show_transfer"
+                app:useSimpleSummaryProvider="true" />
 
             <ListPreference
                 app:key="osdStyle"

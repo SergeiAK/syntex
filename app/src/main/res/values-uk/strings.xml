@@ -362,8 +362,9 @@
     <string name="stats_v_stalls">зупинок: %1$d, %2$d с</string>
     <string name="stats_v_by_frames">за кадрами</string>
     <string name="pref_show_transfer">Рядок передачі</string>
-    <string name="pref_show_transfer_on">Буфер, мережа й бітрейт стоять над смугою внизу</string>
-    <string name="pref_show_transfer_off">Приховані; вони є в картці статистики (Ще → Статистика)</string>
+    <string name="pref_transfer_line_off">Вимк. (цифри є в картці статистики)</string>
+    <string name="pref_transfer_line_online">Онлайн-джерела: потоки й торенти</string>
+    <string name="pref_transfer_line_always">Завжди</string>
     <string name="pref_osd_style">Нижня панель</string>
     <string name="pref_osd_style_card">Картка навколо керування</string>
     <string name="pref_osd_style_gradient">Затемнення від нижнього краю</string>

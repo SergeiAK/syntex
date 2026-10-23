@@ -8,6 +8,16 @@
     <item>card</item>
     <item>gradient</item>
   </string-array>
+  <string-array name="transfer_line_entries">
+    <item>@string/pref_transfer_line_off</item>
+    <item>@string/pref_transfer_line_online</item>
+    <item>@string/pref_transfer_line_always</item>
+  </string-array>
+  <string-array name="transfer_line_values" translatable="false">
+    <item>off</item>
+    <item>online</item>
+    <item>always</item>
+  </string-array>
   <string-array name="seek_hold_entries">
     <item>@string/pref_seek_hold_steps</item>
     <item>@string/pref_seek_hold_fixed</item>
@@ -67,6 +77,22 @@
     <item>20</item>
     <item>30</item>
     <item>60</item>
+  </string-array>
+  <string-array name="seek_bar_step_entries">
+    <item>@string/pref_seek_bar_step_auto</item>
+    <item>@string/pref_seek_seconds_10</item>
+    <item>@string/pref_seek_seconds_30</item>
+    <item>@string/pref_seek_seconds_60</item>
+    <item>@string/pref_seek_seconds_120</item>
+    <item>@string/pref_seek_seconds_300</item>
+  </string-array>
+  <string-array name="seek_bar_step_values" translatable="false">
+    <item>0</item>
+    <item>10</item>
+    <item>30</item>
+    <item>60</item>
+    <item>120</item>
+    <item>300</item>
   </string-array>
   <string-array name="seek_confirm_entries">
     <item>@string/pref_seek_confirm_timer</item>

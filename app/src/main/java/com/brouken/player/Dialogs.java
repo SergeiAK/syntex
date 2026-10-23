@@ -248,6 +248,115 @@ final class Dialogs {
         void chrome(boolean visible);
     }
 
+    /**
+     * A screen that says where its panels stand instead of docking them to the edge: the player on a
+     * television, over its button row. The rect carries two distances, not a place - {@code right} from
+     * the screen's end edge to the panel's, {@code bottom} from the screen's bottom to the panel's.
+     *
+     * <p>A full-height sheet against the edge was one silhouette whatever it held, and that was its whole
+     * argument; on the set it was a black slab, 48dp off the edge, whose two-track list left most of it
+     * empty, with the controls it was opened from gone from under it (23.10.2026). Over the row the panel
+     * is as tall as what it holds, up to the top of the screen, and the row stays in view under it.
+     */
+    /**
+     * Gives every row under {@code root} the filled focus mark: the tile turns {@code fill} while the row
+     * has the focus, and the row's text and glyphs turn {@code ink}, keeping their own alpha so a second
+     * line stays the quieter one. At rest nothing changes. A row is a focusable view on a pressable
+     * ground that is not a button - the close button and the segments of a panel keep their own marks.
+     * The children share the row's focus state (duplicateParentState) so their inks can follow it.
+     */
+    static void fillFocus(final View root, final int fill, final int ink) {
+        if (root.getTag(R.id.fill_focus) != null) {
+            return;
+        }
+        if (root.isFocusable() && root.getBackground() instanceof android.graphics.drawable.RippleDrawable
+                && !(root instanceof com.google.android.material.button.MaterialButton)
+                && !(root instanceof android.widget.Button && !(root instanceof android.widget.CompoundButton))) {
+            root.setTag(R.id.fill_focus, Boolean.TRUE);
+            final GradientDrawable mark = new GradientDrawable();
+            mark.setCornerRadius(Utils.dpToPx(8));
+            mark.setColor(fill);
+            final StateListDrawable onFocus = new StateListDrawable();
+            onFocus.addState(new int[]{android.R.attr.state_focused}, mark);
+            onFocus.addState(StateSet.WILD_CARD, new ColorDrawable(Color.TRANSPARENT));
+            // Inside the ripple, over its content layer - not round the ripple: wrapped in a layer of its
+            // own the ripple never let go of its focus wash, and every row the focus had passed through
+            // stayed grey (seen on the Shield, 23.10.2026).
+            final android.graphics.drawable.RippleDrawable ripple =
+                    (android.graphics.drawable.RippleDrawable) root.getBackground();
+            ripple.setDrawable(0, new android.graphics.drawable.LayerDrawable(
+                    new Drawable[]{ripple.getDrawable(0), onFocus}));
+            inkOnFocus(root, ink, true);
+            return;
+        }
+        if (root instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                fillFocus(group.getChildAt(i), fill, ink);
+            }
+        }
+    }
+
+    /** Re-reads the focus state into the inks of the fillFocus row that {@code view} is or is inside. */
+    private static void refreshRow(@Nullable View view) {
+        while (view != null && view.getTag(R.id.fill_focus) == null) {
+            view = view.getParent() instanceof View ? (View) view.getParent() : null;
+        }
+        if (view != null) {
+            refreshTree(view);
+        }
+    }
+
+    private static void refreshTree(final View view) {
+        view.refreshDrawableState();
+        if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                refreshTree(group.getChildAt(i));
+            }
+        }
+    }
+
+    private static void inkOnFocus(final View view, final int ink, final boolean isRow) {
+        if (!isRow) {
+            view.setDuplicateParentStateEnabled(true);
+        }
+        final int[][] states = {{android.R.attr.state_focused}, {}};
+        if (view instanceof TextView) {
+            final TextView text = (TextView) view;
+            final int rest = text.getCurrentTextColor();
+            text.setTextColor(new ColorStateList(states,
+                    new int[]{(Color.alpha(rest) << 24) | (ink & 0x00FFFFFF), rest}));
+            if (view instanceof android.widget.CompoundButton) {
+                final ColorStateList tint = ((android.widget.CompoundButton) view).getButtonTintList();
+                if (tint != null) {
+                    ((android.widget.CompoundButton) view).setButtonTintList(new ColorStateList(states,
+                            new int[]{ink, tint.getDefaultColor()}));
+                }
+            }
+        } else if (view instanceof ImageView) {
+            final ColorStateList tint = ((ImageView) view).getImageTintList();
+            if (tint != null) {
+                ((ImageView) view).setImageTintList(new ColorStateList(states,
+                        new int[]{ink, tint.getDefaultColor()}));
+            }
+        }
+        if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                inkOnFocus(group.getChildAt(i), ink, false);
+            }
+        }
+    }
+
+    /** The band a panel draws over the foot of a list that goes on; pickerWindow colours it to the card. */
+    static final String PANEL_FADE = "panelFade";
+
+    interface Anchored {
+        @Nullable
+        android.graphics.Rect panelAnchor();
+    }
+
     public static void pickerWindow(final Activity activity, final UiMetrics ui, final Dialog dialog,
                                     final View content) {
         pickerWindow(activity, ui, dialog, content, false);
@@ -304,6 +413,9 @@ final class Dialogs {
         // a wide window has always got: a card in the middle, rounded on all four corners.
         final boolean sideDock = !bottom && activity instanceof PlayerActivity;
         final boolean centred = !bottom && !sideDock;
+        final android.graphics.Rect anchor = sideDock && activity instanceof Anchored
+                ? ((Anchored) activity).panelAnchor() : null;
+        final boolean overRow = anchor != null;
         // And one width, which follows the edge rather than the content — see UiMetrics.panelWidthPx.
         final int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
         // A panel's width is a column's; a rail's is the screen's. panelWidthPx caps a wide window at
@@ -364,7 +476,8 @@ final class Dialogs {
         // just as much as the other was.
         // A card in the middle takes the dialog's own radius, which is the sheet's; only the edge
         // dock is the tighter 16, being the one shape that is still half against the screen.
-        final int corner = Utils.dpToPx(sideDock ? 16 : 28);
+        // Over the row it is the bottom card's own 20, the shape it stands beside.
+        final int corner = Utils.dpToPx(overRow ? 20 : sideDock ? 16 : 28);
         final boolean rtl = cfg.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
         final ShapeAppearanceModel.Builder shape = ShapeAppearanceModel.builder().setAllCornerSizes(corner);
         // How far the sheet stands off the screen. Material's own number for a detached sheet is 16dp;
@@ -384,7 +497,36 @@ final class Dialogs {
                 activity instanceof PlayerActivity
                         ? R.attr.colorSurface : R.attr.colorSurfaceContainerHigh,
                 ContextCompat.getColor(activity, R.color.sheet_surface));
-        card.setFillColor(ColorStateList.valueOf(surface));
+        if (overRow) {
+            // Over the row: the bottom card's ground - a step above the app's black, a touch of the film
+            // through it, a hairline round it - so the panel reads as the controls' own, not a slab.
+            final int raised = MaterialColors.getColor(content, R.attr.colorSurfaceContainerHigh, surface);
+            // Nearly opaque: at F0 the header's clock and end time read through the panel's top.
+            card.setFillColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(raised, 0xFA)));
+            card.setStroke(Math.max(1, Utils.dpToPx(1)), 0x24FFFFFF);
+            final View fade = content.findViewWithTag(PANEL_FADE);
+            if (fade != null) {
+                fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[]{Color.TRANSPARENT, raised}));
+            }
+            // The OSD's own focus mark on the rows: a filled tile under dark ink, as on the row's discs,
+            // instead of a ring round a grey fill. Again on every layout, for rows a panel adds later.
+            final boolean darkCard = !MaterialColors.isColorLight(raised);
+            final int markFill = darkCard ? 0xFFF5F5F5 : 0xFF1E1E1E;
+            final int markInk = darkCard ? 0xFF121212 : 0xFFF5F5F5;
+            fillFocus(content, markFill, markInk);
+            content.getViewTreeObserver().addOnGlobalLayoutListener(
+                    () -> fillFocus(content, markFill, markInk));
+            // A child put on its parent's state after it was added is not told when that state changes -
+            // ViewGroup only raises the flag for that in addView - so the glyphs ran one move behind the
+            // tile (seen on the Shield, 23.10.2026). The two rows a move touches are refreshed by hand.
+            content.getViewTreeObserver().addOnGlobalFocusChangeListener((was, now) -> {
+                refreshRow(was);
+                refreshRow(now);
+            });
+        } else {
+            card.setFillColor(ColorStateList.valueOf(surface));
+        }
         content.setBackground(card);
         content.setClipToOutline(true); // so a full-bleed row's ripple stops at the rounded end
 
@@ -409,7 +551,7 @@ final class Dialogs {
         // the screen's edge while the rows stopped above the bar. A detached sheet does not reach that
         // edge at all, so the inset belongs under it — as margin, with the standoff — or the sheet would
         // float and still carry a bar's worth of empty surface along its bottom.
-        if (sideDock) {
+        if (sideDock && !overRow) {
             // The surface reaches the screen's edges; its content does not. That is Android TV's own rule
             // — background art may cross the overscan band, anything interactive may not — and it is what
             // lets the sheet dock instead of float. The blocked edges and the overscan therefore live as
@@ -430,12 +572,18 @@ final class Dialogs {
         }
         final FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 bottom ? panelWidth - 2 * detachH : panelWidth,
-                sideDock ? ViewGroup.LayoutParams.MATCH_PARENT
+                sideDock && !overRow ? ViewGroup.LayoutParams.MATCH_PARENT
                         : ViewGroup.LayoutParams.WRAP_CONTENT,
                 bottom ? Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
+                        : overRow ? Gravity.END | Gravity.BOTTOM
                         : sideDock ? Gravity.END | Gravity.TOP
                         : Gravity.CENTER);
-        if (bottom) {
+        if (overRow) {
+            // Its end on the row's end and its foot just over the row; as tall as it needs, up to the
+            // standoff under the top edge, where a long list starts to scroll.
+            lp.setMargins(0, Math.max(detachV, insetTop), 0, anchor.bottom);
+            lp.setMarginEnd(anchor.right);
+        } else if (bottom) {
             lp.setMargins(detachH, vMargin, detachH, detachV + insetBottom);
         } else if (sideDock) {
             // The same standoff on the three edges this one is near. The window is widened by exactly
@@ -516,6 +664,7 @@ final class Dialogs {
         // outside press, which is how the panel closes without a scrim of its own.
         window.setLayout(
                 bottom ? screenWidth - Utils.dpToPx(8)
+                        : overRow ? Math.min(screenWidth, panelWidth + anchor.right)
                         : sideDock ? Math.min(screenWidth, panelWidth + detachH)
                         // A centred card needs the whole window under it, or there is no "outside" for
                         // a press to land in and the only way out is the button.
@@ -558,7 +707,12 @@ final class Dialogs {
             @Override
             public boolean onPreDraw() {
                 content.getViewTreeObserver().removeOnPreDrawListener(this);
-                if (bottom) {
+                if (overRow) {
+                    // Up out of the row it was opened from.
+                    content.setAlpha(0f);
+                    content.setTranslationY(Utils.dpToPx(24));
+                    content.animate().alpha(1f).translationY(0);
+                } else if (bottom) {
                     content.setTranslationY(content.getHeight());
                     content.animate().translationY(0);
                 } else if (sideDock) {
@@ -637,7 +791,8 @@ final class Dialogs {
         }
         // The picture behind a modal sheet steps back rather than competing with it.
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-        window.setDimAmount(0.4f);
+        // Less over the row: the controls under the panel are part of what it is about.
+        window.setDimAmount(overRow ? 0.25f : 0.4f);
     }
 
     /**
@@ -1868,6 +2023,11 @@ final class Dialogs {
         // navigation bar's inset under that, so a third one here only opened a band of empty sheet
         // below the last row.
         scrollView.setPadding(0, Utils.dpToPx(8), 0, 0);
+        // The band below lies over the list's foot, so a focused row scrolled to the bottom stood half
+        // under it (seen on the Shield, 23.10.2026). A fading edge of the band's length is what the
+        // scroller keeps a focused row clear of; the edge itself draws nothing here (see the band).
+        scrollView.setVerticalFadingEdgeEnabled(true);
+        scrollView.setFadingEdgeLength(ui.dpS(28));
 
         final FrameLayout panel = new FrameLayout(ctx);
         panel.addView(scrollView, new FrameLayout.LayoutParams(
@@ -1884,6 +2044,7 @@ final class Dialogs {
                 new int[]{Color.TRANSPARENT, MaterialColors.getColor(ctx, R.attr.colorSurface,
                         ContextCompat.getColor(ctx, R.color.sheet_surface))}));
         listFade.setVisibility(View.GONE);
+        listFade.setTag(PANEL_FADE);
         panel.addView(listFade, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ui.dpS(28), Gravity.BOTTOM));
         final Runnable syncListFade = () -> listFade.setVisibility(

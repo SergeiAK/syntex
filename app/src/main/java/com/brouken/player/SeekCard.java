@@ -79,10 +79,12 @@ final class SeekCard extends LinearLayout {
         right = text(context);
         icon = new ImageView(context);
         icon.setImageTintList(ContextCompat.getColorStateList(context, R.color.ink_high));
-        final int iconSize = Utils.dpToPx(20);
+        // 26dp, not 20: beside the time the arrows were the smallest thing on the card, and the direction is
+        // what the eye looks for first (23.10.2026). The gaps gave back what the glyph grew by.
+        final int iconSize = Utils.dpToPx(26);
         final LayoutParams iconLp = new LayoutParams(iconSize, iconSize);
-        iconLp.leftMargin = Utils.dpToPx(10);
-        iconLp.rightMargin = Utils.dpToPx(10);
+        iconLp.leftMargin = Utils.dpToPx(8);
+        iconLp.rightMargin = Utils.dpToPx(8);
         line = new LinearLayout(context);
         line.setOrientation(HORIZONTAL);
         line.setGravity(Gravity.CENTER_VERTICAL);

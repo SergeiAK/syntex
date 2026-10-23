@@ -140,13 +140,16 @@ class Prefs {
     private static final String PREF_KEY_TIME_REMAINING = "timeRemaining";
     // The old side panel's switch was "showStats"; a new key, so a panel left on does not open the card.
     private static final String PREF_KEY_INFO_CARD_OPEN = "infoCardOpen";
+    // Was a switch under "showTransfer"; a list under a new key, and an old "on" read as "always".
     private static final String PREF_KEY_SHOW_TRANSFER = "showTransfer";
+    private static final String PREF_KEY_TRANSFER_LINE = "transferLine";
     private static final String PREF_KEY_OSD_STYLE = "osdStyle";
     private static final String PREF_KEY_SEEK_PREVIEW = "seekPreview";
     // The seek trial: ways of seeking from the remote side by side, until one is chosen (roadmap, step 1).
     private static final String PREF_KEY_SEEK_SHORT_PRESS = "seekShortPress";
     private static final String PREF_KEY_SEEK_STEP_BACK = "seekStepBack";
     private static final String PREF_KEY_SEEK_STEP_FORWARD = "seekStepForward";
+    private static final String PREF_KEY_SEEK_BAR_STEP = "seekBarStep";
     private static final String PREF_KEY_SEEK_CONFIRM = "seekConfirm";
     private static final String PREF_KEY_SEEK_WHILE_AIMING = "seekWhileAiming";
     private static final String PREF_KEY_SEEK_HOLD = "seekHold";
@@ -408,8 +411,11 @@ class Prefs {
     public boolean timeRemaining = false;
     /** The statistics card was left open: it comes back on the next file and the next start. */
     public boolean infoCardOpen = false;
-    /** Buffer, network and bitrate on one line above the seek bar. */
-    public boolean showTransfer = false;
+    /** Buffer, network and bitrate on one line above the seek bar: never, for online sources, always. */
+    public String transferLine = TRANSFER_LINE_OFF;
+    public static final String TRANSFER_LINE_OFF = "off";
+    public static final String TRANSFER_LINE_ONLINE = "online";
+    public static final String TRANSFER_LINE_ALWAYS = "always";
     /** TV: what the bottom controls stand on - one card around all of them, or a fade up from the edge. */
     public String osdStyle = OSD_STYLE_CARD;
     public static final String OSD_STYLE_CARD = "card";
@@ -420,6 +426,8 @@ class Prefs {
     public boolean seekFixedStep = false;
     public long seekStepBackMs = 10_000;
     public long seekStepForwardMs = 30_000;
+    /** A press on the focused seek bar; 0 = by the length (a minute, or a twentieth of a short file). */
+    public long seekBarStepMs = 0;
     /** A seek aimed on the card waits for OK, and Back takes it away; otherwise it lands on its own. */
     public boolean seekConfirmOk = false;
     /** The film stops while a seek is aimed on the card, and goes on from where the seek lands. */
@@ -623,12 +631,19 @@ class Prefs {
         showClock = mSharedPreferences.getBoolean(PREF_KEY_SHOW_CLOCK, showClock);
         timeRemaining = mSharedPreferences.getBoolean(PREF_KEY_TIME_REMAINING, timeRemaining);
         infoCardOpen = mSharedPreferences.getBoolean(PREF_KEY_INFO_CARD_OPEN, infoCardOpen);
-        showTransfer = mSharedPreferences.getBoolean(PREF_KEY_SHOW_TRANSFER, showTransfer);
+        if (!mSharedPreferences.contains(PREF_KEY_TRANSFER_LINE)) {
+            // Written at once: the settings list would otherwise store its own default over the old switch.
+            mSharedPreferences.edit().putString(PREF_KEY_TRANSFER_LINE,
+                    mSharedPreferences.getBoolean(PREF_KEY_SHOW_TRANSFER, false)
+                            ? TRANSFER_LINE_ALWAYS : TRANSFER_LINE_OFF).apply();
+        }
+        transferLine = mSharedPreferences.getString(PREF_KEY_TRANSFER_LINE, TRANSFER_LINE_OFF);
         osdStyle = mSharedPreferences.getString(PREF_KEY_OSD_STYLE, osdStyle);
         seekPreview = mSharedPreferences.getBoolean(PREF_KEY_SEEK_PREVIEW, seekPreview);
         seekFixedStep = "fixed".equals(mSharedPreferences.getString(PREF_KEY_SEEK_SHORT_PRESS, "ladder"));
         seekStepBackMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_STEP_BACK, "10"));
         seekStepForwardMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_STEP_FORWARD, "30"));
+        seekBarStepMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_BAR_STEP, "0"));
         seekConfirmOk = "ok".equals(mSharedPreferences.getString(PREF_KEY_SEEK_CONFIRM, "timer"));
         seekPauseWhileAiming = "pause".equals(mSharedPreferences.getString(PREF_KEY_SEEK_WHILE_AIMING, "plays"));
         seekHoldGlides = "glide".equals(mSharedPreferences.getString(PREF_KEY_SEEK_HOLD, "steps"));

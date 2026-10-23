@@ -6,4 +6,6 @@
     <item name="picker_close" type="id" />
     <!-- Whether a still is a folder's: Utils.folderBadge sets it, the still's arrival reads it. -->
     <item name="still_folder" type="id" />
+    <!-- A panel row Dialogs.fillFocus has already given the filled focus mark to. -->
+    <item name="fill_focus" type="id" />
 </resources>

@@ -244,7 +244,7 @@ import java.util.regex.Pattern;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
 
-public class PlayerActivity extends Activity {
+public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
     private PlayerListener playerListener;
     private BroadcastReceiver mReceiver;
@@ -902,6 +902,8 @@ public class PlayerActivity extends Activity {
     // While a picker panel is open the app must stay out of immersive/fullscreen, otherwise OxygenOS/ColorOS
     // applies its fullscreen back-gesture guard ("swipe again to go back") and the panel needs two swipes.
     private boolean pickerDialogOpen;
+    /** Panels on screen: one closing as the next opens (More → Speed) must not end the other's hold. */
+    private int pickerDialogs;
     // Media3 keeps the controller shown indefinitely while paused (it forces the auto-hide timeout to 0),
     // so reuse the same CONTROLLER_TIMEOUT + hideController() to also clear the UI on pause. A tap re-shows
     // and re-arms it, exactly like during playback, and so does any key while the controls are up (see
@@ -2521,6 +2523,12 @@ public class PlayerActivity extends Activity {
         // progress tick — updateTimeline() ends with updateProgress(), so its own value never lingers.
         final TextView positionView = playerView.findViewById(R.id.exo_position);
         durationView = playerView.findViewById(R.id.exo_duration);
+        if (isTvBox) {
+            // TV: the times on the bar the size of "ends at" in the header, bold as media3 has them - at its
+            // 14sp they were the one figure on screen a step off the others (23.10.2026).
+            positionView.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textEndsAt());
+            durationView.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textEndsAt());
+        }
         controlView.setProgressUpdateListener((position, bufferedPosition) -> {
             // Over a broadcast the slot says how long this has been watched. What the control view
             // wrote there is the offset into the sliding window, which sits at the live edge and stays
@@ -2616,10 +2624,13 @@ public class PlayerActivity extends Activity {
                 if (tvButtonRow != null) {
                     final FrameLayout.LayoutParams rowLp =
                             (FrameLayout.LayoutParams) tvButtonRow.getLayoutParams();
-                    // 20dp over the line, and the focused button's name under the row on top of that.
+                    // The focused button's name under the row and 4dp over the line, no more: at 20dp of
+                    // air plus the name the row stood apart from the bar it belongs to (23.10.2026). The
+                    // name shows only while the row has the focus, and then the bar is at rest - thin, its
+                    // ring off - so the two never meet.
                     rowLp.bottomMargin = progressBarMarginBottom
                             + getResources().getDimensionPixelSize(R.dimen.exo_styled_progress_margin_bottom)
-                            + ui.dpS(20) + ui.focusLabelRoom();
+                            + ui.dpS(4) + ui.focusLabelRoom();
                     rowLp.rightMargin = marginRight + paddingRight + ui.gridH();
                     tvButtonRow.setLayoutParams(rowLp);
                 }
@@ -4113,7 +4124,10 @@ public class PlayerActivity extends Activity {
             case KeyEvent.KEYCODE_SPACE:
                 if (player == null)
                     break;
-                if (!controllerVisibleFully) {
+                // OK on the seek bar with no scrub to land - the bar takes it only mid-scrub - is play/pause,
+                // as on Google TV and tvOS: the bar is where the focus waits during a film, and the key fell
+                // through to nothing there (23.10.2026).
+                if (!controllerVisibleFully || (timeBar != null && getCurrentFocus() == timeBar)) {
                     if (player.isPlaying()) {
                         pauseByUser();
                     } else {
@@ -5503,15 +5517,52 @@ public class PlayerActivity extends Activity {
     // while a panel is open and restore immersive on dismiss — this lets the back gesture close the panel in
     // one swipe (the reference lampaua build never goes immersive for its pickers).
 
+    /**
+     * TV: where a panel stands - over the button row, its end on the row's end. Null while there is no
+     * row to stand over (a phone, or before the controls were ever laid out), and the panel docks to the
+     * edge as it always did.
+     */
+    @Nullable
+    @Override
+    public Rect panelAnchor() {
+        if (!isTvBox || tvButtonRow == null || tvButtonRow.getHeight() == 0 || getWindow() == null) {
+            return null;
+        }
+        final View root = getWindow().getDecorView();
+        final int[] at = new int[2];
+        tvButtonRow.getLocationOnScreen(at);
+        final int bottom = root.getHeight() - at[1] + ui.dpS(10);
+        final int end = Math.max(0, root.getWidth() - (at[0] + tvButtonRow.getWidth()) - ui.dpS(8));
+        return new Rect(0, 0, end, bottom);
+    }
+
     private void showPickerDialog(final android.app.Dialog dialog) {
         // Hide the controls for a clean panel. Keep the navigation/gesture bar visible (so OxygenOS doesn't
         // apply its fullscreen back-gesture guard) but hide the status bar (clean top, no strip over the
         // panel). Restore immersive when the panel dismisses.
         pickerDialogOpen = true;
-        playerView.hideController();
+        pickerDialogs++;
+        if (isTvBox && tvButtonRow != null) {
+            // TV: the panel stands over the row it was opened from (panelAnchor), so the controls stay up
+            // under it and do not count down while it is open - the row is what says where it came from.
+            playerView.setControllerShowTimeoutMs(-1);
+            playerView.showController();
+        } else {
+            playerView.hideController();
+        }
         applyPickerBars();
         dialog.setOnDismissListener(d -> {
+            pickerDialogs = Math.max(0, pickerDialogs - 1);
+            if (pickerDialogs > 0) {
+                return;
+            }
             pickerDialogOpen = false;
+            if (isTvBox && tvButtonRow != null) {
+                // The count starts again from the panel's close, as if the controls had just been opened.
+                playerView.setControllerShowTimeoutMs(player != null && player.isPlaying()
+                        ? CONTROLLER_TIMEOUT : -1);
+                playerView.showController();
+            }
             Utils.toggleSystemUi(PlayerActivity.this, playerView, controllerVisibleFully);
         });
         dialog.show();
@@ -7504,10 +7555,10 @@ public class PlayerActivity extends Activity {
         } else {
             bottom = Math.max(ui.dpS(8), tvBottomInset - ui.dpS(12));
             side = Math.max(0, tvSideInset + ui.gridH() - ui.dpS(20));
-            // Over the row's box by the card's own side padding less a little: the box is the glyphs and
-            // their focus disc, with little air of its own once the row came down to 30dp (measured on the
-            // Dune, where 8dp into it left the row and the transfer line standing over the card's edge).
-            height = top + ui.dpS(12) - bottom;
+            // Over the row's box by 8dp: the box is the glyphs and their focus disc with 2dp to spare, so
+            // the disc keeps 10dp to the card's edge. 12 was set when the row stood higher; with the row
+            // brought down to the bar the card came down with it (23.10.2026).
+            height = top + ui.dpS(8) - bottom;
         }
         if (lp.bottomMargin != bottom || lp.leftMargin != side || lp.rightMargin != side || lp.height != height) {
             lp.bottomMargin = bottom;
@@ -7704,6 +7755,23 @@ public class PlayerActivity extends Activity {
      * enough that hiding the figures for its sake was the wrong trade — so the line stops short of it
      * instead, taking a second or third row for what no longer fits beside it.
      */
+    /**
+     * Whether the setting asks for the line on what is playing. Online is a stream from the internet - an
+     * http(s) or rtsp address, which is what LAMPA hands over, or a torrent through TorrServer - where the
+     * buffer and the network are what decides whether the film stutters. The home network (SMB, WebDAV,
+     * DLNA) and local files are not: there the figures sit at their ceiling and say nothing.
+     */
+    private boolean transferLineWanted() {
+        if (Prefs.TRANSFER_LINE_ALWAYS.equals(mPrefs.transferLine)) {
+            return true;
+        }
+        if (!Prefs.TRANSFER_LINE_ONLINE.equals(mPrefs.transferLine)) {
+            return false;
+        }
+        final Uri uri = currentMediaUri();
+        return Utils.isSupportedNetworkUri(uri) || TorrFiles.speaks(uri);
+    }
+
     private void updateTransfer() {
         if (transferView == null) {
             return;
@@ -7717,7 +7785,7 @@ public class PlayerActivity extends Activity {
             transferView.setVisibility(View.GONE);
             return;
         }
-        if (!mPrefs.showTransfer || player == null || !controllerChromeVisible || inPip
+        if (!transferLineWanted() || player == null || !controllerChromeVisible || inPip
                 || (!isTvBox && isVisible(roomPill))) {
             fadeChrome(transferView, false);
             return;
@@ -11961,10 +12029,12 @@ public class PlayerActivity extends Activity {
         focusDisc.setColor(new ColorStateList(new int[][]{{android.R.attr.state_focused}, {}},
                 new int[]{0xFFF5F5F5, Color.TRANSPARENT}));
         button.setBackground(new InsetDrawable(focusDisc, ui.dpS(2)));
-        // The press stays what it was, the whole box; only the white contour is gone.
+        // The press is the disc's shape too: a square wash over a round focus mark flashed a square for
+        // the half second of every press (seen on the Dune, 23.10.2026).
         button.setForeground(Utils.coveringRipple(
                 Utils.pressOnly(ContextCompat.getColor(this, R.color.ripple_chrome)),
-                new ColorDrawable(Color.TRANSPARENT), Utils.shape(Color.WHITE, 0f)));
+                new ColorDrawable(Color.TRANSPARENT),
+                new InsetDrawable(Utils.shape(Color.WHITE, Utils.CIRCLE), ui.dpS(2))));
         final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ui.clusterBox(), ui.clusterBox());
         params.gravity = Gravity.CENTER_VERTICAL;
@@ -15884,7 +15954,9 @@ public class PlayerActivity extends Activity {
                 }
             }
 
-            if (!isScrubbing) {
+            // A panel over the row holds the controls (showPickerDialog); a track picked in it starts the
+            // film again, and that must not start the count under the panel.
+            if (!isScrubbing && !(isTvBox && pickerDialogOpen)) {
                 if (isPlaying) {
                     if (shortControllerTimeout) {
                         playerView.setControllerShowTimeoutMs(CONTROLLER_TIMEOUT / 3);
@@ -16009,7 +16081,10 @@ public class PlayerActivity extends Activity {
                         updateSubtitleLayout();
                     }
 
-                    if (duration != C.TIME_UNSET && duration > TimeUnit.MINUTES.toMillis(20)) {
+                    // A press on the focused bar: the step the viewer set, or by the length when none is.
+                    if (mPrefs.seekBarStepMs > 0) {
+                        timeBar.setKeyTimeIncrement(mPrefs.seekBarStepMs);
+                    } else if (duration != C.TIME_UNSET && duration > TimeUnit.MINUTES.toMillis(20)) {
                         timeBar.setKeyTimeIncrement(TimeUnit.MINUTES.toMillis(1));
                     } else {
                         timeBar.setKeyCountIncrement(20);
