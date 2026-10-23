@@ -23,13 +23,15 @@
     Behind it all, the window's own ground and nothing else. A beam of two wedges stood in the corner
     under the cards until 23.10.2026, when it was taken out at the viewer's wish for a plain ground:
     the ground is opaque here rather than left to the window, because the lists are laid out under
-    this page and must not show through it.
+    this page and must not show through it. It is colorSurface and not accentGround: AMOLED black
+    turns the cards to amoled_card for a black ground, and on the accent's own ground they lost
+    their edges (#141416 on #111510).
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?attr/accentGround"
+    android:background="?attr/colorSurface"
     android:orientation="vertical"
     android:paddingStart="48dp"
     android:paddingTop="21dp"
