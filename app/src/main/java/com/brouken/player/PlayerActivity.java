@@ -100,6 +100,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AlertDialog;
+import android.app.Dialog;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.content.ContextCompat;
 
@@ -994,7 +995,7 @@ public class PlayerActivity extends Activity {
     // The same, for the player that is loading: decided when its held start is spent (playPending), once
     // the length and the credits are known. Null when there is nothing to decide.
     private ResumePolicy.Start resumeCheck;
-    private AlertDialog resumeDialog;
+    private Dialog resumeDialog;
     private float subtitlesScale;
     private float secondarySubtitlesScale;
     private boolean isScrubbing;
@@ -6360,6 +6361,17 @@ public class PlayerActivity extends Activity {
         return null;
     }
 
+    /**
+     * The name the header gives the item the player is on: the caller's title, else the file's name. Read
+     * from the player rather than the header, so a question asked right after a jump inside a playlist
+     * names the episode it is about and not the one the header still shows.
+     */
+    private CharSequence currentTitle() {
+        final MediaItem item = player == null ? null : player.getCurrentMediaItem();
+        final CharSequence title = item != null ? item.mediaMetadata.title : null;
+        return title == null || title.length() == 0 ? Utils.getFileName(this, mPrefs.mediaUri) : title;
+    }
+
     void updateTopInfo() {
         if (player == null) {
             return;
@@ -6367,11 +6379,7 @@ public class PlayerActivity extends Activity {
         final MediaItem item = player.getCurrentMediaItem();
         final MediaMetadata metadata = item != null ? item.mediaMetadata : null;
 
-        CharSequence title = metadata != null ? metadata.title : null;
-        if (title == null || title.length() == 0) {
-            title = Utils.getFileName(this, mPrefs.mediaUri);
-        }
-        titleView.setText(title);
+        titleView.setText(currentTitle());
 
         Uri artworkUri = metadata != null ? metadata.artworkUri : null;
         if (artworkUri == null) {
@@ -14389,40 +14397,26 @@ public class PlayerActivity extends Activity {
         if (resumeDialog != null) {
             resumeDialog.dismiss();
         }
-        final StringBuilder timeBuilder = new StringBuilder();
-        final Formatter timeFormatter = new Formatter(timeBuilder, Locale.getDefault());
-        final AlertDialog dialog = new MaterialAlertDialogBuilder(Dialogs.dialogContext(this))
-                .setTitle(R.string.resume_ask_title)
-                .setMessage(getString(R.string.resume_ask_message,
-                        Util.getStringForTime(timeBuilder, timeFormatter, positionMs)))
-                .setPositiveButton(R.string.resume_ask_continue, (d, which) -> playPending())
-                .setNegativeButton(R.string.resume_ask_start_over, (d, which) -> {
+        // The controls go for as long as the question is up: under it they were the brightest thing on
+        // screen and the eye went to them (ResumePrompt). Auto-show off as well, or the pause the start is
+        // held in brings them straight back.
+        playerView.setControllerAutoShow(false);
+        playerView.hideController();
+        final long duration = player == null ? C.TIME_UNSET : player.getDuration();
+        final Dialog dialog = ResumePrompt.show(this, ui, currentTitle(), positionMs,
+                duration == C.TIME_UNSET ? 0 : duration, this::playPending, () -> {
                     if (player != null) {
                         player.seekTo(0);
                     }
                     playPending();
-                })
-                .setOnCancelListener(d -> playPending())
-                .create();
-        // On a remote the first button is the one the D-pad lands on unless told otherwise, and that is
-        // "start over" in a dialog laid out negative-first: carrying on is what one press of OK should do.
-        // Default focus as well as a request: in touch mode the request does nothing, and the key that
-        // leaves touch mode puts focus on the default — the first button without this. Measured on the Dune
-        // after a tap (19.10.2026): the first OK moved to "start over", the second one pressed it.
-        dialog.setOnShowListener(d -> {
-            final Button resume = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                resume.setFocusedByDefault(true);
-            }
-            resume.requestFocus();
-        });
+                });
         dialog.setOnDismissListener(d -> {
+            playerView.setControllerAutoShow(true);
             if (resumeDialog == dialog) {
                 resumeDialog = null;
             }
         });
         resumeDialog = dialog;
-        dialog.show();
     }
 
     private void playPending() {

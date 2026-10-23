@@ -164,7 +164,16 @@ final class UiMetrics {
     float textEndsAt()      { return t(16, 17, 18, 18); }   // "until …", a step below the clock
     float textSkip()        { return t(13, 14, 14, 15); }   // skip pill + notification
     float textBadge()       { return t(11, 11, 12, 13); }   // poster number chip
-    float textValue()       { return t(40, 44, 46, 48); }   // skip-offset readout
+    // 32 on a television, not 48: the readout was the largest thing on screen while a panel was open,
+    // larger than the panel's own title, and on the Shield it took a third of the sound panel (23.10.2026).
+    float textValue()       { return t(40, 44, 46, 32); }   // skip-offset readout
+    // A panel's own rows, a step under a picker's on a television: a picker row is one short name, a
+    // panel row is a name and a sentence under it, and at the picker's 20/17 both wrapped in two
+    // (the sound panel, 23.10.2026). Phones and tablets keep what they had.
+    float textPanelRow()        { return t(16, 17, 18, 17); }
+    float textPanelSupporting() { return t(14, 15, 16, 14); }
+    float textPanelValue()      { return t(20, 22, 22, 24); }   // a readout beside its caption
+    float textPromptTitle()     { return t(24, 28, 30, 32); }   // what the resume prompt waits on
     float textAction()      { return t(15, 16, 16, 18); }   // reset pill
     float textPlaceholder() { return t(20, 21, 22, 22); }   // poster fallback
 

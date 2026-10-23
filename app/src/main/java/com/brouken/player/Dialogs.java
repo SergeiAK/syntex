@@ -261,6 +261,16 @@ final class Dialogs {
      */
     public static void pickerWindow(final Activity activity, final UiMetrics ui, final Dialog dialog,
                                     final View content, final boolean wideBottom) {
+        pickerWindow(activity, ui, dialog, content, wideBottom, 0);
+    }
+
+    /**
+     * @param extraWidthPx added to the panel's column, for a panel whose rows are sentences rather than
+     *                     names: the sound panel, whose switch rows wrapped every line in two at 360dp
+     */
+    public static void pickerWindow(final Activity activity, final UiMetrics ui, final Dialog dialog,
+                                    final View content, final boolean wideBottom,
+                                    final int extraWidthPx) {
         if (activity instanceof Chromed) {
             final Chromed host = (Chromed) activity;
             host.chrome(false);
@@ -299,7 +309,8 @@ final class Dialogs {
         // A panel's width is a column's; a rail's is the screen's. panelWidthPx caps a wide window at
         // 360dp, which is the right number for something docked to the end edge and the wrong one for
         // something lying along the bottom of it.
-        final int panelWidth = wideBottom ? screenWidth - Utils.dpToPx(8) : ui.panelWidthPx(cfg);
+        final int panelWidth = wideBottom ? screenWidth - Utils.dpToPx(8)
+                : Math.min(screenWidth - Utils.dpToPx(8), ui.panelWidthPx(cfg) + extraWidthPx);
         // The only margin left anywhere: the top one under the bottom sheet, which keeps a long list from
         // reaching the very top of the screen. A docked sheet has no others.
         final int vMargin = Math.max(Utils.dpToPx(8), ui.overscanV());
@@ -747,7 +758,14 @@ final class Dialogs {
      * light panel.
      */
     public static Context dialogContext(final Context base) {
-        final boolean light = Prefs.isLight(base);
+        return dialogContext(base, Prefs.isLight(base));
+    }
+
+    /**
+     * @param light false for a surface that lies over the picture whatever the appearance choice — the
+     *              resume prompt, whose ground is the film under a shade and never the app's own
+     */
+    public static Context dialogContext(final Context base, final boolean light) {
         // Wrapped straight around whatever it was handed — an Activity, in every real call — because a
         // ContextThemeWrapper keeps its base's window token and a dialog needs one to exist at all.
         final android.view.ContextThemeWrapper themed = new android.view.ContextThemeWrapper(base,
@@ -1414,7 +1432,7 @@ final class Dialogs {
      * DESIGN.md asks a dialog for, at a radius that makes the row part of the sheet rather than a
      * Material action bar that wandered into one.
      */
-    private static MaterialButton answer(final Context ctx, final UiMetrics ui,
+    static MaterialButton answer(final Context ctx, final UiMetrics ui,
                                          final CharSequence label, final boolean filled,
                                          final Runnable onClick) {
         final MaterialButton button = new MaterialButton(ctx);

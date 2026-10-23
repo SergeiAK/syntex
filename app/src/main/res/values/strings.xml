@@ -616,6 +616,8 @@
     <string name="resume_ask_message">You stopped at %1$s</string>
     <string name="resume_ask_continue">Resume</string>
     <string name="resume_ask_start_over">Start over</string>
+    <string name="resume_ask_continue_from">Resume from %1$s</string>
+    <string name="resume_ask_left">%1$s left</string>
     <string name="pref_browser_header_summary">Access to files, hidden files, .nomedia</string>
     <string name="pref_audio_header_summary">Preferred languages, passthrough</string>
     <string name="pref_subtitle_header_summary">Languages, second line, search, look</string>

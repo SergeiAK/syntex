@@ -315,7 +315,12 @@ final class OffsetPanel {
         scroller.addView(root);
 
         final Dialog dialog = new Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar);
-Dialogs.pickerWindow(activity, ui, dialog, scroller);
+        // Wider when it carries switches: their rows are a name and a sentence, and at the column every
+        // other panel gets each of those wrapped in two (the sound panel, 23.10.2026). 104dp is what the
+        // longest sentence there needs on one line at 14sp — about 360dp of text; at 72dp the Dune still
+        // wrapped the last word.
+        Dialogs.pickerWindow(activity, ui, dialog, scroller, false,
+                toggles != null && toggles.length > 0 ? ui.dp(104) : 0);
         // The theme carries no title bar, so this is the only name a screen reader can announce.
         dialog.setTitle(title);
         // The choice, not the slider: it is the panel's first decision and it is at the top, so a
@@ -404,8 +409,9 @@ Dialogs.pickerWindow(activity, ui, dialog, scroller);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(Utils.dpToPx(12), Utils.dpToPx(12), Utils.dpToPx(12), Utils.dpToPx(12));
-        // Material's two-line list item, and the tile every row of a player panel wears.
-        row.setMinimumHeight(ui.dpS(72));
+        // Material's two-line list item, and the tile every row of a player panel wears. Not scaled up on
+        // a television: the text in it no longer is either, and 94dp of row around two lines was air.
+        row.setMinimumHeight(ui.dp(72));
         row.setBackground(Dialogs.pickerRow(ctx, Color.TRANSPARENT));
         row.setClickable(true);
         row.setFocusable(true);
@@ -415,12 +421,12 @@ Dialogs.pickerWindow(activity, ui, dialog, scroller);
         final TextView name = new TextView(ctx);
         name.setText(toggle.title);
         name.setTextColor(onSurface);
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textBody());
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textPanelRow());
         text.addView(name);
         final TextView summary = new TextView(ctx);
         summary.setTextColor(MaterialColors.getColor(ctx, R.attr.colorOnSurfaceVariant,
                 ContextCompat.getColor(ctx, R.color.ink_secondary)));
-        summary.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textSupporting());
+        summary.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textPanelSupporting());
         text.addView(summary);
         final LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -485,26 +491,34 @@ Dialogs.pickerWindow(activity, ui, dialog, scroller);
         final int dragSnap = Math.max(1, (int) Math.round(1 / stepSec)); // drag resolution: 1 s
         final double[] current = {line.initialSec};
 
-        if (line.caption != null) {
-            final TextView caption = new TextView(ctx);
-            caption.setText(line.caption);
-            caption.setTextColor(MaterialColors.getColor(ctx, R.attr.colorOnSurfaceVariant,
-                    ContextCompat.getColor(ctx, R.color.ink_medium)));
-            caption.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textAction());
-            caption.setGravity(Gravity.CENTER);
-            // A caption belongs to what is under it: the gap above it is the block's, drawn by the
-            // caller, and all it owns is the hair of space down to its own readout.
-            caption.setPadding(0, 0, 0, Utils.dpToPx(4));
-            root.addView(caption);
-        }
-
         final TextView value = new TextView(ctx);
-        value.setTextSize(TypedValue.COMPLEX_UNIT_SP, valueSp);
         value.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         value.setFontFeatureSettings("tnum"); // fixed-width digits: the readout stops twitching as it counts
-        value.setGravity(Gravity.CENTER);
-        value.setPadding(0, 0, 0, rhythm.readout);
-        root.addView(value);
+        if (line.caption != null) {
+            // A named offset reads as a row of the panel: its name where the switch rows above put
+            // theirs, the value at the end where they put the switch, and the slider under both. The
+            // centred caption over a big readout made the bottom third of the panel a second panel,
+            // with a number larger than the panel's own title (the sound panel, 23.10.2026).
+            final LinearLayout head = new LinearLayout(ctx);
+            head.setOrientation(LinearLayout.HORIZONTAL);
+            head.setGravity(Gravity.CENTER_VERTICAL);
+            // In line with the switch rows' text, which their tile insets by 12dp.
+            head.setPadding(Utils.dpToPx(12), 0, Utils.dpToPx(12), rhythm.readout);
+            final TextView caption = new TextView(ctx);
+            caption.setText(line.caption);
+            caption.setTextColor(onSurface);
+            caption.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textPanelRow());
+            head.addView(caption, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            value.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textPanelValue());
+            head.addView(value);
+            root.addView(head);
+        } else {
+            value.setTextSize(TypedValue.COMPLEX_UNIT_SP, valueSp);
+            value.setGravity(Gravity.CENTER);
+            value.setPadding(0, 0, 0, rhythm.readout);
+            root.addView(value);
+        }
 
         // Counted in steps, not in seconds: valueFrom/valueTo/stepSize are floats, and a Slider refuses
         // a range that is not a whole number of steps — ±180 s at 0.1 s is exactly the sum that does not
@@ -631,6 +645,18 @@ Dialogs.pickerWindow(activity, ui, dialog, scroller);
     private static MaterialButton iconButton(final Context ctx, final UiMetrics ui, final int icon,
                                              final String description) {
         final MaterialButton button = Dialogs.iconButton(ctx, ui, icon, description, true);
+        // The 48dp floor, not the television's scaled-up box: at 62dp the pair outweighed the slider
+        // between them. A remote never presses these (the slider takes the D-pad), and 48 is still the
+        // platform's floor for a finger.
+        final int box = ui.dp(48);
+        final int glyph = ui.dp(24);
+        final int pad = (box - glyph) / 2;
+        button.setIconSize(glyph);
+        button.setPadding(pad, pad, pad, pad);
+        button.setMinWidth(box);
+        button.setMinHeight(box);
+        button.setMinimumWidth(box);
+        button.setMinimumHeight(box);
         button.setIconTint(ColorStateList.valueOf(
                 MaterialColors.getColor(ctx, R.attr.colorOnSurface, Color.WHITE)));
         return button;
