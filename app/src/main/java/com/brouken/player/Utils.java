@@ -2285,8 +2285,14 @@ public class Utils {
         ArrayList<Long> timestamps = new ArrayList<>();
         float frameRate = Format.NO_VALUE;
         int ignoreSamples = 30;
+        // An SMB or WebDAV file the platform cannot open by its address: read through our own source.
+        final android.media.MediaDataSource readable = NetworkThumbs.platformReadable(context, videoUri);
         try {
-            mediaExtractor.setDataSource(context, videoUri, null);
+            if (readable != null) {
+                mediaExtractor.setDataSource(readable);
+            } else {
+                mediaExtractor.setDataSource(context, videoUri, null);
+            }
             for (int i = 0; i < mediaExtractor.getTrackCount(); i++) {
                 MediaFormat format = mediaExtractor.getTrackFormat(i);
                 String mimeType = format.getString(MediaFormat.KEY_MIME);
@@ -2308,6 +2314,13 @@ public class Utils {
             e.printStackTrace();
         } finally {
             mediaExtractor.release();
+            if (readable != null) {
+                try {
+                    readable.close();
+                } catch (IOException ignored) {
+                    // Nothing more is read from it either way.
+                }
+            }
         }
         return frameRate;
     }

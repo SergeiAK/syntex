@@ -21,6 +21,7 @@ import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.datasource.TransferListener;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.extractor.ExtractorsFactory;
+import androidx.media3.extractor.mp4.FragmentedMp4Extractor;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.Priority;
@@ -83,7 +84,9 @@ final class NetworkThumbs {
     static final long MAX_BYTES = 48L << 20;
     private static final Set<String> NO_FRAME = ConcurrentHashMap.newKeySet();
     /** The extractors of a still taken without the retriever (see Fetcher.ownFrame). */
-    private static final ExtractorsFactory EXTRACTORS = new MkvCuesLink.Factory(new DefaultExtractorsFactory());
+    private static final ExtractorsFactory EXTRACTORS = new MkvCuesLink.Factory(new DefaultExtractorsFactory()
+            // As the player's: the mfra index is what lets a fragmented MP4 seek to the still.
+            .setFragmentedMp4ExtractorFlags(FragmentedMp4Extractor.FLAG_READ_MFRA_FOR_SEEK_MAP));
     /** A still was refused or cut off while a player was up: the browser has rows to ask again. */
     private static volatile boolean missed;
     /** The browser's way to ask again, while it is started; see whenPlayerGone. */
@@ -250,6 +253,20 @@ final class NetworkThumbs {
      * the device - one at a time, outside the player. The stills here and the trickplay sheets read
      * through it.
      */
+    /**
+     * The file as the platform's MediaExtractor can read it, for an address it cannot open by itself
+     * (SMB, WebDAV); null for one it can. The frame-rate probe of a TS needs it: by uri, an SMB file
+     * threw "Failed to instantiate extractor" and the display stayed at 59.94 Hz under 25i (Dune,
+     * 24.10.2026). The caller closes it.
+     */
+    @Nullable
+    static MediaDataSource platformReadable(final Context context, final Uri uri) {
+        if (SmbSessions.SCHEME.equals(uri.getScheme())) {
+            return new SmbSource(context, uri);
+        }
+        return DavFiles.speaks(uri) ? new Source(context, uri) : null;
+    }
+
     static androidx.media3.datasource.DataSource.Factory sideFiles(final Context context) {
         final androidx.media3.datasource.DataSource.Factory http =
                 new ResolvingDataSource.Factory(new DefaultHttpDataSource.Factory(), spec -> {

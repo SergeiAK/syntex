@@ -182,6 +182,7 @@ import androidx.media3.exoplayer.trackselection.MappingTrackSelector;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.extractor.ExtractorsFactory;
 import androidx.media3.extractor.SeekMap;
+import androidx.media3.extractor.mp4.FragmentedMp4Extractor;
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory;
 import androidx.media3.extractor.text.SubtitleParser;
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory;
@@ -14586,7 +14587,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory()
                 .setSubtitleParserFactory(subtitleParserFactory)
                 .setTsExtractorFlags(tsPayloadReaderFlags)
-                .setTsExtractorTimestampSearchBytes(tsTimestampSearchBytes);
+                .setTsExtractorTimestampSearchBytes(tsTimestampSearchBytes)
+                // A fragmented MP4 without sidx is unseekable unless the extractor goes for the mfra
+                // index ffmpeg writes at the end by default. Off in Media3, as it costs a jump to the
+                // tail before the first fragment; without a known length or an mfra nothing changes.
+                .setFragmentedMp4ExtractorFlags(FragmentedMp4Extractor.FLAG_READ_MFRA_FOR_SEEK_MAP);
         // On TV boxes the platform MediaCodec decoder for the heavy codecs common in MKV remuxes
         // (DTS/EAC3/TrueHD) can wedge during init on the playback thread — no exception is thrown, so
         // the load never reaches a ready state (JPP-1005) — and where it does run, it is the decoder a
