@@ -199,6 +199,8 @@ final class ExtractorHarness {
         int timeJumpsBack;
         long firstTimeUs = C.TIME_UNSET;
         long lastTimeUs = C.TIME_UNSET;
+        /** The first 2000 sample times, in the order they came out. */
+        final List<Long> timesUs = new ArrayList<>();
 
         Track(int type) {
             this.type = type;
@@ -209,6 +211,7 @@ final class ExtractorHarness {
             timeJumpsBack = 0;
             firstTimeUs = C.TIME_UNSET;
             lastTimeUs = C.TIME_UNSET;
+            timesUs.clear();
         }
 
         @Override
@@ -245,6 +248,7 @@ final class ExtractorHarness {
             if (lastTimeUs != C.TIME_UNSET && timeUs < lastTimeUs - 1_000_000) timeJumpsBack++;
             lastTimeUs = timeUs;
             samples++;
+            if (timesUs.size() < 2000) timesUs.add(timeUs);
         }
     }
 }

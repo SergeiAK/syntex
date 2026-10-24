@@ -14811,6 +14811,23 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                         final androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Configuration
                                 configuration = super.getMediaCodecConfiguration(codecInfo, format,
                                         crypto, codecOperatingRate);
+                        // A container that names no frame rate (MPEG-TS) leaves the decoder to guess,
+                        // and Amlogic's guesses 30: on 25i it then times the fields 16.7 ms apart and
+                        // the picture is pulled back once a second (see StatedFrameRate). An H.264 or
+                        // HEVC stream states its rate in its parameter sets; only the decoder is told,
+                        // the format stays as the container gave it, so the operating rate and the
+                        // display mode choice are what they were.
+                        if (configuration.mediaFormat != null
+                                && !configuration.mediaFormat.containsKey(
+                                        android.media.MediaFormat.KEY_FRAME_RATE)) {
+                            final float statedRate = StatedFrameRate.of(codecInfo.codecMimeType,
+                                    format.initializationData);
+                            if (statedRate != Format.NO_VALUE) {
+                                configuration.mediaFormat.setFloat(
+                                        android.media.MediaFormat.KEY_FRAME_RATE, statedRate);
+                                Utils.log("Decoder told the frame rate the stream states: " + statedRate);
+                            }
+                        }
                         // Ask for the picture and nothing else.
                         //
                         // The owner's colleague settled this from the other side: VLC plays the file
