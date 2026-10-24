@@ -199,22 +199,6 @@
                     app:useSimpleSummaryProvider="true" />
 
                 <ListPreference
-                    app:key="seekConfirm"
-                    app:defaultValue="timer"
-                    app:entries="@array/seek_confirm_entries"
-                    app:entryValues="@array/seek_confirm_values"
-                    app:title="@string/pref_seek_confirm"
-                    app:useSimpleSummaryProvider="true" />
-
-                <ListPreference
-                    app:key="seekWhileAiming"
-                    app:defaultValue="plays"
-                    app:entries="@array/seek_while_aiming_entries"
-                    app:entryValues="@array/seek_while_aiming_values"
-                    app:title="@string/pref_seek_while_aiming"
-                    app:useSimpleSummaryProvider="true" />
-
-                <ListPreference
                     app:key="seekWithoutSet"
                     app:defaultValue="card"
                     app:entries="@array/seek_without_set_entries"
@@ -256,7 +240,7 @@
 
             <ListPreference
                 app:key="osdStyle"
-                app:defaultValue="card"
+                app:defaultValue="gradient"
                 app:entries="@array/osd_style_entries"
                 app:entryValues="@array/osd_style_values"
                 app:title="@string/pref_osd_style"
@@ -905,6 +889,48 @@
 
         </PreferenceScreen>
 
+        <!-- Readings, not settings: filled by SettingsActivity (DeviceFacts) when the screen opens, so
+             what it shows is the device as it is now. Its own screen rather than a block in About:
+             it is what a "does not play" question needs, and About is what the app is. -->
+        <PreferenceScreen
+            app:key="deviceScreen"
+            app:icon="@drawable/ic_live_tv_24dp"
+            app:summary="@string/pref_device_header_summary"
+            app:title="@string/pref_about_device">
+
+            <PreferenceCategory
+                app:key="deviceGroupDevice"
+                app:title="@string/device_group_device" />
+
+            <PreferenceCategory
+                app:key="deviceGroupDisplay"
+                app:title="@string/device_group_display" />
+
+            <PreferenceCategory
+                app:key="deviceGroupAudio"
+                app:title="@string/device_group_audio" />
+
+            <PreferenceCategory
+                app:key="deviceGroupDecoders"
+                app:title="@string/device_group_decoders" />
+
+            <PreferenceCategory
+                app:key="deviceGroupPlayer"
+                app:title="@string/device_group_player" />
+
+            <!-- Phone only: nothing on a television reads a clipboard. -->
+            <PreferenceCategory app:key="deviceGroupCopy">
+
+                <Preference
+                    app:icon="@drawable/ic_content_copy_24dp"
+                    app:key="deviceCopy"
+                    app:persistent="false"
+                    app:title="@string/device_copy" />
+
+            </PreferenceCategory>
+
+        </PreferenceScreen>
+
         <PreferenceScreen
             app:key="aboutScreen"
             app:icon="@drawable/ic_info_24dp"
@@ -925,8 +951,28 @@
                     app:icon="@drawable/ic_person_24dp"
                     app:key="aboutDeveloper"
                     app:selectable="false"
-                    app:summary="@string/about_developer_credit"
+                    app:summary="@string/about_developer_name"
                     app:title="@string/pref_about_developer" />
+
+                <!-- Whose work this stands on, then whose ideas and checks went into it, then the code
+                     it carries. Checked against the code and the notes before each name went in. -->
+                <Preference
+                    app:key="aboutBasedOn"
+                    app:selectable="false"
+                    app:summary="@string/about_based_on_names"
+                    app:title="@string/pref_about_based_on" />
+
+                <Preference
+                    app:key="aboutInspired"
+                    app:selectable="false"
+                    app:summary="@string/about_inspired_names"
+                    app:title="@string/pref_about_inspired" />
+
+                <Preference
+                    app:key="aboutLibraries"
+                    app:selectable="false"
+                    app:summary="@string/about_libraries_names"
+                    app:title="@string/pref_about_libraries" />
 
                 <!-- Opens a browser, or on a television a code a phone camera can take. -->
                 <Preference

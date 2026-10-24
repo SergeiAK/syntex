@@ -323,6 +323,8 @@
     <string name="time_ends_at_inline">until %1$s</string>
     <string name="time_live">● LIVE</string>
     <string name="header_duration">duration: %1$s</string>
+    <string name="header_season">Season %1$d</string>
+    <string name="header_episode">Episode %1$d</string>
     <string name="header_subtitles">subtitles: %1$s</string>
     <string name="header_subtitles_on">subtitles on</string>
     <string name="playlist">Playlist</string>
@@ -631,6 +633,27 @@
     <string name="pref_about_header_summary">Version, updates</string>
 
     <string name="pref_about_device">Device info</string>
+    <string name="pref_device_header_summary">Screen, sound, decoders</string>
+    <string name="device_group_device">Device</string>
+    <string name="device_group_display">Screen</string>
+    <string name="device_group_audio">Sound out</string>
+    <string name="device_group_decoders">Video decoders</string>
+    <string name="device_group_player">Player</string>
+    <string name="device_model">Model</string>
+    <string name="device_cpu">Processor</string>
+    <string name="device_memory">Memory</string>
+    <string name="device_memory_value">%1$s GB, up to %2$d MB for the player</string>
+    <string name="device_display_mode">Mode now</string>
+    <string name="device_display_rates">Refresh rates at this size</string>
+    <string name="device_display_sizes">Sizes</string>
+    <string name="device_audio_bitstream">Passed through as is</string>
+    <string name="device_audio_pcm_only">Nothing: sound goes out decoded</string>
+    <string name="device_audio_channels">Channels at most</string>
+    <string name="device_decoder_hw">hardware</string>
+    <string name="device_decoder_up_to">up to %1$s</string>
+    <string name="device_decoder_sw">software only</string>
+    <string name="device_none">none</string>
+    <string name="device_copy">Copy for a bug report</string>
 
     <string name="about_github" translatable="false">GitHub</string>
     <string name="about_github_url" translatable="false">https://github.com/SergeiAK/syntex</string>
@@ -639,7 +662,13 @@
 
     <string name="pref_about_project">Project</string>
     <string name="pref_about_developer">Developer</string>
-    <string name="about_developer_credit">SergeiAK. Based on Just+ Player by @levende</string>
+    <string name="about_developer_name" translatable="false">SergeiAK</string>
+    <string name="pref_about_based_on">Based on</string>
+    <string name="about_based_on_names">Just Player by Marcel Dopita · Just+ Player by @levende</string>
+    <string name="pref_about_inspired">Ideas and checks from</string>
+    <string name="about_inspired_names" translatable="false">Kodi · Vimu · Plezy · Nova Video Player · DDD Player · MX Player · VLC</string>
+    <string name="pref_about_libraries">Built with</string>
+    <string name="about_libraries_names" translatable="false">Media3 (ExoPlayer) · FFmpeg · smbj · libdovi · OkHttp · Glide</string>
     <string name="pref_about_source">Source code</string>
 
     <string name="about_developer" translatable="false">@levende</string>
@@ -688,12 +717,6 @@
     <string name="pref_seek_seconds_120">2 minutes</string>
     <string name="pref_seek_seconds_300">5 minutes</string>
     <string name="pref_seek_seconds_60">1 minute</string>
-    <string name="pref_seek_confirm">A seek shown on the card lands</string>
-    <string name="pref_seek_confirm_timer">On its own, once the presses stop</string>
-    <string name="pref_seek_confirm_ok">On OK; Back returns to where it started</string>
-    <string name="pref_seek_while_aiming">While a seek is shown on the card</string>
-    <string name="pref_seek_while_aiming_plays">The film plays on with sound</string>
-    <string name="pref_seek_while_aiming_pause">The film pauses</string>
     <string name="pref_seek_hold">Holding the key</string>
     <string name="pref_seek_hold_steps">Steps that grow: 3, 10, 30, 60 s</string>
     <string name="pref_seek_hold_fixed">Fixed step, as set above</string>
@@ -701,5 +724,4 @@
     <string name="pref_seek_without_set">Without trickplay frames beside the file</string>
     <string name="pref_seek_without_set_card">Time on the card, no picture</string>
     <string name="pref_seek_without_set_frames">Frames from the file itself where the box can decode them</string>
-    <string name="pref_seek_without_set_live">The picture itself jumps with every step</string>
 </resources>

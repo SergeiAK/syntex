@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The About block, one column: what this is, then what it is running on. It holds no control - the
-     two that lead somewhere are rows of their own below, where a remote finds them the way it finds
-     every other row - and the report answers a press by copying itself. The wash is the ground the
-     app gives itself elsewhere too, so the lettering is white in either appearance.
-     See layout-w600dp for the two-column arrangement. -->
+<!-- The About block: what this is and which version is running. It holds no control - the rows that
+     lead somewhere are below, where a remote finds them the way it finds every other row. What the
+     device can do has a screen of its own (Device info). The wash is the ground the app gives itself
+     elsewhere too, so the lettering is white in either appearance. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
@@ -22,12 +21,6 @@
         android:paddingBottom="20dp">
 
         <include layout="@layout/preference_about_identity" />
-
-        <include
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            layout="@layout/preference_about_info" />
 
     </LinearLayout>
 

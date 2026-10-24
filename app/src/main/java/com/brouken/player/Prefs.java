@@ -150,8 +150,6 @@ class Prefs {
     private static final String PREF_KEY_SEEK_STEP_BACK = "seekStepBack";
     private static final String PREF_KEY_SEEK_STEP_FORWARD = "seekStepForward";
     private static final String PREF_KEY_SEEK_BAR_STEP = "seekBarStep";
-    private static final String PREF_KEY_SEEK_CONFIRM = "seekConfirm";
-    private static final String PREF_KEY_SEEK_WHILE_AIMING = "seekWhileAiming";
     private static final String PREF_KEY_SEEK_HOLD = "seekHold";
     private static final String PREF_KEY_SEEK_WITHOUT_SET = "seekWithoutSet";
     private static final String PREF_KEY_SYSTEM_VOLUME = "systemVolume";
@@ -417,7 +415,7 @@ class Prefs {
     public static final String TRANSFER_LINE_ONLINE = "online";
     public static final String TRANSFER_LINE_ALWAYS = "always";
     /** TV: what the bottom controls stand on - one card around all of them, or a fade up from the edge. */
-    public String osdStyle = OSD_STYLE_CARD;
+    public String osdStyle = OSD_STYLE_GRADIENT;
     public static final String OSD_STYLE_CARD = "card";
     public static final String OSD_STYLE_GRADIENT = "gradient";
     /** Long seeks aimed on the card - by trickplay frames where there are some - the film playing on (see PlayerActivity.keyScrubPreview). */
@@ -428,10 +426,6 @@ class Prefs {
     public long seekStepForwardMs = 30_000;
     /** A press on the focused seek bar; 0 = by the length (a minute, or a twentieth of a short file). */
     public long seekBarStepMs = 0;
-    /** A seek aimed on the card waits for OK, and Back takes it away; otherwise it lands on its own. */
-    public boolean seekConfirmOk = false;
-    /** The film stops while a seek is aimed on the card, and goes on from where the seek lands. */
-    public boolean seekPauseWhileAiming = false;
     /** A held key sets the mark moving on its own, faster with each press the same way (as Plex does). */
     public boolean seekHoldGlides = false;
     /** A held key repeats the fixed step (seekStepBackMs / seekStepForwardMs) instead of climbing the ladder. */
@@ -440,7 +434,8 @@ class Prefs {
     public String seekWithoutSet = SEEK_WITHOUT_SET_CARD;
     public static final String SEEK_WITHOUT_SET_CARD = "card";
     public static final String SEEK_WITHOUT_SET_FRAMES = "frames";
-    public static final String SEEK_WITHOUT_SET_LIVE = "live";
+    /** Gone from the list; only read, so a stored choice of it becomes the card. */
+    private static final String SEEK_WITHOUT_SET_LIVE = "live";
     public boolean systemVolume = true;
     /** How other people in a watch-together room see this device. Generated once, then editable. */
     public String togetherNick = "";
@@ -644,11 +639,15 @@ class Prefs {
         seekStepBackMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_STEP_BACK, "10"));
         seekStepForwardMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_STEP_FORWARD, "30"));
         seekBarStepMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_BAR_STEP, "0"));
-        seekConfirmOk = "ok".equals(mSharedPreferences.getString(PREF_KEY_SEEK_CONFIRM, "timer"));
-        seekPauseWhileAiming = "pause".equals(mSharedPreferences.getString(PREF_KEY_SEEK_WHILE_AIMING, "plays"));
         seekHoldGlides = "glide".equals(mSharedPreferences.getString(PREF_KEY_SEEK_HOLD, "steps"));
         seekHoldFixed = "fixed".equals(mSharedPreferences.getString(PREF_KEY_SEEK_HOLD, "steps"));
         seekWithoutSet = mSharedPreferences.getString(PREF_KEY_SEEK_WITHOUT_SET, seekWithoutSet);
+        // "live" (the picture itself jumping, as before 0075) was taken out of the trial: read as the card.
+        // Written back, so the list in settings has a value of its own to show.
+        if (SEEK_WITHOUT_SET_LIVE.equals(seekWithoutSet)) {
+            seekWithoutSet = SEEK_WITHOUT_SET_CARD;
+            mSharedPreferences.edit().putString(PREF_KEY_SEEK_WITHOUT_SET, seekWithoutSet).apply();
+        }
         // Forced on for TV boxes, where the remote routes volume to the panel or receiver over CEC and
         // only the system stream responds — the setting is hidden there too.
         systemVolume = Utils.isTvBox(mContext) || mSharedPreferences.getBoolean(PREF_KEY_SYSTEM_VOLUME, systemVolume);

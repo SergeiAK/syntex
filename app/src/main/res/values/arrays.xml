@@ -31,12 +31,10 @@
   <string-array name="seek_without_set_entries">
     <item>@string/pref_seek_without_set_card</item>
     <item>@string/pref_seek_without_set_frames</item>
-    <item>@string/pref_seek_without_set_live</item>
   </string-array>
   <string-array name="seek_without_set_values" translatable="false">
     <item>card</item>
     <item>frames</item>
-    <item>live</item>
   </string-array>
   <string-array name="seek_short_press_entries">
     <item>@string/pref_seek_short_press_ladder</item>
@@ -93,22 +91,6 @@
     <item>60</item>
     <item>120</item>
     <item>300</item>
-  </string-array>
-  <string-array name="seek_confirm_entries">
-    <item>@string/pref_seek_confirm_timer</item>
-    <item>@string/pref_seek_confirm_ok</item>
-  </string-array>
-  <string-array name="seek_confirm_values" translatable="false">
-    <item>timer</item>
-    <item>ok</item>
-  </string-array>
-  <string-array name="seek_while_aiming_entries">
-    <item>@string/pref_seek_while_aiming_plays</item>
-    <item>@string/pref_seek_while_aiming_pause</item>
-  </string-array>
-  <string-array name="seek_while_aiming_values" translatable="false">
-    <item>plays</item>
-    <item>pause</item>
   </string-array>
   <string-array name="controller_timeout_entries">
     <item>@string/pref_controller_timeout_3</item>

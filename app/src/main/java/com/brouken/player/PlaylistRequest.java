@@ -42,6 +42,8 @@ final class PlaylistRequest {
         /** The item's own title (a film's name), beating the playlist's. */
         String title;
         String episodeTitle;
+        /** A logo by URL, shown in place of the title; beats the playlist's. */
+        String logo;
         String thumbnail;
         String imdbId;
         String tmdbId;
@@ -111,6 +113,7 @@ final class PlaylistRequest {
         final Item item = new Item();
         item.title = string(bundle, "title");
         item.episodeTitle = string(bundle, "episode_title");
+        item.logo = string(bundle, "logo");
         item.thumbnail = string(bundle, "thumbnail");
         item.imdbId = string(bundle, "imdb_id");
         item.tmdbId = string(bundle, "tmdb_id");
@@ -197,6 +200,36 @@ final class PlaylistRequest {
         }
         return item.title != null ? item.title : title;
     }
+
+    /** The header's bold line (section 3): the series or the film - the item's, else the playlist's. */
+    String seriesTitle(final int index) {
+        final Item item = items.get(index);
+        return item.title != null ? item.title : title;
+    }
+
+    /** The logo shown in place of that line: the item's, else the playlist's; null when neither sent one. */
+    String logo(final int index) {
+        final Item item = items.get(index);
+        return item.logo != null ? item.logo : logo;
+    }
+
+    /**
+     * The episode's own name for the line under the header's bold one, or null when it says nothing the
+     * numbers do not: "Episode 3", "Серия 3", "Серія 3", "E03", a bare "3" (section 3, episode_title).
+     */
+    static String episodeName(final String name, final Integer episode) {
+        if (name == null) {
+            return null;
+        }
+        final java.util.regex.Matcher m = REPEATED_NUMBER.matcher(name.trim());
+        if (m.matches() && (episode == null || Integer.parseInt(m.group(1)) == episode)) {
+            return null;
+        }
+        return name;
+    }
+
+    private static final java.util.regex.Pattern REPEATED_NUMBER = java.util.regex.Pattern.compile(
+            "(?iu)(?:episode|ep\\.?|e|серия|серія|эпизод|епізод)?\\s*0*(\\d{1,4})");
 
     // --- Section 6.2 -------------------------------------------------------------------------------------
 

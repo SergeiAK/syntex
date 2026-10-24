@@ -26,6 +26,33 @@ public class PlaylistRequestTest {
     }
 
     @Test
+    public void headerLineIsTheSeriesAndTheLogoFallsBackToThePlaylists() {
+        final Bundle own = episode("https://host/s1e2.mkv", 1, 2, "The Kingsroad")
+                .put("title", "GoT").put("logo", "https://host/own.png");
+        final PlaylistRequest read = PlaylistRequest.read(
+                playlist(episode("https://host/s1e1.mkv", 1, 1, "Winter Is Coming"), own)
+                        .put("logo", "https://host/logo.png"));
+
+        assertEquals("Game of Thrones", read.seriesTitle(0));
+        assertEquals("GoT", read.seriesTitle(1));
+        assertEquals("https://host/logo.png", read.logo(0));
+        assertEquals("https://host/own.png", read.logo(1));
+    }
+
+    @Test
+    public void anEpisodeNameThatOnlyRepeatsTheNumberIsLeftOut() {
+        assertNull(PlaylistRequest.episodeName("Episode 3", 3));
+        assertNull(PlaylistRequest.episodeName("Серия 3", 3));
+        assertNull(PlaylistRequest.episodeName("Серія 3", 3));
+        assertNull(PlaylistRequest.episodeName("E03", 3));
+        assertNull(PlaylistRequest.episodeName("3", 3));
+        assertNull(PlaylistRequest.episodeName(null, 3));
+        assertEquals("Серия 4", PlaylistRequest.episodeName("Серия 4", 3));
+        assertEquals("The Kingsroad", PlaylistRequest.episodeName("The Kingsroad", 2));
+        assertEquals("1984", PlaylistRequest.episodeName("1984", 2));
+    }
+
+    @Test
     public void readsWhatTheShellSends() {
         final Bundle second = episode("https://host/s1e2.mkv", 1, 2, "The Kingsroad")
                 .put("position_sec", 754)

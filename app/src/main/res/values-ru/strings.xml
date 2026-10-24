@@ -231,6 +231,8 @@
     <string name="time_ends_at_inline">до %1$s</string>
     <string name="time_live">● ЭФИР</string>
     <string name="header_duration">длительность: %1$s</string>
+    <string name="header_season">Сезон %1$d</string>
+    <string name="header_episode">Серия %1$d</string>
     <string name="header_subtitles">субтитры: %1$s</string>
     <string name="header_subtitles_on">субтитры включены</string>
     <string name="playlist">Плейлист</string>
@@ -520,12 +522,36 @@
     <string name="pref_check_update">Проверить обновления</string>
 
     <string name="pref_about_device">Об устройстве</string>
+    <string name="pref_device_header_summary">Экран, звук, декодеры</string>
+    <string name="device_group_device">Устройство</string>
+    <string name="device_group_display">Экран</string>
+    <string name="device_group_audio">Звук на выход</string>
+    <string name="device_group_decoders">Видеодекодеры</string>
+    <string name="device_group_player">Плеер</string>
+    <string name="device_model">Модель</string>
+    <string name="device_cpu">Процессор</string>
+    <string name="device_memory">Память</string>
+    <string name="device_memory_value">%1$s ГБ, плееру — до %2$d МБ</string>
+    <string name="device_display_mode">Режим сейчас</string>
+    <string name="device_display_rates">Частоты при этом разрешении</string>
+    <string name="device_display_sizes">Разрешения</string>
+    <string name="device_audio_bitstream">Передаётся как есть</string>
+    <string name="device_audio_pcm_only">Ничего: звук уходит декодированным</string>
+    <string name="device_audio_channels">Каналов не больше</string>
+    <string name="device_decoder_hw">аппаратный</string>
+    <string name="device_decoder_up_to">до %1$s</string>
+    <string name="device_decoder_sw">только программный</string>
+    <string name="device_none">нет</string>
+    <string name="device_copy">Скопировать для сообщения об ошибке</string>
 
     <string name="about_github_qr">Отсканируйте камерой телефона, чтобы открыть страницу проекта.</string>
 
     <string name="pref_about_project">Проект</string>
     <string name="pref_about_developer">Разработчик</string>
-    <string name="about_developer_credit">SergeiAK. Основан на Just+ Player от @levende</string>
+    <string name="pref_about_based_on">Основан на</string>
+    <string name="about_based_on_names">Just Player от Marcel Dopita · Just+ Player от @levende</string>
+    <string name="pref_about_inspired">Идеи и сверки</string>
+    <string name="pref_about_libraries">Собран из</string>
     <string name="pref_about_source">Исходный код</string>
 
 
@@ -667,12 +693,6 @@
     <string name="pref_seek_seconds_120">2 минуты</string>
     <string name="pref_seek_seconds_300">5 минут</string>
     <string name="pref_seek_seconds_60">1 минута</string>
-    <string name="pref_seek_confirm">Переход по табличке</string>
-    <string name="pref_seek_confirm_timer">Сам, когда нажатия кончились</string>
-    <string name="pref_seek_confirm_ok">По OK; Back — обратно, откуда начали</string>
-    <string name="pref_seek_while_aiming">Пока перемотка на табличке</string>
-    <string name="pref_seek_while_aiming_plays">Фильм идёт со звуком</string>
-    <string name="pref_seek_while_aiming_pause">Фильм на паузе</string>
     <string name="pref_seek_hold">Удержание кнопки</string>
     <string name="pref_seek_hold_steps">Шаги растут: 3, 10, 30, 60 с</string>
     <string name="pref_seek_hold_fixed">Постоянный шаг, как задан выше</string>
@@ -680,5 +700,4 @@
     <string name="pref_seek_without_set">Если рядом с файлом нет кадров trickplay</string>
     <string name="pref_seek_without_set_card">Табличка со временем, без картинки</string>
     <string name="pref_seek_without_set_frames">Кадры из самого файла, где приставка их декодирует</string>
-    <string name="pref_seek_without_set_live">Сама картинка прыгает на каждом шаге</string>
 </resources>

@@ -854,6 +854,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     private TextView posterPlaceholderView;
     private TextView posterBadgeView;
     private TextView titleView;
+    /** The series' logo, in place of titleView when one was sent and is wide enough to read as one. */
+    private ImageView headerLogoView;
+    @Nullable
+    private String headerLogoShown;
+    /** "Season 1 · Episode 3 · name", under the bold line, when a playlist item says which episode it is. */
+    private TextView episodeLineView;
     private TextView videoInfoView;
     private TextView audioInfoView;
     private TextView endsAtView;
@@ -1042,9 +1048,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // picture does not start jumping again when a reversal drops the ladder back to 3 s.
     private boolean keyScrubPreview;
     private static final long KEY_PREVIEW_STEP_MS = 30_000;
-    // The seek trial (Prefs.seekPauseWhileAiming): the film was playing when the card took over, so the
-    // landing - or Back - starts it again.
-    private boolean keyScrubResume;
     // The seek trial's gliding mark (Prefs.seekHoldGlides): a hold sets the target moving on its own, as
     // Plex does - 1, 2, 4, 8 minutes of film a second. It stays open until OK or Back, whatever the
     // landing setting says: there is no moment at which a moving mark has been "let go of".
@@ -1840,12 +1843,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 // it plays on, and the one jump is the stop's. Without one, the live picture is the preview,
                 // and that needs the pause.
                 // Frames from the file count as a set here; a card without a frame does not - the bar
-                // has its own picture to aim by, the live one (and the seek trial's "live" is that too).
+                // has its own picture to aim by, the live one.
                 scrubPreview = mPrefs.seekPreview && (trickplay != null
                         || Prefs.SEEK_WITHOUT_SET_FRAMES.equals(mPrefs.seekWithoutSet));
                 scrubPreviewLast = position;
-                restorePlayState = (!scrubPreview || mPrefs.seekPauseWhileAiming) && player.isPlaying();
-                PlayerActivity.this.timeBar.holdForOk(mPrefs.seekConfirmOk);
+                restorePlayState = !scrubPreview && player.isPlaying();
                 if (restorePlayState) {
                     player.pause();
                 }
@@ -2095,6 +2097,32 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         titleView.setFadingEdgeLength(Utils.dpToPx(24));
         titleView.setTextDirection(View.TEXT_DIRECTION_LOCALE);
         infoColumn.addView(titleView);
+
+        // The logo takes the bold line's place, at about twice its height: a wordmark set as small as
+        // the title's letters is not readable from a sofa. Drawn from its start, as the title is.
+        headerLogoView = new ImageView(this);
+        final LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ui.dpS(HEADER_LOGO_HEIGHT_DP));
+        headerLogoView.setLayoutParams(logoLp);
+        headerLogoView.setAdjustViewBounds(true);
+        headerLogoView.setMaxWidth(ui.dpS(HEADER_LOGO_MAX_WIDTH_DP));
+        headerLogoView.setScaleType(ImageView.ScaleType.FIT_START);
+        headerLogoView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        headerLogoView.setVisibility(View.GONE);
+        infoColumn.addView(headerLogoView);
+
+        episodeLineView = new TextView(this);
+        episodeLineView.setTextColor(ContextCompat.getColor(this, R.color.ink_medium));
+        episodeLineView.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textEndsAt());
+        final LinearLayout.LayoutParams episodeLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        episodeLp.topMargin = ui.dpS(2);
+        episodeLineView.setLayoutParams(episodeLp);
+        episodeLineView.setSingleLine(true);
+        episodeLineView.setEllipsize(TextUtils.TruncateAt.END);
+        episodeLineView.setTextDirection(View.TEXT_DIRECTION_LOCALE);
+        episodeLineView.setVisibility(View.GONE);
+        infoColumn.addView(episodeLineView);
 
         // Two meta lines: video (resolution · codec · HDR) and the audio track (label / codec / language).
         // The gaps are the design's, and they are what makes the text column as tall as the poster beside it,
@@ -3057,6 +3085,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     // The controls came up over a seek's bar: from here the focus on it is the viewer's.
                     playerView.setSeekLook(false);
                 }
+                if (isTvBox) {
+                    skipProgressOnlyStage(wasVisibleFully);
+                }
 
                 // See controllerChromeVisible. Both animations report their first frame here as "visible but
                 // not fully visible", which on its own says nothing about the direction — what tells them
@@ -3606,24 +3637,13 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     // gate — nothing moved otherwise. Exact, because what is being restored is where the
                     // picture was, not the sync sample before it.
                     final boolean moved = keyScrubSeeked >= 0;
-                    final boolean resume = keyScrubResume;
                     cancelKeyScrub();
                     if (moved && player != null) {
                         player.setSeekParameters(SeekParameters.EXACT);
                         player.seekTo(keyScrubStart);
                     }
-                    if (resume) {
-                        playerView.setControllerAutoShow(true);
-                        if (player != null) {
-                            player.play();
-                        }
-                    }
                     playerView.removeCallbacks(playerView.textClearRunnable);
                     playerView.textClearRunnable.run();
-                    closedSomething = true;
-                } else if (isScrubbing && mPrefs.seekConfirmOk && timeBar.cancelKeyScrub()) {
-                    // The seek trial: a D-pad scrub on the bar waits for OK instead of its own timeout,
-                    // so Back is what takes it away (see onScrubStop, canceled).
                     closedSomething = true;
                 } else if (controllerVisible) {
                     // A timebar D-pad scrub needs no case of its own: it can only happen with the
@@ -3852,6 +3872,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             if (item.thumbnail != null) {
                 metadata.setArtworkUri(Uri.parse(item.thumbnail));
             }
+            metadata.setExtras(headerExtras(Utils.unescapeHtml(request.seriesTitle(i)), request.logo(i),
+                    episodeLine(item.season, item.episode,
+                            Utils.unescapeHtml(PlaylistRequest.episodeName(item.episodeTitle, item.episode)))));
             final MediaItem.Builder builder = new MediaItem.Builder()
                     .setUri(Uri.parse(item.uri))
                     .setMediaMetadata(metadata.build());
@@ -4338,17 +4361,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             keyScrubTarget = snapped;
         }
         showKeySeekMessage(keyScrubTarget);
-        if (!keyScrubPreview && mPrefs.seekPreview && previewWithoutSet()
+        if (!keyScrubPreview && mPrefs.seekPreview
                 && (held || step >= KEY_PREVIEW_STEP_MS)) {
             keyScrubPreview = true;
-            pauseForAiming();
         }
         if (keyScrubPreview) {
             showTrickplayFrame(keyScrubTarget, forward);
             playerView.removeCallbacks(keyScrubCommit);
-            if (!mPrefs.seekConfirmOk) {
-                playerView.postDelayed(keyScrubCommit, 700);
-            }
+            playerView.postDelayed(keyScrubCommit, 700);
             return true;
         }
         // Seek now if the previous seek has landed, so the picture and the bar follow the presses. A step
@@ -4569,9 +4589,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return Math.min(forward ? mPrefs.seekStepForwardMs : mPrefs.seekStepBackMs, cap);
     }
 
-    /** A seek aimed on the card that waits for OK to land and Back to go away (Prefs.seekConfirmOk). */
+    /**
+     * A seek aimed on the card that waits for OK to land and Back to go away: only the gliding mark, which
+     * has no moment at which it was let go of. Every other seek on the card lands on its own.
+     */
     private boolean keyAwaitsOk() {
-        return keyScrubTarget >= 0 && keyScrubPreview && (mPrefs.seekConfirmOk || glideOpen);
+        return keyScrubTarget >= 0 && keyScrubPreview && glideOpen;
     }
 
     /**
@@ -4615,10 +4638,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         glideOpen = true;
         glideForward = forward;
         glideTier = 0;
-        if (!keyScrubPreview) {
-            keyScrubPreview = true;
-            pauseForAiming();
-        }
+        keyScrubPreview = true;
         showGlideRate();
         glideTickAt = SystemClock.uptimeMillis();
         playerView.removeCallbacks(glideTick);
@@ -4666,29 +4686,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         playerView.seekRate(null);
     }
 
-    /**
-     * Stops the film for the card, if the seek trial asks for it (Prefs.seekPauseWhileAiming). Quietly: a
-     * pause raises the controls on its own, and over a seek aimed on the card they are only in the way.
-     */
-    private void pauseForAiming() {
-        if (mPrefs.seekPauseWhileAiming && player != null && player.isPlaying()) {
-            playerView.setControllerAutoShow(false);
-            player.pause();
-            keyScrubResume = true;
-        }
-    }
-
-    /** Starts the film again if the card stopped it; see keyScrubResume. */
-    private void resumeAfterAiming() {
-        if (keyScrubResume) {
-            keyScrubResume = false;
-            playerView.setControllerAutoShow(true);
-            if (player != null) {
-                player.play();
-            }
-        }
-    }
-
     private void showKeySeekMessage(long target) {
         // The offset answers "how far", not "where in the film" - and against a duration that is not on
         // screen at that moment, an absolute time is a division done in the head. So the target carries
@@ -4703,10 +4700,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     /** Forget a burst in progress: its target, the step it was on, and the commit it has armed. */
     private void cancelKeyScrub() {
         stopGlide();
-        if (keyScrubResume) {
-            keyScrubResume = false;
-            playerView.setControllerAutoShow(true);
-        }
         playerView.removeCallbacks(keyScrubCommit);
         keyScrubTarget = -1;
         keyScrubSeeked = -1;
@@ -4729,8 +4722,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         final long duration = player.getDuration();
         if (duration != C.TIME_UNSET && !isLiveStream() && target >= duration - END_HOLD_MS) {
-            keyScrubResume = false;
-            playerView.setControllerAutoShow(true);
             player.pause();
             seekExact(Math.max(0, duration - END_HOLD_MS));
             return;
@@ -4744,7 +4735,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // The one seek the viewer stops on is the one that has to be true to the readout — seekExact.
             seekExact(target);
         }
-        resumeAfterAiming();
     }
 
     /** The keys that land a seek waiting for OK: the remote's OK and, as Plex has it, play/pause. */
@@ -6512,6 +6502,96 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return null;
     }
 
+    // What the header shows of a playlist item beyond its title (PLAYLIST_API section 3), kept on the item
+    // itself so a jump inside the playlist brings its own with it.
+    private static final String HEADER_SERIES = "syntex.header.series";
+    private static final String HEADER_LOGO = "syntex.header.logo";
+    private static final String HEADER_EPISODE = "syntex.header.episode";
+
+    @Nullable
+    private static Bundle headerExtras(@Nullable final String series, @Nullable final String logo,
+                                       @Nullable final String episodeLine) {
+        if (series == null && logo == null && episodeLine == null) {
+            return null;
+        }
+        final Bundle extras = new Bundle();
+        extras.putString(HEADER_SERIES, series);
+        extras.putString(HEADER_LOGO, logo);
+        extras.putString(HEADER_EPISODE, episodeLine);
+        return extras;
+    }
+
+    /**
+     * "Season 1 · Episode 3 · The name", from what was sent of it: a number of 0 or less is not shown,
+     * and neither is a name that only repeats the number (PlaylistRequest.episodeName).
+     */
+    @Nullable
+    private String episodeLine(@Nullable final Integer season, @Nullable final Integer episode,
+                               @Nullable final String name) {
+        final ArrayList<String> parts = new ArrayList<>();
+        if (season != null && season > 0) {
+            parts.add(getString(R.string.header_season, season));
+        }
+        if (episode != null && episode > 0) {
+            parts.add(getString(R.string.header_episode, episode));
+        }
+        if (name != null && !name.isEmpty()) {
+            parts.add(name);
+        }
+        return parts.isEmpty() ? null : TextUtils.join(" · ", parts);
+    }
+
+    private static final int HEADER_LOGO_HEIGHT_DP = 44;
+    private static final int HEADER_LOGO_MAX_WIDTH_DP = 340;
+    /** Narrower than this a logo is a square badge rather than a wordmark, and says less than the title. */
+    private static final float HEADER_LOGO_MIN_ASPECT = 1.5f;
+
+    /**
+     * The logo in place of the title once it has loaded and turned out wide enough (PLAYLIST_API section
+     * 2: narrower than 3:2, or failing to load, the title stays). The title stays up while it loads, so a
+     * slow server shows a name rather than a gap.
+     */
+    private void showHeaderLogo(@Nullable final String logo) {
+        if (headerLogoView == null) {
+            return;
+        }
+        if (logo == null) {
+            headerLogoShown = null;
+            Glide.with(this).clear(headerLogoView);
+            headerLogoView.setVisibility(View.GONE);
+            titleView.setVisibility(View.VISIBLE);
+            return;
+        }
+        if (logo.equals(headerLogoShown)) {
+            return;
+        }
+        headerLogoShown = logo;
+        headerLogoView.setVisibility(View.GONE);
+        titleView.setVisibility(View.VISIBLE);
+        Glide.with(this).load(logo).listener(new RequestListener<Drawable>() {
+            @Override
+            public boolean onLoadFailed(GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
+                return false;
+            }
+
+            @Override
+            public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
+                final int w = resource.getIntrinsicWidth();
+                final int h = resource.getIntrinsicHeight();
+                if (logo.equals(headerLogoShown) && h > 0 && w >= h * HEADER_LOGO_MIN_ASPECT) {
+                    headerLogoView.setVisibility(View.VISIBLE);
+                    titleView.setVisibility(View.GONE);
+                }
+                return false;
+            }
+        }).into(headerLogoView);
+    }
+
+    @Nullable
+    private static String headerExtra(@Nullable final MediaMetadata metadata, final String key) {
+        return metadata == null || metadata.extras == null ? null : metadata.extras.getString(key);
+    }
+
     /**
      * The name the header gives the item the player is on: the caller's title, else the file's name. Read
      * from the player rather than the header, so a question asked right after a jump inside a playlist
@@ -6530,7 +6610,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final MediaItem item = player.getCurrentMediaItem();
         final MediaMetadata metadata = item != null ? item.mediaMetadata : null;
 
-        titleView.setText(currentTitle());
+        final String series = headerExtra(metadata, HEADER_SERIES);
+        final String episode = headerExtra(metadata, HEADER_EPISODE);
+        // The series on the bold line and the episode under it, as the contract has it; without a series
+        // the item's own title, which for a playlist is the episode's name.
+        titleView.setText(series != null && episode != null ? series : currentTitle());
+        episodeLineView.setText(episode);
+        episodeLineView.setVisibility(series != null && episode != null ? View.VISIBLE : View.GONE);
+        showHeaderLogo(headerExtra(metadata, HEADER_LOGO));
 
         Uri artworkUri = metadata != null ? metadata.artworkUri : null;
         if (artworkUri == null) {
@@ -7388,15 +7475,41 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
     }
 
+    /** TV: a hide from the full controls has begun; see skipProgressOnlyStage. */
+    private boolean tvHidingFromFull;
+
+    /**
+     * TV: the controls go in one step. On its timeout Media3 first slides away everything but the seek bar
+     * and leaves that up on its own for two more seconds (PlayerControlViewLayoutManager, hideMainBar) - after
+     * a pause is lifted that was a thin bar standing alone over the film. A hide reports its first frame as
+     * "visible, not fully"; a second such report straight after is that stage being reached, and the seek
+     * bar is sent after the rest. Not while a seek put the bar up by itself: there it is the point.
+     */
+    private void skipProgressOnlyStage(final boolean wasVisibleFully) {
+        final boolean partly = controllerVisible && !controllerVisibleFully;
+        if (partly && wasVisibleFully) {
+            tvHidingFromFull = true;
+            return;
+        }
+        final boolean reachedProgressOnly = partly && tvHidingFromFull;
+        tvHidingFromFull = false;
+        if (reachedProgressOnly && !playerView.seekProgress) {
+            playerView.hideController();
+        }
+    }
+
     /** The transport's size on TV, under the seek bar: a step down from the centre disc it used to be. */
     private static final float TV_TRANSPORT_SCALE = 0.55f;
+    private static final int TV_TRANSPORT_DROP_DP = 3;
     private boolean tvTransportFollowsHeight;
 
     /**
      * TV: prev / play-pause / next leave the middle of the picture for the bottom bar, between the elapsed
      * time and the remaining one. Scaled rather than resized: the discs, their padding and the focus ring
      * keep the proportions UiMetrics gave them. The row is centred on the bar's own centre line - the
-     * margin puts its bottom there, and half its height brings it back down.
+     * margin puts its bottom there, and half its height brings it back down - and then a little lower
+     * (TV_TRANSPORT_DROP_DP): exactly centred, the focused play disc grazed the seek bar's dot whenever the
+     * dot stood over it, which a pause in the middle of the film is.
      */
     private void placeTvTransport(int bottomPad, int barHeight) {
         final View transport = findViewById(R.id.exo_center_controls);
@@ -7412,7 +7525,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (!tvTransportFollowsHeight) {
             tvTransportFollowsHeight = true;
             transport.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) ->
-                    v.setTranslationY((b - t) / 2f));
+                    v.setTranslationY((b - t) / 2f + ui.dpS(TV_TRANSPORT_DROP_DP)));
         }
     }
 
@@ -15261,14 +15374,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         });
     }
 
-    /**
-     * Whether a long seek is aimed on the card where the file has no set: not when the seek trial asked
-     * for the live picture, which is how every seek went before 0075.
-     */
-    private boolean previewWithoutSet() {
-        return trickplay != null || !Prefs.SEEK_WITHOUT_SET_LIVE.equals(mPrefs.seekWithoutSet);
-    }
-
     // ---- Frames from the file itself (see FileFrames) ----------------------------------------------
     // Opened on the first seek that wants a frame, not with the file: the open reads the index over the
     // network, and the start of a film is the worst moment to compete with it. Everything below lives on
@@ -15399,7 +15504,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (playerView != null) {
             stopGlide();
         }
-        keyScrubResume = false;
         keyScrubTarget = -1;
         keyScrubSeeked = -1;
         keyScrubSteps = 0;

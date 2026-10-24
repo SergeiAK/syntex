@@ -60,13 +60,26 @@ public class BottomBarLayout extends FrameLayout {
         follow();
     }
 
+    /**
+     * How far Media3 moves the bar to leave only the seek bar up: the bar's height less the seek bar's
+     * (PlayerControlViewLayoutManager reads the same two resources). Measured against the full height, a
+     * companion kept that share of itself - the seek bar's height over the bar's - and the button row stood
+     * faint over the picture all through a seek with the controls hidden, and for the two seconds the seek
+     * bar outlives the rest of the controls.
+     */
+    private float progressOnlyTravel() {
+        return getResources().getDimension(R.dimen.exo_styled_bottom_bar_height)
+                - getResources().getDimension(R.dimen.exo_styled_progress_bar_height);
+    }
+
     private void follow() {
         if (companions.isEmpty()) {
             return;
         }
-        final float height = getHeight();
-        final float alpha = height <= 0 ? 1f
-                : Math.max(0f, Math.min(1f, 1f - Math.abs(super.getTranslationY()) / height));
+        // In Media3's own units: gone by the time only the seek bar is left, as the button row is.
+        final float gone = progressOnlyTravel();
+        final float alpha = gone <= 0 ? 1f
+                : Math.max(0f, Math.min(1f, 1f - Math.abs(travel) / gone));
         for (View companion : companions) {
             companion.setAlpha(alpha);
         }

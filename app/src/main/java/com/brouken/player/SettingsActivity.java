@@ -59,9 +59,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.text.Cue;
-import androidx.media3.decoder.ffmpeg.FfmpegLibrary;
 import androidx.media3.ui.SubtitleView;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.core.os.LocaleListCompat;
@@ -779,6 +777,10 @@ public class SettingsActivity extends AppCompatActivity
                 });
             }
 
+            if (findPreference("deviceGroupDevice") != null) {
+                fillDeviceScreen();
+            }
+
             Preference source = findPreference("aboutSource");
             if (source != null) {
                 source.setOnPreferenceClickListener(preference -> {
@@ -826,7 +828,8 @@ public class SettingsActivity extends AppCompatActivity
             // About is a reading, not a set of settings: the one switch on it belongs to the updater,
             // and a reset row there would stand under the badge that is meant to be the last thing on
             // the screen. What it holds is reset with everything else, from the root.
-            if (!holdsSettings(screen) || "aboutScreen".equals(screen.getKey())) {
+            if (!holdsSettings(screen) || "aboutScreen".equals(screen.getKey())
+                    || "deviceScreen".equals(screen.getKey())) {
                 return;
             }
             final Preference reset = new Preference(context);
@@ -976,65 +979,54 @@ public class SettingsActivity extends AppCompatActivity
                 if (version instanceof TextView) {
                     ((TextView) version).setText("v" + BuildConfig.VERSION_NAME);
                 }
-                final View device = holder.findViewById(R.id.about_device);
-                if (device instanceof TextView) {
-                    ((TextView) device).setText(facts());
+            }
+        }
+
+        /**
+         * Device info: the rows are readings taken now (DeviceFacts), so they are written in when the
+         * screen opens rather than into the XML. Each is a row that cannot be pressed - see
+         * restoreReadoutInk for why it is still lettered in full ink.
+         */
+        private void fillDeviceScreen() {
+            final Context context = requireContext();
+            fillDeviceGroup("deviceGroupDevice", DeviceFacts.device(context));
+            fillDeviceGroup("deviceGroupDisplay", DeviceFacts.display(context));
+            fillDeviceGroup("deviceGroupAudio", DeviceFacts.audio(context));
+            fillDeviceGroup("deviceGroupDecoders", DeviceFacts.decoders(context));
+            fillDeviceGroup("deviceGroupPlayer", DeviceFacts.player(context));
+            final PreferenceCategory copyGroup = findPreference("deviceGroupCopy");
+            final Preference copy = findPreference("deviceCopy");
+            // Nothing on a television reads a clipboard: the report is read off the screen there.
+            if (Utils.isTvBox(context)) {
+                if (copyGroup != null) {
+                    copyGroup.setVisible(false);
                 }
-                final View info = holder.findViewById(R.id.about_info);
-                final View hint = holder.findViewById(R.id.about_copy_hint);
-                // Nothing on a television reads a clipboard, and nothing there can tap either: the
-                // report is read off the screen, so the press and the mark that promises it both go.
-                final boolean canCopy = !Utils.isTvBox(requireContext());
-                if (hint != null) {
-                    hint.setVisibility(canCopy ? View.VISIBLE : View.GONE);
-                }
-                if (info != null) {
-                    // The listener first: setOnClickListener makes a view clickable even when what it
-                    // is handed is null, so clearing the flag before it does nothing.
-                    info.setOnClickListener(canCopy ? v -> copy(report()) : null);
-                    info.setClickable(canCopy);
-                    info.setFocusable(false);
-                    info.setContentDescription(canCopy ? getString(R.string.error_copy) : null);
-                }
+            } else if (copy != null) {
+                copy.setOnPreferenceClickListener(preference -> {
+                    copy(DeviceFacts.report(requireContext()));
+                    return true;
+                });
+            }
+        }
+
+        private void fillDeviceGroup(final String key, final List<DeviceFacts.Fact> facts) {
+            final PreferenceCategory group = findPreference(key);
+            if (group == null) {
                 return;
             }
-        }
-
-        /**
-         * What a bug report needs, in the shape {@code ErrorActivity} already pastes: the build, then
-         * the device, then the hardware. Three lines rather than that screen's full dump, because this
-         * one is read on screen as well as pasted.
-         */
-        private static String facts() {
-            final StringBuilder sb = new StringBuilder();
-            sb.append("Android: ").append(Build.VERSION.RELEASE)
-                    .append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
-            sb.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
-                    .append(" (").append(Build.DEVICE).append(")\n");
-            sb.append("ABI: ").append(primaryAbi()).append('\n');
-            sb.append("Media3: ").append(MediaLibraryInfo.VERSION);
-            // The extension decoder is what plays AC3/EAC3/DTS here, and whether it loaded at all is
-            // the first question a "no sound" report raises.
-            if (FfmpegLibrary.isAvailable()) {
-                sb.append("\nFFmpeg: ").append(FfmpegLibrary.getVersion());
+            if (facts.isEmpty()) {
+                group.setVisible(false);
+                return;
             }
-            return sb.toString();
-        }
-
-        /**
-         * What a bug report needs, in the shape {@code ErrorActivity} already pastes: the build, then
-         * everything the block shows, then the firmware the lines above cannot pin.
-         */
-        private static String report() {
-            return BuildConfig.APPLICATION_ID + "@" + BuildConfig.VERSION_NAME
-                    + " (build " + BuildConfig.VERSION_CODE + ", " + BuildConfig.FLAVOR
-                    + (BuildConfig.DEBUG ? " debug)" : " release)") + "\n"
-                    + facts() + "\n"
-                    + "Build: " + Build.FINGERPRINT;
-        }
-
-        private static String primaryAbi() {
-            return Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "?";
+            for (DeviceFacts.Fact fact : facts) {
+                final Preference row = new Preference(group.getContext());
+                row.setTitle(fact.title);
+                row.setSummary(fact.value);
+                row.setSelectable(false);
+                row.setPersistent(false);
+                row.setIconSpaceReserved(false);
+                group.addPreference(row);
+            }
         }
 
         /**
@@ -1103,10 +1095,6 @@ public class SettingsActivity extends AppCompatActivity
                     .setPositiveButton(android.R.string.ok, null)
                     .show();
             return true;
-        }
-
-        private void copyReport() {
-            copy(report());
         }
 
         private void copy(final String text) {
