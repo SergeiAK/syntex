@@ -284,8 +284,21 @@ final class Dialogs {
             // stayed grey (seen on the Shield, 23.10.2026).
             final android.graphics.drawable.RippleDrawable ripple =
                     (android.graphics.drawable.RippleDrawable) root.getBackground();
-            ripple.setDrawable(0, new android.graphics.drawable.LayerDrawable(
-                    new Drawable[]{ripple.getDrawable(0), onFocus}));
+            // The content layer is the first one that is not the mask. A ripple can have none - only a
+            // mask, or no layers at all - and asking it for layer 0 then threw: the online subtitle
+            // search crashed on open (Shield, 25.10). Then the wash is a layer of its own.
+            int content = -1;
+            for (int i = 0; i < ripple.getNumberOfLayers() && content < 0; i++) {
+                if (ripple.getId(i) != android.R.id.mask) {
+                    content = i;
+                }
+            }
+            if (content < 0) {
+                ripple.addLayer(onFocus);
+            } else {
+                ripple.setDrawable(content, new android.graphics.drawable.LayerDrawable(
+                        new Drawable[]{ripple.getDrawable(content), onFocus}));
+            }
             inkOnFocus(root, ink, true);
             return;
         }

@@ -129,6 +129,65 @@ final class TitleSearch {
     }
 
     /**
+     * The one catalogue entry a name read off a file is ({@link NameId}), or null: blocking, call from
+     * a worker. Asked of the catalogue for the kind the file is - a series when it has a season - with
+     * the year when there is one, and accepted only when {@link NameId#matches} agrees on the name.
+     * Nothing is guessed: a title that merely resembles the file is the wrong segments, and those skip
+     * a piece of the film.
+     */
+    static Title match(String name, String year, boolean movie) {
+        final HttpUrl.Builder url = base();
+        if (url == null || name == null || name.isEmpty()) {
+            return null;
+        }
+        url.addPathSegment("search").addPathSegment(movie ? "movie" : "tv")
+                .addQueryParameter("query", name)
+                .addQueryParameter("include_adult", "false");
+        final String yearKey = movie ? "year" : "first_air_date_year";
+        Title found = firstMatch(get(year == null ? url.build()
+                : url.build().newBuilder().addQueryParameter(yearKey, year).build()), name, year, movie);
+        if (found == null && year != null) {
+            // The file's year can be off by one from the catalogue's (a festival premiere), and TMDB
+            // filters by the exact year: asked once more without it, and matches still checks the year.
+            found = firstMatch(get(url.build()), name, year, movie);
+        }
+        return found;
+    }
+
+    private static Title firstMatch(JSONObject root, String name, String year, boolean movie) {
+        final JSONArray results = root == null ? null : root.optJSONArray("results");
+        if (results == null) {
+            return null;
+        }
+        // Without a year the name is all there is, and a remake shares it: two entries of that name
+        // and no way to tell them apart is no answer, not the more popular of the two.
+        Title found = null;
+        for (int i = 0; i < results.length(); i++) {
+            final JSONObject item = results.optJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+            final String date = year(string(item, movie ? "release_date" : "first_air_date"));
+            if (!NameId.matches(name, year, string(item, movie ? "title" : "name"),
+                    string(item, movie ? "original_title" : "original_name"), date)) {
+                continue;
+            }
+            final long id = item.optLong("id", -1);
+            if (id < 1) {
+                continue;
+            }
+            if (year != null) {
+                return new Title(String.valueOf(id), movie, string(item, movie ? "title" : "name"), date, null);
+            }
+            if (found != null) {
+                return null;
+            }
+            found = new Title(String.valueOf(id), movie, string(item, movie ? "title" : "name"), date, null);
+        }
+        return found;
+    }
+
+    /**
      * What an id in the typed text points at: {@code tt3659388}, {@code 286217}, or the imdb /
      * themoviedb.org URL either was copied out of. Empty when there is no id in there, or no
      * catalogue entry answers to it.

@@ -1164,6 +1164,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     public static boolean locked = false;
     private Thread nextUriThread;
     private Thread segmentFinderThread;
+    /** What each address's name came to for the segment lookup - see {@link #findSegmentsByName}. */
+    private final Map<String, MediaId> idsFromNames = new HashMap<>();
+    /** The name was read and says nothing; kept so it is not read, nor TMDB asked, again. */
+    private static final MediaId NO_ID = new MediaId(null, null, -1, -1);
     public Thread frameRateSwitchThread;
     // What the back buffer was actually built with, which is the setting for a stream and zero for a
     // local file. Kept because the load control cannot be asked afterwards, and because ExoPlayer reads
@@ -5374,11 +5378,15 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final int index = player.getCurrentMediaItemIndex();
         final MediaId id = mediaIdAt(index);
         if (id.isEmpty()) {
-            Utils.log("segments: no title id, not searching");
+            findSegmentsByName(index);
             return;
         }
         cancelSegmentFinder();
-        final int generation = segmentFetchGeneration;
+        findSegments(id, index, segmentFetchGeneration);
+        prefetchNextSegments();
+    }
+
+    private void findSegments(MediaId id, int index, int generation) {
         segmentFinderThread = SegmentFinder.find(id.imdb, id.tmdb, id.season, id.episode,
                 currentDurationSec(),
                 segments -> runOnUiThread(() -> {
@@ -5389,8 +5397,96 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                         Utils.log("segments: applying failed " + e);
                     }
                 }));
-        prefetchNextSegments();
     }
+
+    /**
+     * The lookup for an item nothing sent ids for - a file off a share, a launcher's bare URL and
+     * title: the ids are read off the name and the folders ({@link NameId}), and only when those
+     * carry none is the title looked up in TMDB, accepted on an exact name match alone.
+     *
+     * <p>What the name came to is kept per address, an answer of "nothing" included, so the second
+     * wave - the same item once its duration is known - and a replay ask TMDB nothing.
+     */
+    private void findSegmentsByName(int index) {
+        final MediaItem item = index >= 0 && index < player.getMediaItemCount()
+                ? player.getMediaItemAt(index) : null;
+        final Uri uri = item != null && item.localConfiguration != null ? item.localConfiguration.uri : null;
+        if (uri == null) {
+            return;
+        }
+        final String key = uri.toString();
+        cancelSegmentFinder();
+        final int generation = segmentFetchGeneration;
+        final MediaId known = idsFromNames.get(key);
+        if (known != null) {
+            if (known.isEmpty()) {
+                Utils.log("segments: no title id, and the name says nothing either");
+            } else {
+                findSegments(known, index, generation);
+            }
+            return;
+        }
+        final NameId read = NameId.read(namedPath(uri),
+                stringAt(apiPlaylistNames, index, index == apiExtrasIndex ? apiTitle : null));
+        if (read == null) {
+            Utils.log("segments: no title id, and the name says nothing either");
+            idsFromNames.put(key, NO_ID);
+            return;
+        }
+        if (read.hasId()) {
+            final MediaId id = new MediaId(read.imdb, read.tmdb, read.season, read.episode);
+            Utils.log("segments: ids from the name, " + read);
+            idsFromNames.put(key, id);
+            findSegments(id, index, generation);
+            return;
+        }
+        final Thread worker = new Thread(() -> {
+            final TitleSearch.Title title = TitleSearch.match(read.title, read.year, read.isMovie());
+            runOnUiThread(() -> {
+                if (generation != segmentFetchGeneration || player == null) {
+                    return;
+                }
+                if (title == null) {
+                    Utils.log("segments: no title id, TMDB has no exact match for " + read);
+                    idsFromNames.put(key, NO_ID);
+                    return;
+                }
+                Utils.log("segments: " + read + " is tmdb " + title.tmdb + " (" + title.name + ", "
+                        + title.year + ")");
+                final MediaId id = new MediaId(null, title.tmdb, read.season, read.episode);
+                idsFromNames.put(key, id);
+                findSegments(id, index, generation);
+            });
+        }, "NameId");
+        worker.setDaemon(true);
+        worker.start();
+        segmentFinderThread = worker;
+    }
+
+    /**
+     * The folders and the file an address names, outermost first, for {@link NameId}. A share, a
+     * WebDAV folder or a file on the device is a real path; a stream URL is read only when it ends in
+     * a video file, since "stream" or a hash is not a title. A document's path is opaque, so only its
+     * display name is read.
+     */
+    private List<String> namedPath(Uri uri) {
+        final String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if ("content".equals(scheme)) {
+            final String name = Utils.getFileName(this, uri);
+            return name == null ? Collections.emptyList() : Collections.singletonList(name);
+        }
+        final List<String> path = uri.getPathSegments();
+        if (path.isEmpty()) {
+            return path;
+        }
+        if (("http".equals(scheme) || "https".equals(scheme)) && !VIDEO_FILE.matcher(path.get(path.size() - 1)).matches()) {
+            return Collections.emptyList();
+        }
+        return path;
+    }
+
+    private static final Pattern VIDEO_FILE =
+            Pattern.compile("(?i).+\\.(mkv|mp4|m4v|avi|ts|m2ts|mts|mov|wmv|webm|mpg|mpeg|vob|flv)");
 
     /**
      * Warms the finder's cache for the next playlist item while this one is still playing, so switching
@@ -5567,29 +5663,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
     /** {@code S01E05} or {@code 1x05} anywhere in the text, as {season, episode}; null if absent. */
     private static int[] seasonEpisodeIn(String text) {
-        if (text == null) {
-            return null;
-        }
-        for (Pattern pattern : SEASON_EPISODE_PATTERNS) {
-            final Matcher matcher = pattern.matcher(text);
-            if (matcher.find()) {
-                try {
-                    return new int[] { Integer.parseInt(matcher.group(1)),
-                            Integer.parseInt(matcher.group(2)) };
-                } catch (NumberFormatException ignored) {
-                    // Try the next shape.
-                }
-            }
-        }
-        return null;
+        return NameId.seasonEpisodeIn(text);
     }
-
-    // The Cyrillic "х" is in the second one on purpose: a localized episode list writes 1х05 with it,
-    // and it is indistinguishable from the Latin letter on screen.
-    private static final Pattern[] SEASON_EPISODE_PATTERNS = {
-            Pattern.compile("(?i)s\\s*(\\d{1,2})\\s*[.\\-_ ]?\\s*e\\s*(\\d{1,3})"),
-            Pattern.compile("(?<!\\d)(\\d{1,2})\\s*[x\u0445]\\s*(\\d{1,3})(?!\\d)"),
-    };
 
     /** Per-item value from a playlist, or the single-item extra where the playlist has none. */
     private String stringAt(List<String> playlist, int index, String fallback) {
@@ -11991,6 +12066,15 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         if (player == null) {
             return;
+        }
+        // The segments were looked up under the title this pick replaces - or not at all, for want of
+        // one - so they are asked for again. What the old title found goes first: it is about another
+        // film, and left in place it would go on skipping if the new title has nothing.
+        if (!skipSourceFromIntent && skipManager != null) {
+            baseSkipSource = null;
+            applySkipSource();
+            rebuildSkip();
+            maybeFetchSegmentsOnline();
         }
         if (!mPrefs.subtitleSearchLanguage) {
             maybeSearchSubtitlesOnline(player.getCurrentTracks(), true, null,
