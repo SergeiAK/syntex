@@ -248,7 +248,7 @@
 
             <ListPreference
                 app:key="chapterMarks"
-                app:defaultValue="ticks"
+                app:defaultValue="cuts"
                 app:entries="@array/chapter_marks_entries"
                 app:entryValues="@array/chapter_marks_values"
                 app:title="@string/pref_chapter_marks"

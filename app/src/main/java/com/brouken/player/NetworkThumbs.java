@@ -36,6 +36,7 @@ import com.bumptech.glide.signature.ObjectKey;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -92,8 +93,25 @@ final class NetworkThumbs {
     @Nullable
     private static volatile Source current;
     private static boolean registered;
+    /**
+     * The stills the browser has had of files on a share, by address: the width, the height and the
+     * written date it asked for them with. Glide keeps a still under exactly those, so the player's
+     * playlist rail can find the same one again in the cache - a still is not taken over the network
+     * while a player is up, and the browser's is the one the viewer saw (24.10.2026).
+     */
+    private static final Map<String, long[]> BROWSER_STILLS = new ConcurrentHashMap<>();
 
     private NetworkThumbs() {
+    }
+
+    static void browserStill(final Uri media, final int width, final int height, final long written) {
+        BROWSER_STILLS.put(media.toString(), new long[]{width, height, written});
+    }
+
+    /** As browserStill put it: {width, height, written}; null when the browser has had none. */
+    @Nullable
+    static long[] browserStill(final Uri media) {
+        return BROWSER_STILLS.get(media.toString());
     }
 
     static synchronized void register(final Context context) {

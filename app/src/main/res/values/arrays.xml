@@ -9,12 +9,14 @@
     <item>gradient</item>
   </string-array>
   <string-array name="chapter_marks_entries">
-    <item>@string/pref_chapter_marks_ticks</item>
     <item>@string/pref_chapter_marks_cuts</item>
+    <item>@string/pref_chapter_marks_ticks</item>
+    <item>@string/pref_chapter_marks_off</item>
   </string-array>
   <string-array name="chapter_marks_values" translatable="false">
-    <item>ticks</item>
     <item>cuts</item>
+    <item>ticks</item>
+    <item>off</item>
   </string-array>
   <string-array name="transfer_line_entries">
     <item>@string/pref_transfer_line_off</item>

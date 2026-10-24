@@ -100,6 +100,7 @@ import android.window.OnBackInvokedDispatcher;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.annotation.WorkerThread;
 import androidx.appcompat.app.AlertDialog;
 import android.app.Dialog;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
@@ -5707,7 +5708,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     /**
-     * The file's chapters on the bar, as ticks or cuts (Prefs.chapterMarks). Every chapter that a viewer
+     * The file's chapters on the bar, as cuts, ticks or not at all (Prefs.chapterMarks; cuts by default,
+     * decision 24.10.2026: on the box they looked better than the ticks). Every chapter that a viewer
      * would see in a list — hidden ones are not marked. Waits, like the skip bands, for the duration.
      */
     private void updateChapterMarks() {
@@ -5715,7 +5717,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             return;
         }
         final long durationMs = player != null ? player.getDuration() : C.TIME_UNSET;
-        if (fileChapters.isEmpty() || durationMs == C.TIME_UNSET || durationMs <= 0) {
+        if (fileChapters.isEmpty() || durationMs == C.TIME_UNSET || durationMs <= 0
+                || Prefs.CHAPTER_MARKS_OFF.equals(mPrefs.chapterMarks)) {
             timeBar.setChapterMarks(null, 0, false);
             return;
         }
@@ -8448,7 +8451,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // when the names were short, but it paid for that with a blank line under most of them; a single
         // line is the same height for every card without reserving room nothing is going to use. Not
         // fitLongText's marquee either — in a rail it would leave every card that is not focused cut off
-        // mid-word, where an ellipsis says the name goes on.
+        // mid-word, where an ellipsis says the name goes on. In the TV rail the card in focus runs its
+        // name all the same (railCell): the rest keep the ellipsis.
         titleText.setLines(1);
         titleText.setEllipsize(TextUtils.TruncateAt.END);
         return card;
@@ -9021,6 +9025,27 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             Utils.log("rail: pick in " + (tvRailMode == RAIL_CHAPTERS ? "chapters" : "playlist"));
             click.onClick(v);
         });
+        // The card in focus runs its name, the rest keep the ellipsis: a folder of one series is a row of
+        // "Show - S01…" that tells nothing apart until the end of the name is seen (24.10.2026).
+        cell.setOnFocusChangeListener((v, hasFocus) -> marqueeIn(v, hasFocus));
+    }
+
+    private static void marqueeIn(final View view, final boolean run) {
+        if (view instanceof TextView) {
+            final TextView text = (TextView) view;
+            final TextUtils.TruncateAt now = text.getEllipsize();
+            if (now == TextUtils.TruncateAt.END || now == TextUtils.TruncateAt.MARQUEE) {
+                text.setSingleLine(true);
+                text.setMarqueeRepeatLimit(-1);
+                text.setEllipsize(run ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.END);
+                text.setSelected(run);
+            }
+        } else if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                marqueeIn(group.getChildAt(i), run);
+            }
+        }
     }
 
     @Nullable
@@ -9044,14 +9069,19 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             final Uri artwork = playlistArtwork(item, isCurrent);
             final View card = playlistCard(ctx, i, playlistTitle(item, i), artwork, media, isCurrent, cellWidth);
             // A file on a share has no still in the card (bindPreview reads no share while a player is
-            // open); the rail takes one itself, below.
-            if (artwork == null && Utils.frameSource(media) == null && NetworkThumbs.speaks(media)
+            // open); the rail looks for a picture beside it, as the browser does, and takes a frame
+            // itself where there is none, below. A local file has its frame from Glide meanwhile.
+            final boolean local = media != null && "file".equals(media.getScheme());
+            if (artwork == null && (local || NetworkThumbs.speaks(media))
                     && card instanceof ViewGroup && ((ViewGroup) card).getChildAt(0) instanceof FrameLayout) {
                 final FrameLayout box = (FrameLayout) ((ViewGroup) card).getChildAt(0);
+                final Uri picture = playlistPictures.get(media.toString());
                 final Bitmap cached = playlistFrames.get(media.toString());
-                if (cached != null) {
+                if (picture != null) {
+                    Utils.bindPreview(box, picture, media, R.drawable.ic_movie_24dp, ui.dpS(24));
+                } else if (cached != null) {
                     Utils.showStill(box, cached);
-                } else {
+                } else if (!playlistNoPicture.contains(media.toString()) || !local) {
                     wanted.add(media);
                     boxes.add(box);
                     distance.add(Math.abs(i - current));
@@ -9074,6 +9104,71 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
     /** Stills of the playlist's files on a share, by address, for the session. */
     private final Map<String, Bitmap> playlistFrames = new HashMap<>();
+    /** Pictures lying beside the playlist's files, by the file's address; touched on the UI thread. */
+    private final Map<String, Uri> playlistPictures = new HashMap<>();
+    /** The files whose folder was looked into and had no picture for them; touched on the UI thread. */
+    private final java.util.Set<String> playlistNoPicture = new java.util.HashSet<>();
+    /** The pictures of each folder looked into, by the folder; touched on the frames' worker only. */
+    private final Map<String, SideArt> playlistFolders = new HashMap<>();
+
+    /**
+     * The picture beside this file, as the browser picks it (SideArt: the episode's -thumb, a film
+     * folder's fanart), or null. The folder is listed once for the session. On the frames' worker.
+     */
+    @WorkerThread
+    @Nullable
+    private Uri playlistSidePicture(final Uri media) {
+        final String name = media.getLastPathSegment();
+        final String address = media.toString();
+        final int slash = address.lastIndexOf('/');
+        if (name == null || slash <= 0) {
+            return null;
+        }
+        final String folderKey = address.substring(0, slash);
+        SideArt side = playlistFolders.get(folderKey);
+        if (side == null) {
+            side = new SideArt();
+            try {
+                if ("file".equals(media.getScheme())) {
+                    final File[] children = media.getPath() != null
+                            ? new File(media.getPath()).getParentFile().listFiles() : null;
+                    if (children != null) {
+                        for (final File child : children) {
+                            final String n = child.getName();
+                            if (n.startsWith(".") || child.isDirectory()) {
+                                continue;
+                            }
+                            if (Utils.hasVideoExtension(n)) {
+                                side.video();
+                            } else if (SideArt.isPicture(n)) {
+                                side.picture(n, Uri.fromFile(child).toString());
+                            }
+                        }
+                    }
+                } else {
+                    final DocumentFile folder = NetworkFiles.parent(this, media);
+                    if (folder != null) {
+                        for (final DocumentFile child : folder.listFiles()) {
+                            final String n = child.getName();
+                            if (n == null || n.startsWith(".") || child.isDirectory()) {
+                                continue;
+                            }
+                            if (SubtitleUtils.isPlayableVideo(child)) {
+                                side.video();
+                            } else if (SideArt.isPicture(n)) {
+                                side.picture(n, child.getUri().toString());
+                            }
+                        }
+                    }
+                }
+            } catch (final Exception e) {
+                Utils.log("playlist pictures: cannot list " + folderKey + ": " + e);
+            }
+            playlistFolders.put(folderKey, side);
+        }
+        final String picture = side.forVideo(name);
+        return picture != null ? Uri.parse(picture) : null;
+    }
     /** As chapterFramesAsked, for the playlist's stills. */
     private final java.util.concurrent.atomic.AtomicInteger playlistFramesAsked =
             new java.util.concurrent.atomic.AtomicInteger();
@@ -9106,36 +9201,85 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     return;
                 }
                 final long t0 = SystemClock.elapsedRealtime();
-                final FileFrames frames = FileFrames.open(uri,
-                        CappedDataSource.factory(source, NetworkThumbs.MAX_BYTES), extractors, true);
-                if (frames == null) {
+                // A picture beside the file first: what the browser showed for it, and no decoding at
+                // all - a 4K HDR episode is a frame the software decoder refuses (Shield, 10-bit HEVC).
+                final Uri picture = playlistSidePicture(uri);
+                final boolean local = "file".equals(uri.getScheme());
+                Utils.log("playlist picture " + (picture != null ? picture.getLastPathSegment() : "none")
+                        + " in " + (SystemClock.elapsedRealtime() - t0) + " ms: " + uri.getLastPathSegment());
+                if (picture != null || local) {
+                    runOnUiThread(() -> {
+                        if (picture == null) {
+                            playlistNoPicture.add(uri.toString());
+                            return;
+                        }
+                        playlistPictures.put(uri.toString(), picture);
+                        if (playlistFramesAsked.get() == ask && tvRailMode == RAIL_PLAYLIST) {
+                            Utils.bindPreview(box, picture, uri, R.drawable.ic_movie_24dp, ui.dpS(24));
+                        }
+                    });
                     return;
                 }
-                Bitmap frame = null;
-                try {
-                    // A tenth in, as the browser's own stills: the start is a fade or a title as often as not.
-                    final long durationMs = frames.durationUs / 1000;
-                    final long at = durationMs > 0 ? Math.max(1000, Math.min(durationMs / 10, 600_000)) : 1000;
-                    if (playlistFramesAsked.get() == ask) {
-                        frame = frames.frame(at, width);
-                    }
-                } finally {
-                    frames.release();
-                }
-                Utils.log("playlist still " + (frame != null ? "taken" : "none") + " in "
-                        + (SystemClock.elapsedRealtime() - t0) + " ms: " + uri.getLastPathSegment());
-                if (frame == null) {
+                // Then the still the browser had of it, out of Glide's cache (the same one the viewer
+                // saw in the folder, and nothing read); a frame of the file's own only when it is gone.
+                final long[] browser = NetworkThumbs.browserStill(uri);
+                if (browser != null) {
+                    runOnUiThread(() -> {
+                        if (playlistFramesAsked.get() != ask || tvRailMode != RAIL_PLAYLIST) {
+                            return;
+                        }
+                        Utils.cachedStill(box, uri, browser,
+                                () -> Utils.log("playlist still from the browser: " + uri.getLastPathSegment()),
+                                () -> {
+                                    Utils.log("playlist still not in the cache: " + uri.getLastPathSegment());
+                                    trickplayWorker().execute(() ->
+                                            takePlaylistFrame(uri, box, ask, source, extractors, width));
+                                });
+                    });
                     return;
                 }
-                final Bitmap still = frame;
-                runOnUiThread(() -> {
-                    playlistFrames.put(uri.toString(), still);
-                    if (playlistFramesAsked.get() == ask && tvRailMode == RAIL_PLAYLIST) {
-                        Utils.showStill(box, still);
-                    }
-                });
+                takePlaylistFrame(uri, box, ask, source, extractors, width);
             });
         }
+    }
+
+    /** A frame of a playlist file's own, as loadPlaylistFrames says; on the frames' worker. */
+    @WorkerThread
+    private void takePlaylistFrame(final Uri uri, final FrameLayout box, final int ask,
+                                   final androidx.media3.datasource.DataSource.Factory source,
+                                   final ExtractorsFactory extractors, final int width) {
+        if (playlistFramesAsked.get() != ask) {
+            return;
+        }
+        final long t0 = SystemClock.elapsedRealtime();
+        final FileFrames frames = FileFrames.open(uri,
+                CappedDataSource.factory(source, NetworkThumbs.MAX_BYTES), extractors, true);
+        if (frames == null) {
+            return;
+        }
+        Bitmap frame = null;
+        try {
+            // A tenth in, as the browser's own stills: the start is a fade or a title as often as not.
+            final long durationMs = frames.durationUs / 1000;
+            final long at = durationMs > 0 ? Math.max(1000, Math.min(durationMs / 10, 600_000)) : 1000;
+            if (playlistFramesAsked.get() == ask) {
+                frame = frames.frame(at, width);
+            }
+        } finally {
+            frames.release();
+        }
+        Utils.log("playlist still " + (frame != null ? "taken" : "none") + " in "
+                + (SystemClock.elapsedRealtime() - t0) + " ms: " + uri.getLastPathSegment());
+        if (frame == null) {
+            return;
+        }
+        final Bitmap still = frame;
+        runOnUiThread(() -> {
+            playlistFrames.put(uri.toString(), still);
+            if (playlistFramesAsked.get() == ask && tvRailMode == RAIL_PLAYLIST) {
+                Utils.showStill(box, still);
+            }
+        });
     }
 
     /**

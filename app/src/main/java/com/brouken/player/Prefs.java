@@ -420,9 +420,11 @@ class Prefs {
     public static final String OSD_STYLE_CARD = "card";
     public static final String OSD_STYLE_GRADIENT = "gradient";
     /** How the file's chapters show on the seek bar: ticks at their starts, or the bar cut into pieces. */
-    public String chapterMarks = CHAPTER_MARKS_TICKS;
+    public String chapterMarks = CHAPTER_MARKS_CUTS;
     public static final String CHAPTER_MARKS_TICKS = "ticks";
     public static final String CHAPTER_MARKS_CUTS = "cuts";
+    /** No chapters on the bar: a plain one, with only the skip bands in their colour. */
+    public static final String CHAPTER_MARKS_OFF = "off";
     /** Long seeks aimed on the card - by trickplay frames where there are some - the film playing on (see PlayerActivity.keyScrubPreview). */
     public boolean seekPreview = true;
     /** A short press steps by a fixed amount each way instead of climbing the ladder; a hold still climbs it. */

@@ -103,7 +103,12 @@ final class FileFrames {
             }
             extractor.selectTrack(track);
             final long t1 = SystemClock.elapsedRealtime();
-            final String mime = format.getString(MediaFormat.KEY_MIME);
+            final String mime = baseLayer(format);
+            if (mime == null) {
+                Log.d(TAG, "open: Dolby Vision profile 5, no base layer a still can be read from");
+                extractor.release();
+                return null;
+            }
             int maxInput = format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)
                     ? format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) : 0;
             maxInput = Math.max(maxInput, 8 << 20);
@@ -175,6 +180,47 @@ final class FileFrames {
             extractor.release();
             return null;
         }
+    }
+
+    /**
+     * The type to decode the track as. A Dolby Vision one is decoded as its base layer: Media3 relabels a
+     * Matroska or MP4 track that carries a dvcC/dvvC record {@code video/dolby-vision}, and asked for that
+     * type the device hands out its Dolby Vision decoder - on a Shield the second one beside the film's,
+     * and the television switched its picture mode every time a chapter rail or a seek card opened one
+     * (24.10.2026, Game of Thrones and The Gentlemen; an HDR10 file did not). On Dune none opens at all.
+     * Profiles 4, 7 and 8 rest on HEVC, 9 on AVC, 10 on AV1, and each of those decodes the picture
+     * without the RPU. Profile 5 also rests on HEVC, but in IPT colour no plain decoder turns into a
+     * picture: null, and no still.
+     *
+     * <p>The format is changed in place, so the decoder is configured for the type answered.
+     */
+    @Nullable
+    private static String baseLayer(final MediaFormat format) {
+        final String mime = format.getString(MediaFormat.KEY_MIME);
+        if (!"video/dolby-vision".equalsIgnoreCase(mime)) {
+            return mime;
+        }
+        // MediaFormat.KEY_CODECS_STRING, by name: the constant is API 30 and this class runs from 23.
+        final String codecs = format.containsKey("codecs-string") ? format.getString("codecs-string") : null;
+        final String lower = codecs == null ? "" : codecs.toLowerCase(java.util.Locale.ROOT);
+        final String base;
+        if (lower.startsWith("dvhe.05") || lower.startsWith("dvh1.05")) {
+            return null;
+        } else if (lower.startsWith("dvav") || lower.startsWith("dva1")) {
+            base = "video/avc";
+        } else if (lower.startsWith("dav1")) {
+            base = "video/av01";
+        } else {
+            base = "video/hevc";
+        }
+        Log.d(TAG, "Dolby Vision " + codecs + ": its base layer, " + base);
+        format.setString(MediaFormat.KEY_MIME, base);
+        // The profile and level are Dolby Vision's numbers, which an HEVC decoder may refuse to configure.
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            format.removeKey(MediaFormat.KEY_PROFILE);
+            format.removeKey(MediaFormat.KEY_LEVEL);
+        }
+        return base;
     }
 
     /** A software decoder for the format if the device has one, else null for the default. */

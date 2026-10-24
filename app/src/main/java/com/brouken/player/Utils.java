@@ -792,6 +792,11 @@ public class Utils {
                                            final Target<Bitmap> target, final DataSource source,
                                            final boolean firstResource) {
                 blank.setVisibility(View.GONE);
+                // The browser's still of a file on a share: what the player's playlist rail asks the
+                // cache for again (cachedStill), under the same size and date.
+                if (artwork == null && overNetwork && NetworkThumbs.speaks(media)) {
+                    target.getSize((w, h) -> NetworkThumbs.browserStill(media, w, h, written));
+                }
                 if (Boolean.TRUE.equals(box.getTag(R.id.still_folder))) {
                     box.getChildAt(5).setVisibility(View.VISIBLE);
                 }
@@ -834,6 +839,47 @@ public class Utils {
         poster.setImageBitmap(picture);
         poster.setVisibility(View.VISIBLE);
         box.getChildAt(2).setVisibility(View.GONE);
+    }
+
+    /**
+     * The still the browser had of a file on a share, out of Glide's cache only: the request is the
+     * browser's own (bindPreview, a second in), at the size and date it was made with, so its key is
+     * the same. Nothing is read from the share; onHit runs when it is there, onMiss when it is not.
+     */
+    static void cachedStill(final FrameLayout box, final Uri media, final long[] still,
+                            final Runnable onHit, final Runnable onMiss) {
+        final ImageView backdrop = (ImageView) box.getChildAt(0);
+        final ImageView poster = (ImageView) box.getChildAt(1);
+        final View blank = box.getChildAt(2);
+        RequestBuilder<Bitmap> request = Glide.with(box.getContext()).asBitmap().load(media)
+                .frame(1_000_000L).override((int) still[0], (int) still[1]).onlyRetrieveFromCache(true);
+        if (still[2] != 0) {
+            request = request.signature(new ObjectKey(still[2]));
+        }
+        poster.setVisibility(View.VISIBLE);
+        request.listener(new RequestListener<Bitmap>() {
+            @Override
+            public boolean onLoadFailed(final GlideException e, final Object model,
+                                        final Target<Bitmap> target, final boolean firstResource) {
+                poster.setVisibility(View.GONE);
+                blank.setVisibility(View.VISIBLE);
+                onMiss.run();
+                return true;
+            }
+
+            @Override
+            public boolean onResourceReady(final Bitmap resource, final Object model,
+                                           final Target<Bitmap> target, final DataSource source,
+                                           final boolean firstResource) {
+                blank.setVisibility(View.GONE);
+                if (resource.getWidth() > 0 && resource.getHeight() > 0) {
+                    backdrop.setImageBitmap(Bitmap.createScaledBitmap(resource, 12, 16, true));
+                    backdrop.setVisibility(View.VISIBLE);
+                }
+                onHit.run();
+                return false;
+            }
+        }).into(poster);
     }
 
     static void playedRun(final FrameLayout box, final float played) {

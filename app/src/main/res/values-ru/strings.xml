@@ -366,6 +366,7 @@
     <string name="chapter_skipped">пропуск</string>
     <string name="pref_chapter_marks_ticks">Засечки в начале глав</string>
     <string name="pref_chapter_marks_cuts">Полоса нарезана на главы</string>
+    <string name="pref_chapter_marks_off">Без глав, только сегменты</string>
     <string name="pref_seek_preview">Превью при перемотке</string>
     <string name="pref_seek_preview_on">При длинной перемотке видно, куда придёт переход, а если рядом с файлом есть кадры trickplay — и кадр; фильм идёт дальше, переход — один в конце</string>
     <string name="pref_seek_preview_off">Каждая перемотка сразу двигает картинку</string>
