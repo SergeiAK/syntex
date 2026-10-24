@@ -94,6 +94,16 @@
                 android:paddingTop="8dp"
                 android:paddingBottom="8dp" />
 
+            <!-- The first letters of a long folder sorted by name, at the end edge (LetterBar). Before
+                 the blank page, the start page and the skeleton, so whichever of them is up covers
+                 it. The list gives up its width in code while the bar is shown. -->
+            <com.brouken.player.LetterBar
+                android:id="@+id/browse_letters"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_gravity="end"
+                android:visibility="gone" />
+
             <!-- Nothing to show, and why. Centred, because it is the whole page rather than a note on
                  one: an empty folder, a folder that was never granted, and a destination whose feature
                  is not built yet all land here. -->

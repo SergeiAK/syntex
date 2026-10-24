@@ -127,6 +127,11 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
 
     private static final int REQUEST_STORAGE = 2;
     private static final int SEARCH_LIMIT = 500;
+    /**
+     * How many rows a folder holds before it gets a letter bar: two or three screens of them on a
+     * television, which is where walking down one row at a time stops being the quick way.
+     */
+    private static final int LETTERS_FROM = 20;
 
     private static final String STATE_TRAIL = "trail";
     private static final String STATE_DEST = "dest";
@@ -179,6 +184,10 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
     private final List<Item> rows = new ArrayList<>();
 
     private RecyclerView list;
+    /** The first letters beside a long folder sorted by name - see {@link #refreshLetters}. */
+    private LetterBar letters;
+    /** The row the remote last stood on in the list, where Left takes it back from an untouched bar. */
+    private int letterFrom = -1;
     private View crumbsScroll;
     private LinearLayout crumbs;
     private View blank;
@@ -414,6 +423,23 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             bar.setTouchscreenBlocksFocus(false);
         }
         list = findViewById(R.id.browse_list);
+        letters = findViewById(R.id.browse_letters);
+        letters.setListener((row, put) -> {
+            if (put) {
+                land(row >= 0 ? row : Math.max(letterFrom, 0), true);
+            } else if (list.getLayoutManager() instanceof GridLayoutManager) {
+                // At the top of the window, so the letter's first row is the first thing read and
+                // the ones after it are what fills the screen.
+                //
+                // One pixel down rather than none. The list draws into its top padding
+                // (clipToPadding off), and at an offset of 0 the row above ends exactly on the
+                // padding line. The next layout - a still arriving is enough - picks its anchor from
+                // the rows on screen, takes that row for the first, finds it "not visible" and puts
+                // it on the padding line: the letter's row slid down one place half a second after
+                // the jump (measured on Shield, 24.10). A pixel inside, the row is visible and stays.
+                ((GridLayoutManager) list.getLayoutManager()).scrollToPositionWithOffset(row, 1);
+            }
+        }, tv);
         crumbsScroll = findViewById(R.id.browse_crumbs_scroll);
         crumbs = findViewById(R.id.browse_crumbs);
         blank = findViewById(R.id.browse_blank);
@@ -493,6 +519,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(),
                         bars.bottom + metrics.overscanV());
             }
+            // The letters end where the rows do, or the last one sits in the band a set may cut.
+            letters.setEdges(list.getPaddingTop(), list.getPaddingBottom());
             return windowInsets;
         });
         // The sides keep the same strip the settings list does, which on a television is the 48dp a
@@ -508,9 +536,26 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 crumbsScroll.setPadding(side, crumbsScroll.getPaddingTop(), side,
                         crumbsScroll.getPaddingBottom());
             }
+            fitLetters();
             // The number of tiles that fit is a question about the window, so it is answered where
             // the window answers for itself rather than once at startup.
             spanColumns();
+        });
+        // Which letter is lit follows the row the list is standing on: the focused one on a
+        // television, the first one on screen on a telephone, which has no focus to follow.
+        list.getViewTreeObserver().addOnGlobalFocusChangeListener((was, now) -> {
+            if (now != null && now.getParent() == list) {
+                letterFrom = list.getChildAdapterPosition(now);
+                markLetter(letterFrom);
+            }
+        });
+        list.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull final RecyclerView view, final int dx, final int dy) {
+                if (!tv && view.getChildCount() > 0) {
+                    markLetter(view.getChildAdapterPosition(view.getChildAt(0)));
+                }
+            }
         });
 
         blankAction.setOnClickListener(v -> grantAccess());
@@ -1721,6 +1766,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         stop((View) list.getParent());
         header.setVisibility(View.GONE);
         list.setVisibility(View.GONE);
+        letters.setVisibility(View.GONE);
         blank.setVisibility(View.GONE);
         crumbsScroll.setVisibility(View.GONE);
         // The leftmost card, which is where a remote expects to land - except while Favorites is
@@ -2153,6 +2199,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             if (list.getAdapter() != null) {
                 list.getAdapter().notifyDataSetChanged();
             }
+            refreshLetters();
         }
         final String searching = query;
         // What this screen is now waiting for. The answer on its way back is checked against it.
@@ -2926,6 +2973,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 if (list.getAdapter() != null) {
                     list.getAdapter().notifyDataSetChanged();
                 }
+                refreshLetters();
                 if (keep != null) {
                     for (int i = 0; i < rows.size(); i++) {
                         if (rows.get(i).file.getUri().equals(keep.file.getUri())) {
@@ -3128,6 +3176,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         }
         blank.setVisibility(View.GONE);
         list.setVisibility(View.VISIBLE);
+        refreshLetters();
         // A remote already on a row stays there. This listing is most often the same folder read
         // again on the way back from the player, and the row it is standing on is the file that was
         // just watched: moving it to the top would undo the viewer's own place in the list. Going up
@@ -3264,6 +3313,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             list.getAdapter().notifyDataSetChanged();
         }
         list.setVisibility(View.GONE);
+        refreshLetters();
         blank.setVisibility(View.VISIBLE);
         blankText.setText(message);
         blankAction.setVisibility(offerAccess ? View.VISIBLE : View.GONE);
@@ -3463,6 +3513,59 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         if (skeletonPulse != null) {
             skeletonPulse.cancel();
             skeletonPulse = null;
+        }
+    }
+
+    /**
+     * Shows the letter bar or takes it away, for the rows as they now stand. Only a folder - not the
+     * volume list, not a search, whose hits are in the order they were found - and only one sorted by
+     * name: in a folder by date the first letters are scattered all down the list, and a jump to the
+     * first "M" lands nowhere in particular.
+     */
+    private void refreshLetters() {
+        final Item here = trail.isEmpty() ? null : trail.get(trail.size() - 1);
+        final String order = here == null || query != null ? null : orderOf(here.file);
+        boolean shown = false;
+        if (order != null && order.startsWith("name") && rows.size() >= LETTERS_FROM
+                && list.getVisibility() == View.VISIBLE) {
+            final List<String> names = new ArrayList<>(rows.size());
+            for (final Item row : rows) {
+                names.add(row.name);
+            }
+            shown = letters.show(names, "name_desc".equals(order));
+        }
+        letters.setVisibility(shown ? View.VISIBLE : View.GONE);
+        fitLetters();
+        if (shown) {
+            final View focused = list.getFocusedChild();
+            markLetter(focused != null ? list.getChildAdapterPosition(focused)
+                    : list.getChildCount() > 0 ? list.getChildAdapterPosition(list.getChildAt(0)) : 0);
+        }
+    }
+
+    /**
+     * Makes room for the bar: it stands inside the same side strip the list keeps (on a television
+     * the band a set may cut), and the list's end edge moves in by the bar and a gap, so no tile or
+     * row runs under a letter.
+     */
+    private void fitLetters() {
+        final int side = list.getPaddingLeft();
+        final FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) letters.getLayoutParams();
+        if (params.rightMargin != side) {
+            params.rightMargin = side;
+            letters.setLayoutParams(params);
+        }
+        final int end = letters.getVisibility() == View.VISIBLE
+                ? side + Utils.dpToPx(tv ? 30 : 24) + Utils.dpToPx(8) : side;
+        if (list.getPaddingRight() != end) {
+            list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), end, list.getPaddingBottom());
+            list.post(this::spanColumns);
+        }
+    }
+
+    private void markLetter(final int at) {
+        if (letters.getVisibility() == View.VISIBLE && at >= 0 && at < rows.size()) {
+            letters.mark(LetterBar.initialOf(rows.get(at).name));
         }
     }
 
