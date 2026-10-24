@@ -6568,7 +6568,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         headerLogoShown = logo;
         headerLogoView.setVisibility(View.GONE);
         titleView.setVisibility(View.VISIBLE);
-        Glide.with(this).load(logo).listener(new RequestListener<Drawable>() {
+        // Sized here: the view is gone until the logo proves wide enough, and a target with no size of its
+        // own waits for a layout that never comes - the request never started (measured on the Shield).
+        Glide.with(this).load(logo).override(ui.dpS(HEADER_LOGO_MAX_WIDTH_DP), ui.dpS(HEADER_LOGO_HEIGHT_DP))
+                .fitCenter().listener(new RequestListener<Drawable>() {
             @Override
             public boolean onLoadFailed(GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
                 return false;
