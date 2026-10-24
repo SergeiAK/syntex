@@ -76,6 +76,16 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
     private int[] skipColors;
     private int[] skipFillColors;
     private long skipDurationMs;
+    /**
+     * Where the file's chapters start, past the first (which is the bar's own left end). Shown as ticks
+     * standing a little proud of the bar, or — the viewer's choice (Prefs.chapterMarks) — as cuts that
+     * break the bar into one short bar per chapter, as Plezy draws it. Ticks are the default: a cut goes
+     * through a skip band wherever a chapter boundary falls inside one.
+     */
+    private long[] chapterStartsMs;
+    private long chapterDurationMs;
+    private boolean chapterCuts;
+    private final Paint chapterPaint = new Paint();
 
     public CustomDefaultTimeBar(Context context) {
         this(context, null);
@@ -144,6 +154,65 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
         this.skipFillColors = fillColors;
         this.skipDurationMs = durationMs;
         invalidate();
+    }
+
+    /** See {@link #chapterStartsMs}; {@code null} or an empty array clears them. */
+    void setChapterMarks(@Nullable long[] startsMs, long durationMs, boolean cuts) {
+        if (java.util.Arrays.equals(chapterStartsMs, startsMs) && chapterDurationMs == durationMs
+                && chapterCuts == cuts) {
+            return;
+        }
+        chapterStartsMs = startsMs != null && startsMs.length > 0 ? startsMs : null;
+        chapterDurationMs = durationMs;
+        chapterCuts = cuts;
+        invalidate();
+    }
+
+    /** The x of each chapter boundary strictly inside the bar; empty when there is nothing to mark. */
+    private int[] chapterXs() {
+        if (chapterStartsMs == null || chapterDurationMs <= 0 || progressBar == null || progressBar.width() <= 0) {
+            return new int[0];
+        }
+        final int[] xs = new int[chapterStartsMs.length];
+        int n = 0;
+        for (long start : chapterStartsMs) {
+            if (start <= 0 || start >= chapterDurationMs) {
+                continue;
+            }
+            xs[n++] = xOf(start, chapterDurationMs);
+        }
+        return java.util.Arrays.copyOf(xs, n);
+    }
+
+    /** ~3dp: wide enough to read as a break at three metres, narrow enough not to eat a short chapter. */
+    private static int cutWidth() {
+        return Math.max(4, Utils.dpToPx(3));
+    }
+
+    /**
+     * Takes the cuts out of what is drawn next. {@code inset} widens each one: the frame is cut at the
+     * plain width and the rails inside it wider, so every piece keeps a dark end of its own.
+     */
+    private void clipCuts(final Canvas canvas, final int[] xs, final int inset) {
+        final int half = cutWidth() / 2 + inset;
+        for (int x : xs) {
+            canvas.clipRect(x - half, 0, x + half, getHeight(), android.graphics.Region.Op.DIFFERENCE);
+        }
+    }
+
+    /** A light tick in a dark rim at each boundary, a few dp proud of the bar on both sides. */
+    private void drawChapterTicks(final Canvas canvas, final int[] xs) {
+        final int rim = rimWidth();
+        final int half = Math.max(1, rimWidth() / 2 + 1);
+        final int proud = Utils.dpToPx(3);
+        final int top = progressBar.top - rim - proud;
+        final int bottom = progressBar.bottom + rim + proud;
+        for (int x : xs) {
+            chapterPaint.setColor(RIM);
+            canvas.drawRect(x - half - rim, top - rim, x + half + rim, bottom + rim, chapterPaint);
+            chapterPaint.setColor(0xF0F0F0F0);
+            canvas.drawRect(x - half, top, x + half, bottom, chapterPaint);
+        }
     }
 
     @Override
@@ -281,7 +350,16 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
 
     @Override
     public void onDraw(Canvas canvas) {
+        final int[] chapterXs = chapterXs();
+        final boolean cuts = chapterCuts && chapterXs.length > 0;
+        if (cuts) {
+            canvas.save();
+            clipCuts(canvas, chapterXs, 0);
+        }
         drawFrame(canvas);
+        if (cuts) {
+            clipCuts(canvas, chapterXs, rimWidth());
+        }
         // The rails and the bands are rectangles in Media3; the round look rounds them by a clip. The dot
         // Media3 draws in there is clipped with them and is drawn whole again below, as it always was.
         final boolean clip = roundLook && progressBar != null && progressBar.width() > 0;
@@ -299,11 +377,20 @@ class CustomDefaultTimeBar extends DefaultTimeBar {
             if (clip) {
                 canvas.restore();
             }
+            if (cuts) {
+                canvas.restore();
+            }
             return;
         }
         final int segmentColor = segments ? drawSegments(canvas) : 0;
         if (clip) {
             canvas.restore();
+        }
+        if (cuts) {
+            canvas.restore();
+        } else if (chapterXs.length > 0) {
+            // Over the rails and the bands, under the dot: the dot stays the frontmost mark.
+            drawChapterTicks(canvas, chapterXs);
         }
         drawPlayhead(canvas, segmentColor);
         drawSeekTarget(canvas);

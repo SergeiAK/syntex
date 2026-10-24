@@ -827,6 +827,15 @@ public class Utils {
         box.getChildAt(3).setVisibility(View.VISIBLE);
     }
 
+    /** A picture already in hand into a still: a chapter's frame, which no Glide request stands behind. */
+    static void showStill(final FrameLayout box, final Bitmap picture) {
+        final ImageView poster = (ImageView) box.getChildAt(1);
+        Glide.with(box.getContext()).clear(poster);
+        poster.setImageBitmap(picture);
+        poster.setVisibility(View.VISIBLE);
+        box.getChildAt(2).setVisibility(View.GONE);
+    }
+
     static void playedRun(final FrameLayout box, final float played) {
         final View run = box.getChildAt(4);
         if (played <= 0.02f) {

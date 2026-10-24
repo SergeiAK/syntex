@@ -21,7 +21,7 @@ public class SkipManager {
      * episode follows it, whereas credits end in the closing stretch even when a post-credits scene
      * or teaser follows.
      */
-    private static final double CREDITS_END_FRACTION = 0.75;
+    static final double CREDITS_END_FRACTION = 0.75;
 
     /**
      * A segment ending within this many seconds of the file end counts as reaching the end. The tail

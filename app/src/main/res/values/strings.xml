@@ -466,6 +466,11 @@
     <string name="pref_osd_style">Bottom panel</string>
     <string name="pref_osd_style_card">A card around the controls</string>
     <string name="pref_osd_style_gradient">A fade up from the bottom edge</string>
+    <string name="pref_chapter_marks">Chapters on the seek bar</string>
+    <string name="chapters">Chapters</string>
+    <string name="chapter_skipped">skipped</string>
+    <string name="pref_chapter_marks_ticks">Ticks at chapter starts</string>
+    <string name="pref_chapter_marks_cuts">Bar cut into chapters</string>
     <string name="pref_seek_preview">Seek preview</string>
     <string name="pref_seek_preview_on">A long seek shows where it will land, with a trickplay frame where the file has them beside it; the film plays on and jumps once at the end</string>
     <string name="pref_seek_preview_off">Every seek moves the picture itself</string>

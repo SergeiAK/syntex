@@ -8,6 +8,14 @@
     <item>card</item>
     <item>gradient</item>
   </string-array>
+  <string-array name="chapter_marks_entries">
+    <item>@string/pref_chapter_marks_ticks</item>
+    <item>@string/pref_chapter_marks_cuts</item>
+  </string-array>
+  <string-array name="chapter_marks_values" translatable="false">
+    <item>ticks</item>
+    <item>cuts</item>
+  </string-array>
   <string-array name="transfer_line_entries">
     <item>@string/pref_transfer_line_off</item>
     <item>@string/pref_transfer_line_online</item>

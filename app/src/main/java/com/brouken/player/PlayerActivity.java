@@ -195,11 +195,14 @@ import androidx.media3.ui.TimeBar;
 
 import com.brouken.player.dtpv.DoubleTapPlayerView;
 import com.brouken.player.dtpv.youtube.YouTubeOverlay;
+import com.brouken.player.skip.ChapterSegmentsSource;
+import com.brouken.player.skip.FileChapters;
 import com.brouken.player.skip.IntentSegmentsSource;
 import com.brouken.player.skip.NetworkSegmentsSource;
 import com.brouken.player.skip.SegmentFinder;
 import com.brouken.player.skip.SkipManager;
 import com.brouken.player.skip.SkipSegment;
+import com.brouken.player.skip.SkipSource;
 import com.brouken.player.together.Relay;
 import com.brouken.player.together.Room;
 import com.brouken.player.together.SessionCodec;
@@ -967,6 +970,26 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     /** TV: the bottom and the side insets the bottom block was last placed with. */
     private int tvBottomInset;
     private int tvSideInset;
+    /**
+     * TV: the one place under the transport where Down opens the file's chapters and Down again the
+     * playlist (decision 24.10.2026). One place and not two rails stacked: two would take half the screen.
+     * The bottom block is lifted by the rail's height through the same bottom inset the overscan uses, so
+     * the seek bar, the row and the plate move as one. The playlist's own window stays for a phone and for
+     * the list view.
+     */
+    private static final int RAIL_NONE = 0;
+    private static final int RAIL_CHAPTERS = 1;
+    private static final int RAIL_PLAYLIST = 2;
+    private int tvRailMode = RAIL_NONE;
+    @Nullable
+    private LinearLayout tvRail;
+    private int tvRailLift;
+    /** The bottom inset the block stands on without the rail - where the rail itself stands. */
+    private int tvRailBase;
+    /** Chapter stills of the file in {@link #chapterFramesFor}, by chapter start; taken on the frame worker. */
+    private final Map<Long, Bitmap> chapterFrames = new HashMap<>();
+    @Nullable
+    private Uri chapterFramesFor;
     private ImageButton exoSettings;
     private ImageButton exoSubtitle;
     private ImageButton exoPlayPause;
@@ -1582,6 +1605,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // True while the current item's segments come from the launch Intent: those are authoritative, so
     // the online lookup never replaces them (it does replace its own earlier, less certain results).
     private boolean skipSourceFromIntent;
+    // The current file's own chapters (FileChapters.NONE until its tracks are known, and for a file
+    // without any). Chapters named intro/credits/… outrank the launcher's segments and the online
+    // lookup for the kinds they name — contract 2.3.0, "file chapters win" — and baseSkipSource, the
+    // launcher's or the lookup's, fills in the rest. See applySkipSource.
+    private FileChapters fileChapters = FileChapters.NONE;
+    private SkipSource baseSkipSource;
     // Bumped whenever a lookup is cancelled or superseded; a callback carrying an older generation is a
     // late arrival from an abandoned lookup and is dropped.
     private int segmentFetchGeneration;
@@ -1903,7 +1932,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         buttonPlaylist.setId(View.generateViewId());
         buttonPlaylist.setContentDescription("Playlist");
         buttonPlaylist.setVisibility(View.GONE);
-        buttonPlaylist.setOnClickListener(view -> showPlaylistDialog());
+        // TV with frames: the rail under the transport, where Down leads as well; otherwise the panel.
+        buttonPlaylist.setOnClickListener(view -> {
+            if (playlistOnRail()) {
+                showTvRail(RAIL_PLAYLIST);
+            } else {
+                showPlaylistDialog();
+            }
+        });
 
         buttonQuality = new ImageButton(this, null, 0, R.style.ExoStyledControls_Button_Bottom);
         buttonQuality.setImageResource(R.drawable.ic_high_quality_24dp);
@@ -2597,7 +2633,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 int marginRight = 0;
 
                 final int bottomBarPaddingBottom = windowInsets.getSystemWindowInsetBottom() + overscanV;
-                final int progressBarMarginBottom = bottomBarPaddingBottom;
+                // TV: the rail under the transport, when open, is one more thing the block stands on. The seek
+                // bar and everything placed from it go up by the margin; the bar and the transport, whose
+                // sizes Media3 weighs for its minimal mode, by a shift instead (BottomBarLayout.setLift).
+                final int progressBarMarginBottom = bottomBarPaddingBottom + tvRailLift;
 
                 // Don't use exo_top (the built-in top scrim): it is a sibling of exo_controls_background and Media3
                 // animates it on a different schedule, so it appears before / lingers after the header. Instead the
@@ -2672,7 +2711,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     // Clear of the seek bar's touch band, not just of its line: the band is the progress
                     // view's own height and the pill was measured 9.2dp inside it, where the rule asks for
                     // 8dp between targets. Its height plus that gap is the offset.
-                    skipLp.bottomMargin = windowInsets.getSystemWindowInsetBottom() + overscanV
+                    skipLp.bottomMargin = windowInsets.getSystemWindowInsetBottom() + overscanV + tvRailLift
                             + getResources().getDimensionPixelSize(R.dimen.exo_styled_progress_margin_bottom)
                             + getResources().getDimensionPixelSize(
                                     androidx.media3.ui.R.dimen.exo_styled_progress_layout_height)
@@ -2691,7 +2730,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 if (roomPill != null) {
                     final CoordinatorLayout.LayoutParams pillLp =
                             (CoordinatorLayout.LayoutParams) roomPill.getLayoutParams();
-                    pillLp.bottomMargin = windowInsets.getSystemWindowInsetBottom() + overscanV
+                    pillLp.bottomMargin = windowInsets.getSystemWindowInsetBottom() + overscanV + tvRailLift
                             + getResources().getDimensionPixelSize(R.dimen.exo_styled_progress_margin_bottom)
                             + ui.dpS(24);
                     pillLp.leftMargin = insetH + ui.gridH();
@@ -2704,7 +2743,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                         && transferView.getLayoutParams() instanceof CoordinatorLayout.LayoutParams) {
                     final CoordinatorLayout.LayoutParams transferParams =
                             (CoordinatorLayout.LayoutParams) transferView.getLayoutParams();
-                    transferParams.bottomMargin = windowInsets.getSystemWindowInsetBottom() + overscanV
+                    transferParams.bottomMargin = windowInsets.getSystemWindowInsetBottom() + overscanV + tvRailLift
                             + getResources().getDimensionPixelSize(R.dimen.exo_styled_progress_margin_bottom)
                             + ui.dpS(24);
                     transferParams.leftMargin = insetH + ui.gridH();
@@ -2725,8 +2764,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 }
 
                 if (isTvBox) {
+                    tvRailBase = bottomBarPaddingBottom;
                     tvBottomInset = bottomBarPaddingBottom;
                     tvSideInset = insetH;
+                    placeTvRail();
+                    exoBottomBar.setLift(tvRailLift);
                     placeTvTransport(bottomBarPaddingBottom, barHeight);
                     placeTvSideChrome();
                 }
@@ -3081,6 +3123,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 final boolean wasVisibleFully = controllerVisibleFully;
                 controllerVisible = visibility == View.VISIBLE;
                 controllerVisibleFully = playerView.isControllerFullyVisible();
+                // The rail is part of the controls: it goes with them and is not there when they return. Closed
+                // as the hide starts, so the block parks from its own place rather than from over the rail.
+                if ((!controllerVisible || (wasVisibleFully && !controllerVisibleFully)) && tvRailMode != RAIL_NONE) {
+                    closeTvRail(false);
+                }
                 if (controllerVisibleFully) {
                     // The controls came up over a seek's bar: from here the focus on it is the viewer's.
                     playerView.setSeekLook(false);
@@ -3615,6 +3662,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // and nothing under it is waiting for the press.
         if (infoCardOpen) {
             hideInfoCardForFile();
+            return;
+        }
+        // Then the rail under the transport: Back takes the viewer back to the transport, as Up does.
+        if (tvRailMode != RAIL_NONE) {
+            closeTvRail(true);
             return;
         }
         // On TV the remote's Back is pressed mid-interaction all the time, so it has to consume what is
@@ -4181,6 +4233,18 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 }
                 break;
             case KeyEvent.KEYCODE_DPAD_UP:
+                if (controllerVisibleFully && isInTvRail(getCurrentFocus())) {
+                    // Up walks the rail back the way Down came: from the playlist to the chapters when the
+                    // file has them, from the chapters to the transport, which closes the rail.
+                    if (event.getRepeatCount() == 0) {
+                        if (tvRailMode == RAIL_PLAYLIST && chaptersOnRail()) {
+                            showTvRail(RAIL_CHAPTERS);
+                        } else {
+                            closeTvRail(true);
+                        }
+                    }
+                    return true;
+                }
                 if (controllerVisibleFully) {
                     // Up from the topmost row dismisses the controls instead of waiting out the timeout.
                     // Anywhere else it stays plain focus navigation: consuming the key here would suppress
@@ -4199,10 +4263,18 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 if (controllerVisibleFully) {
-                    // TV: below the transport is the playlist - Down from it opens the list.
-                    if (isTvBox && haveMedia && isVisible(buttonPlaylist) && isTransportFocused()) {
+                    // TV: below the transport is the rail - Down opens the file's chapters there, and Down
+                    // from the chapters the playlist in their place (see tvRailMode).
+                    if (isInTvRail(getCurrentFocus())) {
+                        if (event.getRepeatCount() == 0 && tvRailMode == RAIL_CHAPTERS) {
+                            openPlaylistBelow();
+                        }
+                        return true;
+                    }
+                    if (isTvBox && haveMedia && isTransportFocused()
+                            && (chaptersOnRail() || isVisible(buttonPlaylist))) {
                         if (event.getRepeatCount() == 0) {
-                            showPlaylistDialog();
+                            openRailBelowTransport();
                         }
                         return true;
                     }
@@ -5002,6 +5074,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         skipBuilt = false;
         skipSourceFromIntent = false;
+        fileChapters = FileChapters.NONE;
+        baseSkipSource = null;
         skipNextPrefetched = false;
         clearSkipUndo();
         cancelSegmentFinder();
@@ -5032,6 +5106,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         if (timeBar != null) {
             timeBar.clearSkipHighlights();
+            timeBar.setChapterMarks(null, 0, false);
         }
     }
 
@@ -5048,7 +5123,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // transition ("carry-through") and disappears on schedule.
         final String json = currentSegmentsJson();
         skipSourceFromIntent = json != null && !json.isEmpty();
-        skipManager.setSource(skipSourceFromIntent ? new IntentSegmentsSource(json) : null);
+        baseSkipSource = skipSourceFromIntent ? new IntentSegmentsSource(json) : null;
+        // A new item: its chapters come with its own onTracksChanged, which follows the transition. A rail
+        // left open showed the old item's chapters and the old item as the one playing.
+        fileChapters = FileChapters.NONE;
+        closeTvRail(false);
+        applySkipSource();
         skipNextPrefetched = false;
         clearSkipUndo();
         // Source (re)set → the manager holds no segments until rebuildSkip() runs against the new
@@ -5056,6 +5136,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // leaves stale timecodes on the bar; the new segments (intent or online) repaint on rebuild.
         if (timeBar != null) {
             timeBar.clearSkipHighlights();
+            timeBar.setChapterMarks(null, 0, false);
         }
         // Online lookup, first wave: the ids are known now, the duration only becomes known at
         // STATE_READY — on a network stream that is seconds of head start for the sources that do not
@@ -5282,6 +5363,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         // Intent segments win outright; anything else this lookup may already have found is its own
         // earlier, less certain result and is meant to be replaced.
+        // Named chapters do not stop it: they cover only the kinds they name, and the lookup fills the rest.
         if (!mPrefs.skipEnabled || !mPrefs.skipFetchOnline || skipSourceFromIntent) {
             Utils.log("segments: not searching, " + (skipSourceFromIntent ? "the launcher sent them"
                     : !mPrefs.skipEnabled ? "skipping is off" : "online search is off"));
@@ -5348,7 +5430,44 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 || skipSourceFromIntent) {
             return;
         }
-        skipManager.setSource(new NetworkSegmentsSource(segments));
+        baseSkipSource = new NetworkSegmentsSource(segments);
+        applySkipSource();
+        rebuildSkip();
+    }
+
+    /**
+     * Hands the skip manager the current source: the file's named chapters over baseSkipSource when
+     * there are any, baseSkipSource alone otherwise. Resets the once-only skipped flags, like every
+     * source change.
+     */
+    private void applySkipSource() {
+        if (skipManager == null) {
+            return;
+        }
+        skipManager.setSource(fileChapters.hasSkipChapters()
+                ? new ChapterSegmentsSource(fileChapters, baseSkipSource) : baseSkipSource);
+    }
+
+    /**
+     * Takes the file's chapters from its tracks. onTracksChanged fires again on every track switch and
+     * on a passthrough restart, with the same chapters: those change nothing, since resetting the source
+     * would bring back a skip already taken. An empty answer is a track list still being built, not a
+     * file that lost its chapters, so it changes nothing either; a new item is reset in setupSkipSource.
+     */
+    private void applyFileChapters(final Tracks tracks) {
+        final FileChapters found = FileChapters.from(tracks);
+        if (found.isEmpty() || found.equals(fileChapters)) {
+            return;
+        }
+        fileChapters = found;
+        final boolean named = found.hasSkipChapters();
+        Utils.log("chapters: " + found.entries().size() + (named ? ", named for skipping" : "")
+                + " " + found);
+        updateChapterMarks();
+        if (skipManager == null || !named) {
+            return;
+        }
+        applySkipSource();
         rebuildSkip();
     }
 
@@ -5587,10 +5706,38 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         cluster.setPadding(0, 0, 0, 0);
     }
 
+    /**
+     * The file's chapters on the bar, as ticks or cuts (Prefs.chapterMarks). Every chapter that a viewer
+     * would see in a list — hidden ones are not marked. Waits, like the skip bands, for the duration.
+     */
+    private void updateChapterMarks() {
+        if (timeBar == null) {
+            return;
+        }
+        final long durationMs = player != null ? player.getDuration() : C.TIME_UNSET;
+        if (fileChapters.isEmpty() || durationMs == C.TIME_UNSET || durationMs <= 0) {
+            timeBar.setChapterMarks(null, 0, false);
+            return;
+        }
+        final java.util.List<FileChapters.Entry> entries = fileChapters.entries();
+        final long[] starts = new long[entries.size()];
+        int n = 0;
+        for (FileChapters.Entry e : entries) {
+            if (!e.hidden) {
+                starts[n++] = e.startMs;
+            }
+        }
+        timeBar.setChapterMarks(java.util.Arrays.copyOf(starts, n), durationMs,
+                Prefs.CHAPTER_MARKS_CUTS.equals(mPrefs.chapterMarks));
+    }
+
     private void updateSkipHighlights() {
         if (timeBar == null) {
             return;
         }
+        // The chapters are on the bar whether or not anything is skipped, and change when the bands do:
+        // a new item, a known duration, a source change.
+        updateChapterMarks();
         final java.util.List<SkipSegment> segments = skipManager != null ? skipManager.getSegments() : null;
         final long durationMs = player != null ? player.getDuration() : C.TIME_UNSET;
         if (segments == null || segments.isEmpty() || durationMs == C.TIME_UNSET || durationMs <= 0 || !mPrefs.skipEnabled) {
@@ -7528,8 +7675,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (!tvTransportFollowsHeight) {
             tvTransportFollowsHeight = true;
             transport.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) ->
-                    v.setTranslationY((b - t) / 2f + ui.dpS(TV_TRANSPORT_DROP_DP)));
+                    v.setTranslationY((b - t) / 2f + ui.dpS(TV_TRANSPORT_DROP_DP) - tvRailLift));
         }
+        // Up over the rail by a shift, not by the margin: the margin counts in Media3's minimal-mode sum
+        // (see BottomBarLayout.lift). Set here as well, since a lift alone changes no layout.
+        transport.setTranslationY(transport.getHeight() / 2f + ui.dpS(TV_TRANSPORT_DROP_DP) - tvRailLift);
     }
 
     /**
@@ -8412,23 +8562,67 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
     }
 
-    private void showPlaylistDialog() {
-        // A failure releases the player but not the playlist, and stepping off the broken episode is
-        // exactly what this list is for — so take the items from whichever source is still alive.
-        final boolean fromPlayer = player != null && player.getMediaItemCount() > 1;
+    /** Plays the playlist's item {@code index}: the panel's and the rail's pick. */
+    private void playPlaylistItem(final int index) {
+        if (player != null) {
+            player.seekToDefaultPosition(index);
+            player.setPlayWhenReady(true);
+            prepareIfIdle();
+        } else {
+            // Nothing left to seek: a failure released the player, so start the picked episode
+            // from scratch (initializePlayer rebuilds the playlist from this index) and resume
+            // it where it was left, if it was ever played.
+            apiPlaylistStartIndex = index;
+            final long saved = apiPlaylistPositions != null && index < apiPlaylistPositions.length
+                    ? apiPlaylistPositions[index] : C.TIME_UNSET;
+            mPrefs.updatePosition(saved == C.TIME_UNSET ? 0 : saved);
+            playerView.readout(null, 0);
+            initializePlayer();
+        }
+    }
+
+    /**
+     * The playlist's items, from whichever source is still alive: a failure releases the player but not
+     * the playlist, and stepping off the broken episode is exactly what the list is for.
+     */
+    private List<MediaItem> playlistItems() {
         final List<MediaItem> mediaItems = new ArrayList<>();
-        if (fromPlayer) {
+        if (player != null && player.getMediaItemCount() > 1) {
             for (int i = 0; i < player.getMediaItemCount(); i++) {
                 mediaItems.add(player.getMediaItemAt(i));
             }
         } else {
             mediaItems.addAll(apiMediaItems);
         }
+        return mediaItems;
+    }
+
+    private int playlistCurrentIndex() {
+        return player != null && player.getMediaItemCount() > 1
+                ? player.getCurrentMediaItemIndex() : apiPlaylistStartIndex;
+    }
+
+    /** A playlist item's name, its artwork and its address, as the panel and the rail show them. */
+    private CharSequence playlistTitle(final MediaItem item, final int i) {
+        final MediaMetadata md = item.mediaMetadata;
+        final CharSequence title = md != null ? md.title : null;
+        return title == null || title.length() == 0 ? "Video " + (i + 1) : title;
+    }
+
+    @Nullable
+    private Uri playlistArtwork(final MediaItem item, final boolean isCurrent) {
+        final MediaMetadata md = item.mediaMetadata;
+        final Uri artwork = md != null ? md.artworkUri : null;
+        return artwork == null && isCurrent ? playingArtwork : artwork;
+    }
+
+    private void showPlaylistDialog() {
+        final List<MediaItem> mediaItems = playlistItems();
         if (mediaItems.size() <= 1) {
             return;
         }
         final int count = mediaItems.size();
-        final int current = fromPlayer ? player.getCurrentMediaItemIndex() : apiPlaylistStartIndex;
+        final int current = playlistCurrentIndex();
         final View[] currentRow = new View[1];
 
         // The panels follow the appearance choice, like the dialogs do — see
@@ -8555,15 +8749,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         for (int i = 0; i < count; i++) {
             final int index = i;
             final MediaItem item = mediaItems.get(i);
-            final MediaMetadata md = item.mediaMetadata;
-            CharSequence title = md != null ? md.title : null;
-            if (title == null || title.length() == 0) {
-                title = "Video " + (i + 1);
-            }
-            Uri artwork = md != null ? md.artworkUri : null;
-            if (artwork == null && index == current) {
-                artwork = playingArtwork;
-            }
+            final CharSequence title = playlistTitle(item, i);
+            final Uri artwork = playlistArtwork(item, index == current);
             // Nothing sends artwork for a file on the device, so the file is asked for a frame of
             // itself. Passed alongside the artwork rather than instead of it: an episode from a
             // launcher has a poster, and a poster chosen for the episode beats a still from it.
@@ -8590,21 +8777,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             }
 
             row.setOnClickListener(v -> {
-                if (player != null) {
-                    player.seekToDefaultPosition(index);
-                    player.setPlayWhenReady(true);
-                    prepareIfIdle();
-                } else {
-                    // Nothing left to seek: a failure released the player, so start the picked episode
-                    // from scratch (initializePlayer rebuilds the playlist from this index) and resume
-                    // it where it was left, if it was ever played.
-                    apiPlaylistStartIndex = index;
-                    final long saved = apiPlaylistPositions != null && index < apiPlaylistPositions.length
-                            ? apiPlaylistPositions[index] : C.TIME_UNSET;
-                    mPrefs.updatePosition(saved == C.TIME_UNSET ? 0 : saved);
-                    playerView.readout(null, 0);
-                    initializePlayer();
-                }
+                playPlaylistItem(index);
                 if (playlistDialog != null) {
                     playlistDialog.dismiss();
                 }
@@ -8664,6 +8837,467 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     // case, not the deep one this scroll exists for.
                     scrollView.scrollTo(0, currentCell.getTop() - Utils.dpToPx(8));
                 }
+            });
+        }
+    }
+
+    // ---- TV: the rail under the transport - the chapters, then the playlist (see tvRailMode) -------
+
+    /** The playlist goes on the rail on a TV with the frames view chosen; the list view keeps its panel. */
+    private boolean playlistOnRail() {
+        return isTvBox && (mPrefs == null || mPrefs.playlistGrid) && playlistItems().size() > 1;
+    }
+
+    /** Chapters worth a rail: two a viewer can step between (FileChapters.canStep). */
+    private boolean chaptersOnRail() {
+        return isTvBox && fileChapters.canStep();
+    }
+
+    private boolean isInTvRail(@Nullable View view) {
+        if (tvRail == null || tvRailMode == RAIL_NONE || view == null) {
+            return false;
+        }
+        for (View v = view; v != null; v = v.getParent() instanceof View ? (View) v.getParent() : null) {
+            if (v == tvRail) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Down from the transport: the chapters where the file has them, else the playlist. */
+    private void openRailBelowTransport() {
+        if (chaptersOnRail()) {
+            showTvRail(RAIL_CHAPTERS);
+        } else {
+            openPlaylistBelow();
+        }
+    }
+
+    /** Down from the chapters, or from the transport of a file without them. */
+    private void openPlaylistBelow() {
+        if (playlistOnRail()) {
+            showTvRail(RAIL_PLAYLIST);
+        } else if (isVisible(buttonPlaylist)) {
+            closeTvRail(false);
+            showPlaylistDialog();
+        }
+    }
+
+    private void showTvRail(final int mode) {
+        final View barView = findViewById(R.id.exo_bottom_bar);
+        if (barView == null || !(barView.getParent() instanceof ViewGroup)) {
+            return;
+        }
+        final ViewGroup controller = (ViewGroup) barView.getParent();
+        if (tvRail == null) {
+            tvRail = new LinearLayout(this);
+            tvRail.setOrientation(LinearLayout.VERTICAL);
+            controller.addView(tvRail, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+        }
+        tvRail.removeAllViews();
+        tvRailMode = mode;
+        // Whatever the rail was taking stills for is not on it any more: drop it from the worker's queue.
+        chapterFramesAsked.incrementAndGet();
+        playlistFramesAsked.incrementAndGet();
+        final View focus = mode == RAIL_CHAPTERS ? fillChapterRail(tvRail) : fillPlaylistRail(tvRail);
+        tvRail.setVisibility(View.VISIBLE);
+
+        placeTvRail();
+        final int width = Math.max(0, controller.getWidth() - 2 * tvSideInset);
+        tvRail.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        // The rail's height and a step of air over it, so the transport does not stand on the names.
+        final int lift = tvRail.getMeasuredHeight() + ui.dpS(8);
+        if (lift != tvRailLift) {
+            tvRailLift = lift;
+            playerView.requestApplyInsets();
+        }
+        resetHideCallbacks();
+        if (focus != null) {
+            focus.post(() -> {
+                focus.requestFocus();
+                final View scroller = (View) focus.getParent().getParent();
+                if (scroller instanceof HorizontalScrollView) {
+                    ((HorizontalScrollView) scroller).scrollTo(Math.max(0, focus.getLeft() - Utils.dpToPx(8)), 0);
+                }
+            });
+        }
+    }
+
+    /** Under the block, on the inset the block had before it was lifted, and as wide as the seek bar. */
+    private void placeTvRail() {
+        if (tvRail == null || !(tvRail.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        final FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tvRail.getLayoutParams();
+        if (lp.leftMargin != tvSideInset || lp.rightMargin != tvSideInset || lp.bottomMargin != tvRailBase) {
+            lp.leftMargin = tvSideInset;
+            lp.rightMargin = tvSideInset;
+            lp.bottomMargin = tvRailBase;
+            tvRail.setLayoutParams(lp);
+        }
+    }
+
+    /** Closes the rail and lowers the block back; {@code refocus} puts the focus back on the transport. */
+    private void closeTvRail(final boolean refocus) {
+        if (tvRailMode == RAIL_NONE) {
+            return;
+        }
+        tvRailMode = RAIL_NONE;
+        chapterFramesAsked.incrementAndGet();
+        playlistFramesAsked.incrementAndGet();
+        if (tvRail != null) {
+            tvRail.removeAllViews();
+            tvRail.setVisibility(View.GONE);
+        }
+        if (tvRailLift != 0) {
+            tvRailLift = 0;
+            playerView.requestApplyInsets();
+        }
+        if (refocus && exoPlayPause != null) {
+            exoPlayPause.requestFocus();
+        }
+        resetHideCallbacks();
+    }
+
+    /** The rail's name and count over its cards, and the horizontal run the cards go into. */
+    private LinearLayout railScaffold(final LinearLayout rail, final CharSequence name, final CharSequence count) {
+        final LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textList());
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(title);
+        final TextView counter = new TextView(this);
+        counter.setText(count);
+        counter.setTextColor(0xB3FFFFFF);
+        counter.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textCaption());
+        final LinearLayout.LayoutParams counterLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        counterLp.setMarginStart(Utils.dpToPx(8));
+        header.addView(counter, counterLp);
+        header.setPadding(Utils.dpToPx(6), 0, 0, Utils.dpToPx(2));
+        rail.addView(header);
+
+        final HorizontalScrollView scroller = new HorizontalScrollView(this);
+        scroller.setHorizontalScrollBarEnabled(false);
+        scroller.setHorizontalFadingEdgeEnabled(true);
+        scroller.setFadingEdgeLength(ui.dpS(28));
+        scroller.setClipToPadding(false);
+        final LinearLayout run = new LinearLayout(this);
+        run.setOrientation(LinearLayout.HORIZONTAL);
+        scroller.addView(run);
+        rail.addView(scroller);
+        return run;
+    }
+
+    /** The cards stand on the OSD's plate, which is dark whatever the app's appearance: light ink. */
+    private static void inkOnPlate(final View view) {
+        if (view instanceof TextView) {
+            final TextView text = (TextView) view;
+            // A chip keeps its own ink; plain text goes white.
+            if (text.getBackground() == null) {
+                text.setTextColor(Color.WHITE);
+            }
+        } else if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                inkOnPlate(group.getChildAt(i));
+            }
+        }
+    }
+
+    /** Focusable, with the panels' focus ring, and the click given. */
+    private void railCell(final View cell, final View.OnClickListener click) {
+        cell.setClickable(true);
+        cell.setFocusable(true);
+        cell.setBackground(Dialogs.pickerRow(Dialogs.dialogContext(this), Color.TRANSPARENT));
+        cell.setOnClickListener(v -> {
+            Utils.log("rail: pick in " + (tvRailMode == RAIL_CHAPTERS ? "chapters" : "playlist"));
+            click.onClick(v);
+        });
+    }
+
+    @Nullable
+    private View fillPlaylistRail(final LinearLayout rail) {
+        final List<MediaItem> items = playlistItems();
+        final int count = items.size();
+        final int current = playlistCurrentIndex();
+        final LinearLayout run = railScaffold(rail, getString(R.string.playlist),
+                getResources().getQuantityString(R.plurals.playlist_items, count, count));
+        final Context ctx = Dialogs.dialogContext(this);
+        final int cellWidth = ui.dpS(120);
+        View focus = null;
+        final List<Uri> wanted = new ArrayList<>();
+        final List<FrameLayout> boxes = new ArrayList<>();
+        final List<Integer> distance = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            final int index = i;
+            final MediaItem item = items.get(i);
+            final boolean isCurrent = i == current;
+            final Uri media = item.localConfiguration != null ? item.localConfiguration.uri : null;
+            final Uri artwork = playlistArtwork(item, isCurrent);
+            final View card = playlistCard(ctx, i, playlistTitle(item, i), artwork, media, isCurrent, cellWidth);
+            // A file on a share has no still in the card (bindPreview reads no share while a player is
+            // open); the rail takes one itself, below.
+            if (artwork == null && Utils.frameSource(media) == null && NetworkThumbs.speaks(media)
+                    && card instanceof ViewGroup && ((ViewGroup) card).getChildAt(0) instanceof FrameLayout) {
+                final FrameLayout box = (FrameLayout) ((ViewGroup) card).getChildAt(0);
+                final Bitmap cached = playlistFrames.get(media.toString());
+                if (cached != null) {
+                    Utils.showStill(box, cached);
+                } else {
+                    wanted.add(media);
+                    boxes.add(box);
+                    distance.add(Math.abs(i - current));
+                }
+            }
+            inkOnPlate(card);
+            railCell(card, v -> {
+                closeTvRail(true);
+                playPlaylistItem(index);
+            });
+            card.setSelected(isCurrent);
+            run.addView(card, new LinearLayout.LayoutParams(cellWidth, ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (isCurrent || focus == null) {
+                focus = card;
+            }
+        }
+        loadPlaylistFrames(wanted, boxes, distance, Math.min(cellWidth, 480));
+        return focus;
+    }
+
+    /** Stills of the playlist's files on a share, by address, for the session. */
+    private final Map<String, Bitmap> playlistFrames = new HashMap<>();
+    /** As chapterFramesAsked, for the playlist's stills. */
+    private final java.util.concurrent.atomic.AtomicInteger playlistFramesAsked =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * The playlist's missing stills, taken while the rail is open (decision 24.10.2026): one file at a
+     * time on the preview frames' worker, nearest the one playing first, each with its own extractor and
+     * released at once. Software decoding only: a second hardware decoder beside the film's is the very
+     * thing NetworkThumbs keeps away from a playing film (an Amlogic VC-1 decoder is exclusive, 0037).
+     * And a cap on what one still may read, since this is the share the film is coming over.
+     */
+    private void loadPlaylistFrames(final List<Uri> wanted, final List<FrameLayout> boxes,
+                                    final List<Integer> distance, final int width) {
+        final androidx.media3.datasource.DataSource.Factory source = frameSource;
+        final ExtractorsFactory extractors = frameExtractors;
+        final int ask = playlistFramesAsked.incrementAndGet();
+        if (source == null || extractors == null || wanted.isEmpty()) {
+            return;
+        }
+        final Integer[] order = new Integer[wanted.size()];
+        for (int i = 0; i < order.length; i++) {
+            order[i] = i;
+        }
+        java.util.Arrays.sort(order, (a, b) -> Integer.compare(distance.get(a), distance.get(b)));
+        for (final int k : order) {
+            final Uri uri = wanted.get(k);
+            final FrameLayout box = boxes.get(k);
+            trickplayWorker().execute(() -> {
+                if (playlistFramesAsked.get() != ask) {
+                    return;
+                }
+                final long t0 = SystemClock.elapsedRealtime();
+                final FileFrames frames = FileFrames.open(uri,
+                        CappedDataSource.factory(source, NetworkThumbs.MAX_BYTES), extractors, true);
+                if (frames == null) {
+                    return;
+                }
+                Bitmap frame = null;
+                try {
+                    // A tenth in, as the browser's own stills: the start is a fade or a title as often as not.
+                    final long durationMs = frames.durationUs / 1000;
+                    final long at = durationMs > 0 ? Math.max(1000, Math.min(durationMs / 10, 600_000)) : 1000;
+                    if (playlistFramesAsked.get() == ask) {
+                        frame = frames.frame(at, width);
+                    }
+                } finally {
+                    frames.release();
+                }
+                Utils.log("playlist still " + (frame != null ? "taken" : "none") + " in "
+                        + (SystemClock.elapsedRealtime() - t0) + " ms: " + uri.getLastPathSegment());
+                if (frame == null) {
+                    return;
+                }
+                final Bitmap still = frame;
+                runOnUiThread(() -> {
+                    playlistFrames.put(uri.toString(), still);
+                    if (playlistFramesAsked.get() == ask && tvRailMode == RAIL_PLAYLIST) {
+                        Utils.showStill(box, still);
+                    }
+                });
+            });
+        }
+    }
+
+    /**
+     * One card per chapter a viewer can see: its frame, its name and where it starts. The one playing is
+     * the one in focus when the rail opens, with how far into it playback is along the frame's foot; the
+     * chapters the skip passes over say so in the skip band's colour.
+     */
+    @Nullable
+    private View fillChapterRail(final LinearLayout rail) {
+        final List<FileChapters.Entry> entries = fileChapters.entries();
+        final long durationMs = player != null ? player.getDuration() : C.TIME_UNSET;
+        final long position = player != null ? player.getCurrentPosition() : 0;
+        int visible = 0;
+        int current = -1;
+        for (int i = 0; i < entries.size(); i++) {
+            if (!entries.get(i).hidden) {
+                visible++;
+                if (entries.get(i).startMs <= position) {
+                    current = i;
+                }
+            }
+        }
+        final LinearLayout run = railScaffold(rail, getString(R.string.chapters), String.valueOf(visible));
+        final Context ctx = Dialogs.dialogContext(this);
+        final int cellWidth = ui.dpS(120);
+        final int pad = Utils.dpToPx(6);
+        final int skipFill = MaterialColors.getColor(this, R.attr.accentSkip,
+                ContextCompat.getColor(this, R.color.skip_fill));
+        final Uri uri = currentMediaUri();
+        if (uri == null || !uri.equals(chapterFramesFor)) {
+            chapterFrames.clear();
+            chapterFramesFor = uri;
+        }
+        final List<long[]> wanted = new ArrayList<>();
+        final List<FrameLayout> boxes = new ArrayList<>();
+        View focus = null;
+        int shown = 0;
+        for (int i = 0; i < entries.size(); i++) {
+            final FileChapters.Entry e = entries.get(i);
+            if (e.hidden) {
+                continue;
+            }
+            final long end = fileChapters.endMs(i, durationMs);
+            final boolean isCurrent = i == current;
+            final LinearLayout card = new LinearLayout(ctx);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(pad, pad, pad, Utils.dpToPx(8));
+
+            final FrameLayout box = Utils.previewBox(ctx, null, null, Utils.dpToPx(8), ui.dpS(24),
+                    R.drawable.ic_movie_24dp);
+            card.addView(box, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    (cellWidth - 2 * pad) * 9 / 16));
+            if (isCurrent && end != C.TIME_UNSET && end > e.startMs) {
+                Utils.playedTrack(box);
+                Utils.playedRun(box, (float) (position - e.startMs) / (end - e.startMs));
+            }
+            if (FileChapters.categoryOf(e.title) != null) {
+                final TextView chip = metaChip(ctx, getString(R.string.chapter_skipped));
+                ((GradientDrawable) chip.getBackground()).setColor(skipFill);
+                final FrameLayout.LayoutParams chipLp = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ui.dpS(20));
+                chipLp.gravity = Gravity.TOP | Gravity.START;
+                chipLp.setMargins(Utils.dpToPx(6), Utils.dpToPx(6), 0, 0);
+                box.addView(chip, chipLp);
+            }
+
+            final TextView name = new TextView(ctx);
+            shown++;
+            // A chapter with no name is called by its number, as the bar's count of them does.
+            name.setText(e.title != null && !e.title.isEmpty() ? e.title : String.valueOf(shown));
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textList());
+            name.setLines(1);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            if (isCurrent) {
+                name.setTypeface(Typeface.DEFAULT_BOLD);
+            }
+            final LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            nameLp.topMargin = Utils.dpToPx(8);
+            card.addView(name, nameLp);
+            final TextView at = new TextView(ctx);
+            at.setText(Util.getStringForTime(timeBuilder, timeFormatter, e.startMs));
+            at.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textCaption());
+            card.addView(at);
+            inkOnPlate(card);
+            at.setTextColor(0xB3FFFFFF);
+
+            final long start = e.startMs;
+            railCell(card, v -> {
+                closeTvRail(true);
+                if (player != null) {
+                    player.seekTo(start);
+                }
+            });
+            card.setSelected(isCurrent);
+            run.addView(card, new LinearLayout.LayoutParams(cellWidth, ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (isCurrent || focus == null) {
+                focus = card;
+            }
+
+            final Bitmap cached = chapterFrames.get(start);
+            if (cached != null) {
+                Utils.showStill(box, cached);
+            } else {
+                // A few seconds in, not at the cut itself: a chapter opens on black or on a fade as often
+                // as a film does. Within the chapter, short ones included.
+                final long span = end != C.TIME_UNSET && end > start ? end - start : 10_000;
+                wanted.add(new long[]{start, start + Math.min(3_000, span / 4)});
+                boxes.add(box);
+            }
+        }
+        loadChapterFrames(uri, wanted, boxes, Math.min(cellWidth, 480));
+        return focus;
+    }
+
+    /** Bumped when the rail closes or is rebuilt, so the frames still queued for the old one are not taken. */
+    private final java.util.concurrent.atomic.AtomicInteger chapterFramesAsked =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * The chapter frames out of the file itself, on the preview frames' worker and with their extractor
+     * (see showFileFrame): one at a time, each a keyframe read like a seek preview, and kept for the
+     * file so the rail opens on them the next time.
+     */
+    private void loadChapterFrames(@Nullable final Uri uri, final List<long[]> wanted,
+                                   final List<FrameLayout> boxes, final int width) {
+        final androidx.media3.datasource.DataSource.Factory source = frameSource;
+        final ExtractorsFactory extractors = frameExtractors;
+        if (uri == null || source == null || extractors == null || wanted.isEmpty() || isLiveStream()) {
+            return;
+        }
+        final int ask = chapterFramesAsked.incrementAndGet();
+        for (int i = 0; i < wanted.size(); i++) {
+            final long start = wanted.get(i)[0];
+            final long at = wanted.get(i)[1];
+            final FrameLayout box = boxes.get(i);
+            trickplayWorker().execute(() -> {
+                if (chapterFramesAsked.get() != ask) {
+                    return;
+                }
+                if (!uri.equals(fileFramesFor)) {
+                    if (fileFrames != null) {
+                        fileFrames.release();
+                    }
+                    fileFramesFor = uri;
+                    fileFrames = FileFrames.open(uri, source, extractors);
+                }
+                final FileFrames frames = fileFrames;
+                // At the card's own width: the preview frames' 320 is soft on a 4K card.
+                final Bitmap frame = frames != null ? frames.frame(at, width) : null;
+                if (frame == null) {
+                    return;
+                }
+                runOnUiThread(() -> {
+                    if (!uri.equals(chapterFramesFor)) {
+                        return;
+                    }
+                    chapterFrames.put(start, frame);
+                    if (chapterFramesAsked.get() == ask && tvRailMode == RAIL_CHAPTERS) {
+                        Utils.showStill(box, frame);
+                    }
+                });
             });
         }
     }
@@ -13485,6 +14119,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             applyVolumeMode();
             updateSubtitleStyle(this);
             updateOverlayClock();
+            updateChapterMarks();
             resetDim();
             // Coming back from the settings screen no longer rebuilds the player by itself (see onStop),
             // but options like the decoder priority or tunneling are baked into it at build time. So
@@ -15932,6 +16567,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // Tracks are now known — (re)map any container names onto them, then refresh the header.
             resolveTrackNames();
             updateMediaInfo();
+            // The file's chapters ride on its track formats, so this is the first moment they exist.
+            applyFileChapters(tracks);
             // In-stream renditions are known only now, so the quality button's visibility can change.
             updateQualityButton();
             updateAudioButton();
@@ -19207,6 +19844,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     void resetHideCallbacks() {
+        // The rail under the transport is browsed, not glanced at: it stays until Back or Up closes it, as
+        // the playlist panel it replaces did. With the 3.5 s timeout the controls went from under a viewer
+        // still choosing, and the OK meant for a card landed on the hidden controls as play/pause
+        // (Shield, 24.10.2026).
+        if (tvRailMode != RAIL_NONE) {
+            playerView.setControllerShowTimeoutMs(-1);
+            return;
+        }
         if (haveMedia && player != null && player.isPlaying()) {
             // Keep controller UI visible - alternative to resetHideCallbacks()
             playerView.setControllerShowTimeoutMs(PlayerActivity.CONTROLLER_TIMEOUT);

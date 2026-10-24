@@ -26,6 +26,14 @@ public class BottomBarLayout extends FrameLayout {
     private float travelScale = 1f;
     private float travel;
     /**
+     * How far the bar stands up off its place, on TV while the rail under the transport is open. A shift
+     * and not a taller bar: Media3 goes over to its minimal controls once the screen is no taller than the
+     * centre controls plus twice the bar (PlayerControlViewLayoutManager.useMinimalMode), and a bar grown by
+     * the rail's height crossed that line - the seek bar, the times and the header went, measured on the
+     * Shield 24.10.2026.
+     */
+    private float lift;
+    /**
      * Views that are part of the bar without being inside it - on TV the button row above the seek bar,
      * and the plate the whole bottom block stands on.
      */
@@ -39,14 +47,22 @@ public class BottomBarLayout extends FrameLayout {
     void setTravelScale(float scale) {
         if (scale != travelScale) {
             travelScale = scale;
-            super.setTranslationY(travel * scale);
+            super.setTranslationY(travel * scale - lift);
+        }
+    }
+
+    /** See {@link #lift}; 0 puts the bar back on its place. */
+    void setLift(float lift) {
+        if (lift != this.lift) {
+            this.lift = lift;
+            super.setTranslationY(travel * travelScale - lift);
         }
     }
 
     @Override
     public void setTranslationY(float translationY) {
         travel = translationY;
-        super.setTranslationY(translationY * travelScale);
+        super.setTranslationY(translationY * travelScale - lift);
         follow();
     }
 

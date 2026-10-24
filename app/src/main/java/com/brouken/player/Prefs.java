@@ -144,6 +144,7 @@ class Prefs {
     private static final String PREF_KEY_SHOW_TRANSFER = "showTransfer";
     private static final String PREF_KEY_TRANSFER_LINE = "transferLine";
     private static final String PREF_KEY_OSD_STYLE = "osdStyle";
+    private static final String PREF_KEY_CHAPTER_MARKS = "chapterMarks";
     private static final String PREF_KEY_SEEK_PREVIEW = "seekPreview";
     // The seek trial: ways of seeking from the remote side by side, until one is chosen (roadmap, step 1).
     private static final String PREF_KEY_SEEK_SHORT_PRESS = "seekShortPress";
@@ -418,6 +419,10 @@ class Prefs {
     public String osdStyle = OSD_STYLE_GRADIENT;
     public static final String OSD_STYLE_CARD = "card";
     public static final String OSD_STYLE_GRADIENT = "gradient";
+    /** How the file's chapters show on the seek bar: ticks at their starts, or the bar cut into pieces. */
+    public String chapterMarks = CHAPTER_MARKS_TICKS;
+    public static final String CHAPTER_MARKS_TICKS = "ticks";
+    public static final String CHAPTER_MARKS_CUTS = "cuts";
     /** Long seeks aimed on the card - by trickplay frames where there are some - the film playing on (see PlayerActivity.keyScrubPreview). */
     public boolean seekPreview = true;
     /** A short press steps by a fixed amount each way instead of climbing the ladder; a hold still climbs it. */
@@ -634,6 +639,7 @@ class Prefs {
         }
         transferLine = mSharedPreferences.getString(PREF_KEY_TRANSFER_LINE, TRANSFER_LINE_OFF);
         osdStyle = mSharedPreferences.getString(PREF_KEY_OSD_STYLE, osdStyle);
+        chapterMarks = mSharedPreferences.getString(PREF_KEY_CHAPTER_MARKS, chapterMarks);
         seekPreview = mSharedPreferences.getBoolean(PREF_KEY_SEEK_PREVIEW, seekPreview);
         seekFixedStep = "fixed".equals(mSharedPreferences.getString(PREF_KEY_SEEK_SHORT_PRESS, "ladder"));
         seekStepBackMs = 1000L * Integer.parseInt(mSharedPreferences.getString(PREF_KEY_SEEK_STEP_BACK, "10"));
