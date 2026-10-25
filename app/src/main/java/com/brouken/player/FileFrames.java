@@ -28,7 +28,9 @@ import java.nio.ByteBuffer;
  * <p>One extractor of its own over the same file, opened once, so the index is read once and every
  * frame after it costs a seek to the preceding keyframe, that one sample and its decode. A decoder of
  * its own too: software where the device has one for the format, so the film's hardware decoder is left
- * alone, and a second hardware instance only where the software one refuses (10-bit HEVC on a Shield).
+ * alone, and a second hardware instance only where the software one refuses (10-bit HEVC on a Shield)
+ * or fails on its first frame (a Dolby Vision base layer there, 25.10.2026). A decoder that fails with no
+ * other left is closed, and the file gives no frames after it instead of failing each one again.
  *
  * <p>Measured 22.10.2026 over SMB (fork-roadmap.md): Shield 0.12-0.2 s a frame at 1080p, 0.2-0.5 s at
  * 4K, 10-bit HEVC included; Dune 0.45-0.75 s at 1080p H.264, and no HEVC at all - its Amlogic decoder
@@ -46,22 +48,33 @@ final class FileFrames {
     static final int WIDTH = 320;
 
     private final MediaExtractorCompat extractor;
+    /** Null once it has failed with nothing left to replace it: every frame after that is none, at once. */
     @Nullable
-    private final MediaCodec codec;
+    private MediaCodec codec;
     @Nullable
     private final FfmpegVideoDecoder ffmpeg;
-    private final String codecName;
+    private String codecName;
+    /** What the decoder was configured with, for the one that takes over from it. */
+    @Nullable
+    private final MediaFormat format;
+    /** The decoders after the one in use, in the order open() tried them. */
+    private final java.util.List<String> spare;
+    /** A picture came out of this decoder: a failure after that is the file's, not a sign of the wrong decoder. */
+    private boolean delivered;
     private final ByteBuffer sample;
     /** The video track's duration as the container states it, in microseconds; -1 when it does not. */
     final long durationUs;
 
     private FileFrames(final MediaExtractorCompat extractor, @Nullable final MediaCodec codec,
                        @Nullable final FfmpegVideoDecoder ffmpeg, final String codecName,
+                       @Nullable final MediaFormat format, final java.util.List<String> spare,
                        final int maxInput, final long durationUs) {
         this.extractor = extractor;
         this.codec = codec;
         this.ffmpeg = ffmpeg;
         this.codecName = codecName;
+        this.format = format;
+        this.spare = spare;
         this.sample = ByteBuffer.allocateDirect(maxInput);
         this.durationUs = durationUs;
     }
@@ -128,7 +141,8 @@ final class FileFrames {
                 Log.d(TAG, "open " + mime + " " + format.getInteger(MediaFormat.KEY_WIDTH) + "x"
                         + format.getInteger(MediaFormat.KEY_HEIGHT) + " via " + ffmpeg.getName()
                         + ": extractor " + (t1 - t0) + " ms, decoder " + (SystemClock.elapsedRealtime() - t1) + " ms");
-                return new FileFrames(extractor, null, ffmpeg, ffmpeg.getName(), maxInput, durationUs);
+                return new FileFrames(extractor, null, ffmpeg, ffmpeg.getName(), null,
+                        java.util.Collections.emptyList(), maxInput, durationUs);
             }
             format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
                     MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
@@ -151,22 +165,7 @@ final class FileFrames {
                     }
                 }
             }
-            MediaCodec codec = null;
-            for (final String name : names) {
-                MediaCodec c = null;
-                try {
-                    c = MediaCodec.createByCodecName(name);
-                    c.configure(format, null, null, 0);
-                    c.start();
-                    codec = c;
-                    break;
-                } catch (final Exception e) {
-                    Log.d(TAG, "decoder " + name + " refused: " + e);
-                    if (c != null) {
-                        c.release();
-                    }
-                }
-            }
+            final MediaCodec codec = startFirst(names, format);
             if (codec == null) {
                 extractor.release();
                 return null;
@@ -174,12 +173,36 @@ final class FileFrames {
             Log.d(TAG, "open " + mime + " " + format.getInteger(MediaFormat.KEY_WIDTH) + "x"
                     + format.getInteger(MediaFormat.KEY_HEIGHT) + " via " + codec.getName()
                     + ": extractor " + (t1 - t0) + " ms, decoder " + (SystemClock.elapsedRealtime() - t1) + " ms");
-            return new FileFrames(extractor, codec, null, codec.getName(), maxInput, durationUs);
+            return new FileFrames(extractor, codec, null, codec.getName(), format, names, maxInput, durationUs);
         } catch (final Exception | OutOfMemoryError e) {
             Log.d(TAG, "open failed after " + (SystemClock.elapsedRealtime() - t0) + " ms: " + e);
             extractor.release();
             return null;
         }
+    }
+
+    /**
+     * The first of the names that configures and starts, taken off the list together with every one
+     * before it that refused; what is left is the spare for a decoder that fails later. Null when none starts.
+     */
+    @Nullable
+    private static MediaCodec startFirst(final java.util.List<String> names, final MediaFormat format) {
+        while (!names.isEmpty()) {
+            final String name = names.remove(0);
+            MediaCodec c = null;
+            try {
+                c = MediaCodec.createByCodecName(name);
+                c.configure(format, null, null, 0);
+                c.start();
+                return c;
+            } catch (final Exception e) {
+                Log.d(TAG, "decoder " + name + " refused: " + e);
+                if (c != null) {
+                    c.release();
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -274,8 +297,40 @@ final class FileFrames {
         if (ffmpeg != null) {
             return ffmpegFrame(ffmpeg, positionMs, width);
         }
-        final MediaCodec codec = this.codec;
-        final long t0 = SystemClock.elapsedRealtime();
+        while (codec != null) {
+            final long t0 = SystemClock.elapsedRealtime();
+            try {
+                final Bitmap bitmap = codecFrame(codec, positionMs, width, t0);
+                delivered |= bitmap != null;
+                return bitmap;
+            } catch (final IllegalStateException e) {
+                // The decoder itself, CodecException included: after it a MediaCodec is in its error or
+                // released state, and every later call fails the same way in a millisecond (Dune, DV7 over
+                // the software HEVC, 25.10.2026). One that has not yet given a picture is taken for the
+                // wrong decoder - the software HEVC on a Shield accepts a Dolby Vision base layer, whose
+                // profile baseLayer() drops, and dies on its first 10-bit frame, where a second hardware
+                // instance decodes it - and the next of open()'s list gets the same frame.
+                Log.d(TAG, "frame " + positionMs + ": " + codecName + " failed after "
+                        + (SystemClock.elapsedRealtime() - t0) + " ms: " + e);
+                codec.release();
+                codec = delivered ? null : startFirst(spare, format);
+                if (codec == null) {
+                    Log.d(TAG, "no decoder left, no more frames from this file");
+                    return null;
+                }
+                codecName = codec.getName();
+                Log.d(TAG, "frame " + positionMs + ": on to " + codecName);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * One keyframe through the platform decoder. Its own failures come out as IllegalStateException, for
+     * frame() to replace it; anything else - the file, the network - is logged here and is no frame.
+     */
+    @Nullable
+    private Bitmap codecFrame(final MediaCodec codec, final long positionMs, final int width, final long t0) {
         try {
             codec.flush();
             extractor.seekTo(positionMs * 1000, MediaExtractorCompat.SEEK_TO_PREVIOUS_SYNC);
@@ -330,6 +385,8 @@ final class FileFrames {
             }
             Log.d(TAG, "frame " + positionMs + ": no picture in 3 s");
             return null;
+        } catch (final IllegalStateException e) {
+            throw e;
         } catch (final Exception | OutOfMemoryError e) {
             Log.d(TAG, "frame " + positionMs + " failed after " + (SystemClock.elapsedRealtime() - t0) + " ms: " + e);
             return null;
@@ -479,6 +536,7 @@ final class FileFrames {
             } catch (final RuntimeException ignored) {
             }
             codec.release();
+            codec = null;
         }
         if (ffmpeg != null) {
             ffmpeg.release();
