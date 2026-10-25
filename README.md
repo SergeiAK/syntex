@@ -1,6 +1,6 @@
 # Syntex
 
-> **Syntex** is a video player for Android TV, phones and tablets by SergeiAK, based on [Just+ Player](https://github.com/just-plus-player/just-plus-player) 2.0.11 by @levende. A personal project made for my own use; it is not a Just+ build and comes with no support.
+> **Syntex** is a video player for Android TV, phones and tablets by SergeiAK. It is built on [Just Player](https://github.com/moneytoo/Player) by Marcel Dopita and [Just+ Player](https://github.com/just-plus-player/just-plus-player) 2.0.11 by @levende, plays through [Media3](https://github.com/androidx/media) and [FFmpeg](https://ffmpeg.org), and owes many of its answers to Kodi, Plezy, Wholphin, Nova, DDD Player, Vimu and others — see [Credits](#credits). A personal project made for my own use; it is not a Just+ build and comes with no support.
 
 ### What Syntex changes in Just+ 2.0.11
 
@@ -66,6 +66,29 @@ Built from the Just+ 2.0.11 source, the last one published upstream: the officia
 
  * **Bottom bar order on phones:** subtitles → audio → quality → playlist (upstream 2.0.11: quality → audio → subtitles → playlist)
  * **Watch together on Android 6:** the room list no longer crashes there (`List.sort` needs Android 7; replaced with `Collections.sort`)
+
+## Credits
+
+**The code this is built from**
+
+ * [Just Player](https://github.com/moneytoo/Player) by Marcel Dopita, and [Just+ Player](https://github.com/just-plus-player/just-plus-player) by @levende, its fork — the source of Just+ 2.0.11 is the base of Syntex. Both are released under the Unlicense
+ * [Media3](https://github.com/androidx/media) (Apache 2.0) — the player itself. Two of its extractors are carried here as modified copies with their headers kept: AVI (`com.brouken.player.avi`) and MPEG-PS (`com.brouken.player.ps`); each changed file says what was changed. The JNI side of the software video decoder is shaped after Media3's `vpx_jni.cc`
+ * [FFmpeg](https://ffmpeg.org) 7.1 (LGPL 2.1, built without `--enable-gpl` and `--enable-nonfree`) — the software video decoder, linked statically. [`ffvideo/`](ffvideo) holds the build script, the JNI source and the FFmpeg tag: everything needed to rebuild and relink it. The way AVI frames are reordered (`genpts`, `mpeg4_unpack_bframes`) follows FFmpeg
+ * [smbj](https://github.com/hierynomus/smbj) (Apache 2.0) — SMB; the pipelined reads sit in its package to reach what it does not expose
+
+**Behaviour matched to, no code taken**
+
+ * **Just+ Player 2.1–2.4** — the releases after 2.0.11 are APK-only. Where Syntex does what a later Just+ does (the resume rules of 2.4.4, the time left of 2.4.5, a Matroska file without cues of 2.4.2, the nested playlist of 2.1.1), the behaviour was read off the release notes and the app and written anew
+ * **[LAMPA](https://github.com/lampa-app/LAMPA)** — the launch and report contract, read off the shell's source
+ * **[Kodi](https://kodi.tv)** — the names of the pictures next to a video, and how a player treats a Matroska file whose cues are missing or wrong
+ * **[Plezy](https://github.com/edde746/plezy)** — the statistics card and the seek bar broken into chapters
+ * **[Wholphin](https://github.com/damontecres/Wholphin)** — the bar of first letters beside a long folder
+ * **[samba](https://www.samba.org)** — the read-ahead over SMB follows its own client (`cli_pull`)
+ * **[Jellyfin](https://jellyfin.org)**, **[tinyMediaManager](https://www.tinymediamanager.org)**, **Emby** and **Plex** — the trickplay sets, pictures and folder names they leave next to a library, read as they write them
+ * **[Nova Video Player](https://github.com/nova-video-player/aos-AVP)** and **[DDD Player](https://github.com/usmanec/dddplayer)** — read through for what to take next; nothing of theirs is in the code yet
+ * **Vimu**, **MX Player**, **VLC**, **mpv** and the **Dune HD** media centre — the reference for what a file should look and sound like when Syntex got it wrong
+
+The Syntex part of the code is released under the Unlicense, as Just and Just+ are; the Media3 copies stay under Apache 2.0 and FFmpeg under LGPL 2.1.
 
 ## Install
 
