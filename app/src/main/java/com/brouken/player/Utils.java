@@ -2266,6 +2266,13 @@ public class Utils {
         }
     }
 
+    /**
+     * Only the device's own storage and the drives plugged into it. A share the system has mounted -
+     * Shield puts one at /storage/SERVER - is a volume too, and scanning it walked the whole share over
+     * the network on every player start (Shield, 25.10). Such a mount is taken to have no filesystem
+     * UUID, as the primary storage has none either and is kept as primary. Not yet seen on a device:
+     * each volume skipped or scanned is logged, so the rule can be checked there.
+     */
     @RequiresApi(api = Build.VERSION_CODES.R)
     public static void scanMediaStorage(Context context) {
         StorageManager storageManager = (StorageManager) context.getSystemService(Context.STORAGE_SERVICE);
@@ -2273,9 +2280,18 @@ public class Utils {
         List<String> storagePaths = new ArrayList<>();
         for (StorageVolume volume : storageVolumes) {
             File directory = volume.getDirectory();
-            if (directory != null) {
+            if (directory == null) {
+                continue;
+            }
+            final boolean own = volume.isPrimary() || volume.getUuid() != null;
+            log("media scan: " + (own ? "scanning " : "skipping ") + directory.getAbsolutePath()
+                    + " (uuid " + volume.getUuid() + ", removable " + volume.isRemovable() + ")");
+            if (own) {
                 storagePaths.add(directory.getAbsolutePath());
             }
+        }
+        if (storagePaths.isEmpty()) {
+            return;
         }
         MediaScannerConnection.scanFile(context, storagePaths.toArray(new String[0]), new String[]{"*/*"}, null);
     }
