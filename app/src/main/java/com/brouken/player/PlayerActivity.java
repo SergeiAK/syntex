@@ -6881,7 +6881,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     private CharSequence currentTitle() {
         final MediaItem item = player == null ? null : player.getCurrentMediaItem();
         final CharSequence title = item != null ? item.mediaMetadata.title : null;
-        return title == null || title.length() == 0 ? Utils.getFileName(this, mPrefs.mediaUri) : title;
+        // Through HeaderTitle either way: a playlist's item titles are often its files' names too.
+        final CharSequence named = title == null || title.length() == 0
+                ? Utils.getFileName(this, mPrefs.mediaUri) : title;
+        return named == null ? null : HeaderTitle.clean(named.toString());
     }
 
     void updateTopInfo() {
@@ -7019,7 +7022,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             line.text(language);
         }
         if (subtitles != null) {
-            line.text(getString(R.string.header_subtitles, subtitles));
+            line.text(subtitlesPart(subtitles));
         }
         return line.build();
     }
@@ -7068,10 +7071,19 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         String audioLine = buildAudioInfo(getSelectedAudioFormat());
         final String subtitles = selectedSubtitleName();
         if (subtitles != null) {
-            final String part = getString(R.string.header_subtitles, subtitles);
+            final String part = subtitlesPart(subtitles);
             audioLine = audioLine == null || audioLine.isEmpty() ? part : audioLine + "  ·  " + part;
         }
         setInfoLine(audioInfoView, audioLine);
+    }
+
+    /**
+     * "subtitles: English", or plain "subtitles on" for a track with neither name nor language: put
+     * after the same label it read "subtitles: subtitles on" (Dune and Shield, 25.10).
+     */
+    private String subtitlesPart(final String subtitles) {
+        final String on = getString(R.string.header_subtitles_on);
+        return on.equals(subtitles) ? on : getString(R.string.header_subtitles, subtitles);
     }
 
     /** What the header calls the subtitles on screen, or null when none are. */
