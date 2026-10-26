@@ -156,7 +156,10 @@ class SubtitleUtils {
 
             if (len >= 2 && len <= 6) {
                 // TODO: Validate lang
-                return path.substring(prev + 1, last);
+                final String tail = path.substring(prev + 1, last);
+                // "eng2": the second of several files in one language. The number tells them apart
+                // (see tailNumber), it is not part of the language.
+                return tailNumber(tail) != null ? tail.replaceAll("\\d+$", "") : tail;
             }
         }
 
@@ -251,23 +254,49 @@ class SubtitleUtils {
         return name;
     }
 
-    public static DocumentFile findSubtitle(DocumentFile video) {
-        DocumentFile dir = video.getParentFile();
-        return findSubtitle(video, dir);
+    /**
+     * The number a sidecar's tail adds to its language — "2" for {@code eng2}, as in
+     * {@code Film.eng1.srt}, {@code Film.eng2.srt} — or null for any other name. Several files in one
+     * language would otherwise read as the same row three times in the picker.
+     */
+    /** The number in a sidecar's tail — "2" for {@code Film.eng2.srt} — or null (see tailNumber). */
+    public static String getSubtitleNumber(Uri uri) {
+        final String path = uri.getPath();
+        if (path == null) {
+            return null;
+        }
+        final String name = path.substring(path.lastIndexOf('/') + 1);
+        final int last = name.lastIndexOf('.');
+        final int prev = last > 0 ? name.lastIndexOf('.', last - 1) : -1;
+        return prev >= 0 ? tailNumber(name.substring(prev + 1, last)) : null;
     }
 
-    public static DocumentFile findSubtitle(DocumentFile video, DocumentFile dir) {
+    public static String tailNumber(String name) {
+        if (name == null) {
+            return null;
+        }
+        final java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("^[A-Za-z]{2,3}(\\d{1,2})$").matcher(name);
+        return m.matches() ? m.group(1) : null;
+    }
+
+    /**
+     * Every subtitle beside the video: the files named after it ({@code Film.eng1.srt}, {@code
+     * Film.rus.srt}), in the order a viewer reads the names. A folder of one video with none named
+     * after it gives all the subtitles it holds — the old rule for one file, widened to several.
+     */
+    public static List<DocumentFile> findSubtitles(DocumentFile video, DocumentFile dir) {
+        final List<DocumentFile> found = new ArrayList<>();
+        if (dir == null || !dir.isDirectory())
+            return found;
         String videoName = getFileBaseName(video.getName());
         int videoFiles = 0;
-
-        if (dir == null || !dir.isDirectory())
-            return null;
 
         List<DocumentFile> candidates = new ArrayList<>();
 
         for (DocumentFile file : dir.listFiles()) {
             final String fileName = file.getName();
-            if (fileName != null && fileName.startsWith("."))
+            if (fileName == null || fileName.startsWith("."))
                 continue;
             if (isSubtitleFile(file))
                 candidates.add(file);
@@ -275,19 +304,34 @@ class SubtitleUtils {
                 videoFiles++;
         }
 
-        if (videoFiles == 1 && candidates.size() == 1) {
-            return candidates.get(0);
+        for (DocumentFile candidate : candidates) {
+            if (candidate.getName().startsWith(videoName + '.')) {
+                found.add(candidate);
+            }
         }
+        if (found.isEmpty() && videoFiles == 1) {
+            found.addAll(candidates);
+        }
+        Collections.sort(found, (a, b) -> Utils.compareNatural(a.getName(), b.getName()));
+        return found;
+    }
 
-        if (candidates.size() >= 1) {
-            for (DocumentFile candidate : candidates) {
-                if (candidate.getName().startsWith(videoName + '.')) {
-                    return candidate;
+    /**
+     * Which of several sidecars goes on screen: the first in the viewer's subtitle languages, in their
+     * order, else the first by name.
+     */
+    public static Uri pickSubtitle(List<Uri> uris, List<String> preferred) {
+        if (uris.isEmpty()) {
+            return null;
+        }
+        for (final String language : preferred) {
+            for (final Uri uri : uris) {
+                if (language.equals(Utils.toIso3Language(getSubtitleLanguage(uri)))) {
+                    return uri;
                 }
             }
         }
-
-        return null;
+        return uris.get(0);
     }
 
     public static DocumentFile findNext(DocumentFile video) {

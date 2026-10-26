@@ -1400,6 +1400,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // again. Remembering "the viewer said no to this file" needs a second field; not worth it until
     // someone hits it (subtitleSearchStarted and the miss TTL cover it in practice).
     private Uri paintedSubtitleUri;
+    // Every subtitle file found beside the media playing (searchSubtitles), the one on screen among them.
+    // One went on screen and the rest were never looked at, so Film.eng1/eng2/eng3.srt offered only the
+    // first. Each rebuild carries them all as tracks (sideSubtitles); until then the ones the item does
+    // not carry get a row of their own in the picker.
+    private final List<Uri> sideSubtitleUris = new ArrayList<>();
     // Set before a reinitialisation that must not auto-play — a SOURCE switch, or any rebuild caused by
     // returning to the foreground (initializePlayer otherwise force-plays under apiAccess or at position
     // zero). Consumed once inside initializePlayer.
@@ -7192,7 +7197,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      */
     private String[] trackRowText(final Format format, final int number) {
         final String name = trackName(format);
-        final String language = languageDisplayName(format.language);
+        final String language = numberedLanguage(format, languageDisplayName(format.language));
         final String headline = name != null && !name.isEmpty() ? name
                 : language != null && !language.isEmpty() ? language
                 : getString(R.string.audio_track_number, number);
@@ -9964,7 +9969,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * output — which is where a selected sideloaded subtitle already ends up for the offset to work — so
      * the player never re-prepares: no re-open, no re-buffer, no gap in the sound, no reset progress bar.
      * The track itself turns up on the next player rebuild, from {@code mPrefs.subtitleUri} (see
-     * {@link #rememberedSubtitle()}), so this state heals by itself.
+     * {@link #rememberedSubtitles()}), so this state heals by itself.
      *
      * <p>It also breaks a loop at its root: painting raises no track change, so the finder is not sent
      * looking again by the very subtitle it just found.
@@ -10080,12 +10085,21 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         player.prepare();
     }
 
-    /** The external subtitle remembered for this media, or null when there is nothing to restore. */
-    private MediaItem.SubtitleConfiguration rememberedSubtitle() {
-        if (mPrefs.subtitleUri == null || !Utils.fileExists(this, mPrefs.subtitleUri)) {
-            return null;
+    /**
+     * The external subtitles to restore for this media: the remembered one, selected, then the rest of
+     * the files found beside it (sideSubtitleUris), there to be picked. Empty when there is nothing.
+     */
+    private List<MediaItem.SubtitleConfiguration> rememberedSubtitles() {
+        final List<MediaItem.SubtitleConfiguration> subtitles = new ArrayList<>();
+        if (mPrefs.subtitleUri != null && Utils.fileExists(this, mPrefs.subtitleUri)) {
+            subtitles.add(SubtitleUtils.buildSubtitle(this, mPrefs.subtitleUri, null, true));
         }
-        return SubtitleUtils.buildSubtitle(this, mPrefs.subtitleUri, null, true);
+        for (final Uri uri : sideSubtitleUris) {
+            if (!uri.equals(mPrefs.subtitleUri) && Utils.fileExists(this, uri)) {
+                subtitles.add(SubtitleUtils.buildSubtitle(this, uri, null, false));
+            }
+        }
+        return subtitles;
     }
 
     /** The item plus one more subtitle, keeping every one it already carries. */
@@ -10108,7 +10122,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // having lost track of itself. And the button is the only door to the picker that can switch
         // the hint off again: a film with no text track of its own and a downloaded hint would
         // otherwise hide the button while the hint plays, with no way back to Off.
-        boolean hasSubtitles = subtitleWithoutTrack() != null || secondaryActive();
+        boolean hasSubtitles = !subtitlesWithoutTrack().isEmpty() || secondaryActive();
         boolean textSelected =
                 paintedSubtitleUri != null || mainLineTrackSelected() || secondaryActive();
         if (player != null) {
@@ -11272,8 +11286,21 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return format.id != null ? resolvedTrackNames.get(format.id) : null;
     }
 
+    /**
+     * "English 2" for the track made from {@code Film.eng2.srt}: three files in one language would be
+     * three rows reading "English". The id of a sideloaded track is its file's uri (buildSubtitle), and
+     * only such a track can carry the number; anything else gets the language unchanged.
+     */
+    private static String numberedLanguage(final Format format, final String language) {
+        if (language == null || format.id == null || !format.id.contains("://")) {
+            return language;
+        }
+        final String number = SubtitleUtils.getSubtitleNumber(Uri.parse(format.id));
+        return number == null ? language : language + " " + number;
+    }
+
     private String buildSubtitleInfo(Format text) {
-        final String language = languageDisplayName(text.language);
+        final String language = numberedLanguage(text, languageDisplayName(text.language));
         final String name = trackName(text);
         final StringBuilder b = new StringBuilder();
         final String title = (name != null && !name.isEmpty()) ? name : language;
@@ -11295,7 +11322,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final boolean textEnabled = mainLineTrackSelected();
         // A subtitle painted from its file has no track here, so it needs a row of its own — otherwise
         // it could never be switched off, and "off" would read as the choice while it is on screen.
-        final Uri fileOnly = subtitleWithoutTrack();
+        final List<Uri> filesOnly = subtitlesWithoutTrack();
         final boolean painting = paintedSubtitleUri != null;
         final List<Dialogs.MenuItem> items = new ArrayList<>();
         // Three kinds of row live in this one panel — a doorway into another list, the choices for this
@@ -11319,11 +11346,18 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     disableSubtitles();
                     rememberSeriesPick(C.TRACK_TYPE_TEXT, null, 0);
                 }));
-        if (fileOnly != null) {
+        for (final Uri fileOnly : filesOnly) {
             // addSubtitleTrack rather than paintSubtitle: it carries the already-on-screen guard, so
             // tapping the ticked row costs nothing and tapping it after "off" puts the subtitle back.
-            items.add(new Dialogs.MenuItem(subtitleFileLabel(fileOnly), null, painting,
-                    () -> addSubtitleTrack(fileOnly)));
+            // Remembered as well, so the next rebuild selects the file picked rather than the first.
+            final boolean ticked = painting
+                    && (filesOnly.size() == 1 || fileOnly.equals(paintedSubtitleUri));
+            items.add(new Dialogs.MenuItem(subtitleFileLabel(fileOnly), null, ticked,
+                    () -> {
+                        mPrefs.updateSubtitle(fileOnly);
+                        addSubtitleTrack(fileOnly);
+                        rememberSidePick(fileOnly);
+                    }));
         }
         int number = 0;
         for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
@@ -11355,6 +11389,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                         () -> {
                             applySubtitle(trackGroup, index);
                             rememberSeriesPick(C.TRACK_TYPE_TEXT, trackGroup, index);
+                            if (format.id != null) {
+                                rememberSidePick(Uri.parse(format.id));
+                            }
                         }));
             }
         }
@@ -11548,6 +11585,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 secondarySubtitleUri}) {
             if (painted != null && !uris.contains(painted)) {
                 uris.add(painted);
+            }
+        }
+        for (final Uri side : sideSubtitleUris) {
+            if (!uris.contains(side)) {
+                uris.add(side);
             }
         }
         for (final Uri cached : cachedSubtitleUris()) {
@@ -12425,27 +12467,34 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * painted, or can be. This is what keeps it in the picker after the viewer switches it off: without
      * a track of its own it would otherwise take the CC button with it and become unreachable.
      */
-    private Uri subtitleWithoutTrack() {
-        final Uri uri = mPrefs.subtitleUri;
-        if (uri == null || player == null) {
-            return null;
+    private List<Uri> subtitlesWithoutTrack() {
+        final List<Uri> uris = new ArrayList<>();
+        if (player == null) {
+            return uris;
         }
+        // The remembered one, then the others found beside the file in the order of their names.
+        if (mPrefs.subtitleUri != null && !sideSubtitleUris.contains(mPrefs.subtitleUri)) {
+            uris.add(mPrefs.subtitleUri);
+        }
+        uris.addAll(sideSubtitleUris);
         final MediaItem item = player.getCurrentMediaItem();
         if (item != null && item.localConfiguration != null) {
             for (final MediaItem.SubtitleConfiguration config : item.localConfiguration.subtitleConfigurations) {
-                if (config.uri.equals(uri)) {
-                    return null; // the item carries it, so the renderer and the picker do too
-                }
+                uris.remove(config.uri); // the item carries it, so the renderer and the picker do too
             }
         }
-        return uri;
+        return uris;
     }
 
     /** What a file with no track is called in the picker — the name its track would have carried. */
     private String subtitleFileLabel(Uri uri) {
         // Media3 normalises a track language before it reaches Format.language; a file name is raw.
-        final String language =
+        String language =
                 languageDisplayName(Util.normalizeLanguageCode(SubtitleUtils.getSubtitleLanguage(uri)));
+        final String number = SubtitleUtils.getSubtitleNumber(uri);
+        if (language != null && number != null) {
+            language = language + " " + number;
+        }
         final String label = language != null ? language : Utils.getFileName(this, uri);
         // A machine translation that reads like a human one in the picker is the feature lying about
         // itself: the first odd line then looks like a broken player rather than what was agreed to.
@@ -15557,14 +15606,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // Both, not one or the other: an external subtitle found for this media is added to the
             // ones the launcher supplied rather than in their place. Dropping either is how a track the
             // viewer was watching disappears on the next rebuild.
-            final MediaItem.SubtitleConfiguration remembered = rememberedSubtitle();
+            final List<MediaItem.SubtitleConfiguration> remembered = rememberedSubtitles();
             final List<MediaItem.SubtitleConfiguration> startingSubs = new ArrayList<>();
             if (apiAccess) {
                 startingSubs.addAll(apiSubs);
             }
-            if (remembered != null) {
-                startingSubs.add(remembered);
-            }
+            startingSubs.addAll(remembered);
             if (!startingSubs.isEmpty()) {
                 mediaItemBuilder.setSubtitleConfigurations(startingSubs);
             }
@@ -15572,8 +15619,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 // The playlist items are built from the intent and never saw the remembered subtitle, so
                 // the one item about to play gets it here. The rest pick up their own when they start.
                 final List<MediaItem> items = new ArrayList<>(apiMediaItems);
-                if (remembered != null && apiPlaylistStartIndex >= 0 && apiPlaylistStartIndex < items.size()) {
-                    items.set(apiPlaylistStartIndex, withSubtitle(items.get(apiPlaylistStartIndex), remembered));
+                if (apiPlaylistStartIndex >= 0 && apiPlaylistStartIndex < items.size()) {
+                    MediaItem start = items.get(apiPlaylistStartIndex);
+                    for (final MediaItem.SubtitleConfiguration subtitle : remembered) {
+                        start = withSubtitle(start, subtitle);
+                    }
+                    items.set(apiPlaylistStartIndex, start);
                 }
                 player.setMediaItems(items, apiPlaylistStartIndex, startPosition);
             } else {
@@ -19808,6 +19859,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     void searchSubtitles() {
+        // The previous media's files, whatever this search finds.
+        sideSubtitleUris.clear();
         if (mPrefs.mediaUri == null)
             return;
 
@@ -19846,26 +19899,80 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             }
 
             if (video != null) {
-                DocumentFile subtitle = null;
+                List<DocumentFile> found = Collections.emptyList();
                 if (mPrefs.scopeUri != null) {
-                    subtitle = SubtitleUtils.findSubtitle(video);
+                    found = SubtitleUtils.findSubtitles(video, video.getParentFile());
                 } else if (ContentResolver.SCHEME_FILE.equals(scheme)) {
                     File parentRaw = videoRaw.getParentFile();
-                    DocumentFile dir = DocumentFile.fromFile(parentRaw);
-                    subtitle = SubtitleUtils.findSubtitle(video, dir);
+                    DocumentFile dir = parentRaw == null ? null : DocumentFile.fromFile(parentRaw);
+                    found = SubtitleUtils.findSubtitles(video, dir);
                 }
 
-                if (subtitle != null) {
-                    handleSubtitles(subtitle.getUri());
+                if (!found.isEmpty()) {
+                    SubtitleUtils.clearCache(this);
+                    final List<Uri> uris = new ArrayList<>();
+                    for (final DocumentFile subtitle : found) {
+                        // Convert subtitles to UTF-8 if necessary
+                        final Uri uri = Utils.convertToUTF(this, subtitle.getUri());
+                        if (uri != null) {
+                            uris.add(uri);
+                        }
+                    }
+                    showSideSubtitles(uris);
                 }
             }
         }
     }
 
     /**
-     * A subtitle beside a file on a share or a WebDAV server, by the same rule as on the device
-     * (SubtitleUtils.findSubtitle): the one subtitle in a folder of one video, or the one named after
-     * the video. Neither branch above reaches a network address - the guessed names are http only - so
+     * The subtitles found beside the media: all of them kept for the picker, one put on screen — the
+     * first in the viewer's subtitle languages (SubtitleUtils.pickSubtitle). A pick the viewer made
+     * by hand is the series memory's to restore once the tracks are there (applySeriesTracks).
+     */
+    private void showSideSubtitles(final List<Uri> uris) {
+        sideSubtitleUris.clear();
+        sideSubtitleUris.addAll(uris);
+        Uri chosen = SubtitleUtils.pickSubtitle(uris, Utils.splitLanguages(mPrefs.languageSubtitle));
+        if (chosen == null) {
+            return;
+        }
+        // The viewer's own pick for this file outranks the language: three English files are all
+        // "English", and the first of them is only the guess.
+        final String picked = mPrefs.mediaUri == null ? null
+                : getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE)
+                        .getString(SIDE_PICK_PREFIX + mPrefs.mediaUri, null);
+        for (final Uri uri : uris) {
+            if (uri.getLastPathSegment() != null && uri.getLastPathSegment().equals(picked)) {
+                chosen = uri;
+                break;
+            }
+        }
+        Utils.log("subtitles: " + uris.size() + " beside the file, showing " + chosen.getLastPathSegment());
+        // Remembered either way: a player not built yet reads it when it is.
+        mPrefs.updateSubtitle(chosen);
+        addSubtitleTrack(chosen);
+    }
+
+    // Which of the files beside the media the viewer picked, by the file's name, per media. Beside the
+    // series memory rather than in it: that one is kept per folder, and files in one folder each have
+    // sidecars of their own.
+    private static final String SIDE_PICK_PREFIX = "side|";
+
+    /** Keeps a pick among the files beside the media; anything that is not one of them is ignored. */
+    private void rememberSidePick(final Uri uri) {
+        if (mPrefs.mediaUri == null || uri == null || !sideSubtitleUris.contains(uri)
+                || uri.getLastPathSegment() == null) {
+            return;
+        }
+        getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE).edit()
+                .putString(SIDE_PICK_PREFIX + mPrefs.mediaUri, uri.getLastPathSegment()).apply();
+        Utils.log("subtitles: kept " + uri.getLastPathSegment() + " for this file");
+    }
+
+    /**
+     * The subtitles beside a file on a share or a WebDAV server, by the same rule as on the device
+     * (SubtitleUtils.findSubtitles): the ones named after the video, else all of them in a folder of
+     * one video. Neither branch above reaches a network address - the guessed names are http only - so
      * "3.mkv" with "3.ssa" next to it over SMB played without them (Dune and Shield, 25.10).
      *
      * <p>Off the main thread: the folder is a listing and the file a read. The subtitle is copied into
@@ -19876,42 +19983,51 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         new Thread(() -> {
             try {
                 final DocumentFile[] media = mediaAndFolder();
-                final DocumentFile found = media == null ? null
-                        : SubtitleUtils.findSubtitle(media[0], media[1]);
-                if (found == null) {
+                final List<DocumentFile> found = media == null ? Collections.emptyList()
+                        : SubtitleUtils.findSubtitles(media[0], media[1]);
+                final List<Uri> copies = new ArrayList<>();
+                for (final DocumentFile file : found) {
+                    // One unreadable file is no reason to lose the others.
+                    try {
+                        final Uri copy = copyNetworkSubtitle(file.getUri());
+                        if (copy != null) {
+                            copies.add(copy);
+                        }
+                    } catch (final Exception e) {
+                        Utils.log("subtitles: not read beside the file: " + file.getName() + ": " + e);
+                    }
+                }
+                if (copies.isEmpty()) {
                     return;
                 }
-                final Uri uri = found.getUri();
-                final androidx.media3.datasource.DataSource source =
-                        NetworkThumbs.sideFiles(this).createDataSource();
-                final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-                try {
-                    source.open(new androidx.media3.datasource.DataSpec(uri));
-                    final byte[] buffer = new byte[64 * 1024];
-                    int n;
-                    while ((n = source.read(buffer, 0, buffer.length)) != -1) {
-                        bytes.write(buffer, 0, n);
-                    }
-                } finally {
-                    source.close();
-                }
-                final Uri copy = Utils.convertInputStreamToUTF(this, uri,
-                        new java.io.ByteArrayInputStream(bytes.toByteArray()));
-                Utils.log("subtitles: beside the file " + found.getName());
                 runOnUiThread(() -> {
-                    if (copy == null || !video.equals(mPrefs.mediaUri)) {
-                        return;
-                    }
-                    // Remembered either way: a player not built yet reads it when it is.
-                    mPrefs.updateSubtitle(copy);
-                    if (player != null) {
-                        addSubtitleTrack(copy);
+                    if (video.equals(mPrefs.mediaUri)) {
+                        showSideSubtitles(copies);
                     }
                 });
             } catch (final Exception e) {
                 Utils.log("subtitles: none read beside the file: " + e);
             }
         }, "network-subtitles").start();
+    }
+
+    /** A subtitle on a share or a WebDAV server, read whole and kept in the cache as UTF-8. */
+    private Uri copyNetworkSubtitle(final Uri uri) throws java.io.IOException {
+        final androidx.media3.datasource.DataSource source =
+                NetworkThumbs.sideFiles(this).createDataSource();
+        final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try {
+            source.open(new androidx.media3.datasource.DataSpec(uri));
+            final byte[] buffer = new byte[64 * 1024];
+            int n;
+            while ((n = source.read(buffer, 0, buffer.length)) != -1) {
+                bytes.write(buffer, 0, n);
+            }
+        } finally {
+            source.close();
+        }
+        return Utils.convertInputStreamToUTF(this, uri,
+                new java.io.ByteArrayInputStream(bytes.toByteArray()));
     }
 
     /**
