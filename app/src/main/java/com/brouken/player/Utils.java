@@ -1033,17 +1033,23 @@ public class Utils {
         if (Build.VERSION.SDK_INT >= 30) {
             final View host = (View) content.getParent();
             final int hostBottom = host.getPaddingBottom();
-            // A panel over the controls' row already stands that row's height off the bottom, as its
-            // margin. The keyboard covers that gap rather than adding to it: counted on top of it, the
-            // online subtitle search on Dune was left 234 px - a squashed field with its text clipped
-            // and no room at all for the results (26.10.2026).
-            final ViewGroup.LayoutParams lp = content.getLayoutParams();
-            final int standing = lp instanceof ViewGroup.MarginLayoutParams
-                    ? ((ViewGroup.MarginLayoutParams) lp).bottomMargin : 0;
+            // A panel over the controls' row stands that row's height off the bottom, as its margin.
+            // With the keyboard up the row is under it anyway, so the margin goes and the panel reaches
+            // down to the keyboard: counted on top of the keyboard, the online subtitle search on Dune
+            // was left 234 px - a squashed field, its text clipped, no room for the results - and
+            // kept above the row it still cut the first result in half (26.10.2026).
+            final ViewGroup.MarginLayoutParams lp = content.getLayoutParams()
+                    instanceof ViewGroup.MarginLayoutParams
+                    ? (ViewGroup.MarginLayoutParams) content.getLayoutParams() : null;
+            final int standing = lp != null ? lp.bottomMargin : 0;
             host.setOnApplyWindowInsetsListener((v, insets) -> {
                 final int ime = insets.getInsets(WindowInsets.Type.ime()).bottom;
                 v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(),
-                        hostBottom + Math.max(0, ime - standing));
+                        hostBottom + ime);
+                if (lp != null && lp.bottomMargin != (ime > 0 ? 0 : standing)) {
+                    lp.bottomMargin = ime > 0 ? 0 : standing;
+                    content.setLayoutParams(lp);
+                }
                 return insets;
             });
         }
