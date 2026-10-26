@@ -6894,9 +6894,13 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final MediaItem item = player == null ? null : player.getCurrentMediaItem();
         final CharSequence title = item != null ? item.mediaMetadata.title : null;
         // Through HeaderTitle either way: a playlist's item titles are often its files' names too.
-        final CharSequence named = title == null || title.length() == 0
-                ? Utils.getFileName(this, mPrefs.mediaUri) : title;
-        return named == null ? null : HeaderTitle.clean(named.toString());
+        final Uri uri = item != null && item.localConfiguration != null
+                ? item.localConfiguration.uri : mPrefs.mediaUri;
+        final String fileName = uri == null ? null : Utils.getFileName(this, uri);
+        final CharSequence named = title == null || title.length() == 0 ? fileName : title;
+        // A title that is the file's own name is read as one; a caller's is left its square brackets.
+        return named == null ? null
+                : HeaderTitle.clean(named.toString(), named.toString().equals(fileName));
     }
 
     void updateTopInfo() {

@@ -37,6 +37,14 @@ public class HeaderTitleTest {
         assertEquals("[REC] 2", HeaderTitle.clean("[REC] 2"));
     }
 
+    /** The player's file name arrives with the extension already cut (Dune, 26.10). */
+    @Test
+    public void fileNameWithoutExtension() {
+        assertEquals("11.22.63 - S01E01 - Кроличья нора",
+                HeaderTitle.clean("11.22.63 - S01E01 - Кроличья нора [1080p]", true));
+        assertEquals("[REC] 2", HeaderTitle.clean("[REC] 2", false));
+    }
+
     @Test
     public void nothingLeftKeepsTheName() {
         assertEquals("[1080p]", HeaderTitle.clean("[1080p].mkv"));
