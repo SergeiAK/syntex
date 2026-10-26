@@ -705,8 +705,8 @@
     <string name="pref_mask_reports">Hide links in reports</string>
     <string name="pref_mask_reports_on">Video links are cut to the server and path, local files to their type</string>
     <string name="pref_mask_reports_off">Reports carry whole video links, tokens included. An uploaded report is public</string>
-    <string name="pref_seek_trial_header">Seeking (trial)</string>
-    <string name="pref_seek_trial_header_summary">Ways of seeking from the remote, to try side by side</string>
+    <string name="pref_seek_trial_header">Seeking</string>
+    <string name="pref_seek_trial_header_summary">How the remote seeks: short press, steps, hold, preview</string>
     <string name="pref_seek_short_press">Short press</string>
     <string name="pref_seek_short_press_ladder">Speeds up with quick presses: 3, 10, 30, 60 s</string>
     <string name="pref_seek_short_press_fixed">Fixed step, set below</string>

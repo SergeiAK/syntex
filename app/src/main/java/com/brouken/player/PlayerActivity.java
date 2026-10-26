@@ -1166,6 +1166,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     private Thread segmentFinderThread;
     /** What each address's name came to for the segment lookup - see {@link #findSegmentsByName}. */
     private final Map<String, MediaId> idsFromNames = new HashMap<>();
+    /** Addresses whose name is being matched against TMDB, with who is waiting for the answer. */
+    private final Map<String, List<java.util.function.Consumer<MediaId>>> namesInFlight = new HashMap<>();
     /** The name was read and says nothing; kept so it is not read, nor TMDB asked, again. */
     private static final MediaId NO_ID = new MediaId(null, null, -1, -1);
     public Thread frameRateSwitchThread;
@@ -5408,59 +5410,109 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * wave - the same item once its duration is known - and a replay ask TMDB nothing.
      */
     private void findSegmentsByName(int index) {
-        final MediaItem item = index >= 0 && index < player.getMediaItemCount()
+        cancelSegmentFinder();
+        final int generation = segmentFetchGeneration;
+        idFromName(index, id -> {
+            if (generation != segmentFetchGeneration || player == null) {
+                return;
+            }
+            if (id.isEmpty()) {
+                Utils.log("segments: no title id, and the name says nothing either");
+            } else {
+                findSegments(id, index, generation);
+            }
+        });
+    }
+
+    /**
+     * The ids an item's name and folders come to, handed to {@code done} on the main thread (at once
+     * when the answer is already known). {@link #NO_ID} when the name says nothing or TMDB has no exact
+     * match. Shared by the segment lookup and the subtitle search, so a file asks TMDB once between
+     * them, and two askers arriving together share one request.
+     */
+    private void idFromName(final int index, final java.util.function.Consumer<MediaId> done) {
+        final MediaItem item = index >= 0 && player != null && index < player.getMediaItemCount()
                 ? player.getMediaItemAt(index) : null;
         final Uri uri = item != null && item.localConfiguration != null ? item.localConfiguration.uri : null;
         if (uri == null) {
+            done.accept(NO_ID);
             return;
         }
         final String key = uri.toString();
-        cancelSegmentFinder();
-        final int generation = segmentFetchGeneration;
         final MediaId known = idsFromNames.get(key);
         if (known != null) {
-            if (known.isEmpty()) {
-                Utils.log("segments: no title id, and the name says nothing either");
-            } else {
-                findSegments(known, index, generation);
-            }
+            done.accept(known);
+            return;
+        }
+        final List<java.util.function.Consumer<MediaId>> waiting = namesInFlight.get(key);
+        if (waiting != null) {
+            waiting.add(done);
             return;
         }
         final NameId read = NameId.read(namedPath(uri),
                 stringAt(apiPlaylistNames, index, index == apiExtrasIndex ? apiTitle : null));
         if (read == null) {
-            Utils.log("segments: no title id, and the name says nothing either");
+            Utils.log("name id: the name says nothing");
             idsFromNames.put(key, NO_ID);
+            done.accept(NO_ID);
             return;
         }
         if (read.hasId()) {
             final MediaId id = new MediaId(read.imdb, read.tmdb, read.season, read.episode);
-            Utils.log("segments: ids from the name, " + read);
+            Utils.log("name id: ids from the name, " + read);
             idsFromNames.put(key, id);
-            findSegments(id, index, generation);
+            done.accept(id);
             return;
         }
+        final List<java.util.function.Consumer<MediaId>> asked = new ArrayList<>();
+        asked.add(done);
+        namesInFlight.put(key, asked);
         final Thread worker = new Thread(() -> {
             final TitleSearch.Title title = TitleSearch.match(read.title, read.year, read.isMovie());
             runOnUiThread(() -> {
-                if (generation != segmentFetchGeneration || player == null) {
-                    return;
-                }
+                final MediaId id;
                 if (title == null) {
-                    Utils.log("segments: no title id, TMDB has no exact match for " + read);
-                    idsFromNames.put(key, NO_ID);
-                    return;
+                    Utils.log("name id: TMDB has no exact match for " + read);
+                    id = NO_ID;
+                } else {
+                    Utils.log("name id: " + read + " is tmdb " + title.tmdb + " (" + title.name + ", "
+                            + title.year + ")");
+                    id = new MediaId(null, title.tmdb, read.season, read.episode);
                 }
-                Utils.log("segments: " + read + " is tmdb " + title.tmdb + " (" + title.name + ", "
-                        + title.year + ")");
-                final MediaId id = new MediaId(null, title.tmdb, read.season, read.episode);
                 idsFromNames.put(key, id);
-                findSegments(id, index, generation);
+                namesInFlight.remove(key);
+                for (final java.util.function.Consumer<MediaId> each : asked) {
+                    each.accept(id);
+                }
             });
         }, "NameId");
         worker.setDaemon(true);
         worker.start();
-        segmentFinderThread = worker;
+    }
+
+    /**
+     * What the online subtitle search is keyed by: what the launcher sent, or else what the file's name
+     * came to. Only {@link #idFromName} has to have run for the second to be known; this never
+     * starts it.
+     */
+    @Nullable
+    private String nameKey(final int index) {
+        if (player == null || index < 0 || index >= player.getMediaItemCount()) {
+            return null;
+        }
+        final MediaItem item = player.getMediaItemAt(index);
+        return item.localConfiguration == null ? null : item.localConfiguration.uri.toString();
+    }
+
+    private MediaId subtitleIdAt(final int index) {
+        final MediaId sent = mediaIdAt(index);
+        if (!sent.isEmpty() || player == null || index < 0 || index >= player.getMediaItemCount()) {
+            return sent;
+        }
+        final MediaItem item = player.getMediaItemAt(index);
+        final MediaId named = item.localConfiguration == null ? null
+                : idsFromNames.get(item.localConfiguration.uri.toString());
+        return named == null ? sent : named;
     }
 
     /**
@@ -10722,10 +10774,22 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 + (mPrefs.subtitleSourceStremio ? "stremio " : "")
                 + (mPrefs.subtitleSourceShegu ? "shegu" : "")
                 + ", list=" + mPrefs.languageSubtitle + "/" + mPrefs.languageSubtitleSecondary);
-        final MediaId id = mediaIdAt(player.getCurrentMediaItemIndex());
+        final int itemIndex = player.getCurrentMediaItemIndex();
+        final MediaId id = subtitleIdAt(itemIndex);
+        final String nameKey = nameKey(itemIndex);
+        if (id.isEmpty() && nameKey != null && !idsFromNames.containsKey(nameKey)) {
+            // Every source is keyed by imdb or tmdb. Nothing came with the file, so its name and
+            // folders are read first — the same reading the segment lookup does, asked once for both —
+            // and the search is run again when it has an answer.
+            idFromName(itemIndex, named -> {
+                if (player != null && player.getCurrentMediaItemIndex() == itemIndex) {
+                    maybeSearchSubtitlesOnline(tracks, manual, languages, forSecondary);
+                }
+            });
+            return;
+        }
         if (id.isEmpty()) {
-            // Nothing to ask the sources about. Every one of them is keyed by imdb or tmdb, so a file
-            // opened without a title behind it cannot be searched for at all.
+            // Nothing to ask the sources about, and the name says nothing either.
             Utils.log("subtitles: no title id, not searching");
             if (manual) {
                 // Asked for out loud, so it is answered out loud. Silence here reads as a search that
@@ -11472,7 +11536,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (player == null) {
             return uris;
         }
-        final MediaId id = mediaIdAt(player.getCurrentMediaItemIndex());
+        final MediaId id = subtitleIdAt(player.getCurrentMediaItemIndex());
         if (id == null || id.isEmpty()) {
             return uris;
         }
@@ -15244,7 +15308,16 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                                     : DavFiles.speaks(dataSpec.uri)
                                             ? DavFiles.http(dataSpec.uri) : null;
                             if (http == null) {
-                                return dataSpec;
+                                // Already the http(s) address of a saved place: a reader that opens a
+                                // source again by the address it reports (MediaExtractor, on a seek)
+                                // comes back with the rewritten one, which would go out without the
+                                // credentials the first open had and be answered with a 401.
+                                final String scheme = dataSpec.uri.getScheme();
+                                final String again = "https".equals(scheme) || "http".equals(scheme)
+                                        ? NetworkFiles.authorization(this, dataSpec.uri) : null;
+                                return again == null || dataSpec.httpRequestHeaders.containsKey("Authorization")
+                                        ? dataSpec : dataSpec.withAdditionalHeaders(
+                                                Collections.singletonMap("Authorization", again));
                             }
                             final String authorization =
                                     NetworkFiles.authorization(this, dataSpec.uri);
@@ -15289,8 +15362,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // A Matroska file whose index is reached through a chain of SeekHeads is unseekable to the stock
         // extractor — no time bar focus on TV, no resume, every seek landing back at zero. Outermost, so
         // that Dv7Converter still finds a MatroskaExtractor where it looks for one; see MkvCuesLink.
-        final ExtractorsFactory seekableExtractorsFactory =
-                new MkvCuesLink.Factory(convertDV7 ? dv7Converter : baseExtractorsFactory);
+        // A fragmented MP4 without any index is walked box by box on a thread of its own and becomes seekable
+        // when that is done; for the player only, the preview frames do not need it (see UnindexedFmp4).
+        final ExtractorsFactory seekableExtractorsFactory = new MkvCuesLink.Factory(
+                new UnindexedFmp4.Factory(convertDV7 ? dv7Converter : baseExtractorsFactory, hashSource));
         // The preview frames' own extractor (FileFrames) reads through the same sources, without the
         // wrappers that watch the player's bytes, and without the DV7 rewrite: a preview needs the base
         // layer only.

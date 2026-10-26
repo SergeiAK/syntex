@@ -681,8 +681,8 @@
     <string name="pref_mask_reports">Скрывать ссылки в отчётах</string>
     <string name="pref_mask_reports_on">Ссылки на видео сокращаются до сервера и пути, локальные файлы — до типа</string>
     <string name="pref_mask_reports_off">Отчёты содержат полные ссылки на видео вместе с токенами. Загруженный отчёт публичен</string>
-    <string name="pref_seek_trial_header">Перемотка (проба)</string>
-    <string name="pref_seek_trial_header_summary">Варианты перемотки пультом — попробовать и выбрать</string>
+    <string name="pref_seek_trial_header">Перемотка</string>
+    <string name="pref_seek_trial_header_summary">Как пульт перематывает: короткое нажатие, шаги, удержание, превью</string>
     <string name="pref_seek_short_press">Короткое нажатие</string>
     <string name="pref_seek_short_press_ladder">Разгоняется при частых нажатиях: 3, 10, 30, 60 с</string>
     <string name="pref_seek_short_press_fixed">Постоянный шаг, задаётся ниже</string>

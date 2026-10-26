@@ -152,11 +152,18 @@
                 app:summaryOff="@string/pref_tv_single_back_off"
                 app:title="@string/pref_tv_single_back" />
 
-            <!-- The seek trial: kept apart so it can go whole once a way is chosen. -->
+            <!-- Everything about seeking from the remote; the key keeps its trial-era name so saved state stays. -->
             <PreferenceScreen
                 app:key="seekTrialScreen"
                 app:summary="@string/pref_seek_trial_header_summary"
                 app:title="@string/pref_seek_trial_header">
+
+                <SwitchPreferenceCompat
+                    app:key="seekPreview"
+                    app:defaultValue="true"
+                    app:summaryOn="@string/pref_seek_preview_on"
+                    app:summaryOff="@string/pref_seek_preview_off"
+                    app:title="@string/pref_seek_preview" />
 
                 <ListPreference
                     app:key="seekShortPress"
@@ -253,13 +260,6 @@
                 app:entryValues="@array/chapter_marks_values"
                 app:title="@string/pref_chapter_marks"
                 app:useSimpleSummaryProvider="true" />
-
-            <SwitchPreferenceCompat
-                app:key="seekPreview"
-                app:defaultValue="true"
-                app:summaryOn="@string/pref_seek_preview_on"
-                app:summaryOff="@string/pref_seek_preview_off"
-                app:title="@string/pref_seek_preview" />
 
             <ListPreference
                 app:key="controllerTimeout"
