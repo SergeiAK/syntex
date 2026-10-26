@@ -1033,9 +1033,17 @@ public class Utils {
         if (Build.VERSION.SDK_INT >= 30) {
             final View host = (View) content.getParent();
             final int hostBottom = host.getPaddingBottom();
+            // A panel over the controls' row already stands that row's height off the bottom, as its
+            // margin. The keyboard covers that gap rather than adding to it: counted on top of it, the
+            // online subtitle search on Dune was left 234 px - a squashed field with its text clipped
+            // and no room at all for the results (26.10.2026).
+            final ViewGroup.LayoutParams lp = content.getLayoutParams();
+            final int standing = lp instanceof ViewGroup.MarginLayoutParams
+                    ? ((ViewGroup.MarginLayoutParams) lp).bottomMargin : 0;
             host.setOnApplyWindowInsetsListener((v, insets) -> {
+                final int ime = insets.getInsets(WindowInsets.Type.ime()).bottom;
                 v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(),
-                        hostBottom + insets.getInsets(WindowInsets.Type.ime()).bottom);
+                        hostBottom + Math.max(0, ime - standing));
                 return insets;
             });
         }
