@@ -3131,6 +3131,16 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 final boolean wasVisibleFully = controllerVisibleFully;
                 controllerVisible = visibility == View.VISIBLE;
                 controllerVisibleFully = playerView.isControllerFullyVisible();
+                // Not under the resume question. askResume hides the controls, but on ⏭ in the panel
+                // the press that started the jump brings them back after it (Shield, 25.10: header,
+                // buttons and the bar under the question, "From the start" over ⏮).
+                if (controllerVisible && resumeDialog != null && resumeDialog.isShowing()) {
+                    playerView.post(() -> {
+                        if (resumeDialog != null && resumeDialog.isShowing()) {
+                            playerView.hideController();
+                        }
+                    });
+                }
                 // The rail is part of the controls: it goes with them and is not there when they return. Closed
                 // as the hide starts, so the block parks from its own place rather than from over the rail.
                 if ((!controllerVisible || (wasVisibleFully && !controllerVisibleFully)) && tvRailMode != RAIL_NONE) {
@@ -15917,6 +15927,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // held in brings them straight back.
         playerView.setControllerAutoShow(false);
         playerView.hideController();
+        // Once more after the press that led here is done with: see the controls' visibility listener.
+        playerView.post(playerView::hideController);
         final long duration = player == null ? C.TIME_UNSET : player.getDuration();
         final Dialog dialog = ResumePrompt.show(this, ui, currentTitle(), positionMs,
                 duration == C.TIME_UNSET ? 0 : duration, this::playPending, () -> {
