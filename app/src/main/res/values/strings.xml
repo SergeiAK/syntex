@@ -23,6 +23,8 @@
     <string name="browse_sort_name_desc">Name, Z to A</string>
     <string name="browse_sort_date">Newest first</string>
     <string name="browse_sort_date_asc">Oldest first</string>
+    <string name="browse_sort_type">By file type</string>
+    <string name="browse_sort_size">Largest first</string>
     <string name="browse_search">Search</string>
     <string name="browse_no_matches">Nothing here matches that.</string>
     <string name="browse_no_matches_folder">Nothing in this folder matches that.</string>

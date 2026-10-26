@@ -2855,6 +2855,29 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
      * the listing, and the media index from its own cursor ({@link #dates}).
      */
     private void order(final List<Item> items, final String order) {
+        if ("type".equals(order)) {
+            // Grouped by extension, and by name inside a group. A folder has no type and keeps the
+            // name order, which is what an empty extension sorts to anyway.
+            Collections.sort(items, (a, b) -> {
+                final int kind = extensionOf(a).compareTo(extensionOf(b));
+                return kind != 0 ? kind : Utils.compareNatural(a.name, b.name);
+            });
+            return;
+        }
+        if ("size".equals(order)) {
+            // Largest first; read once, as the dates below are. A folder weighs nothing a listing
+            // states, so folders fall back to the name order among themselves.
+            final Map<Item, Long> weight = new HashMap<>();
+            for (final Item item : items) {
+                final Long indexed = sizes.get(item.file.getUri().toString());
+                weight.put(item, item.folder ? 0L : indexed != null ? indexed : item.file.length());
+            }
+            Collections.sort(items, (a, b) -> {
+                final int bigger = Long.compare(weight.get(b), weight.get(a));
+                return bigger != 0 ? bigger : Utils.compareNatural(a.name, b.name);
+            });
+            return;
+        }
         if (order.startsWith("name")) {
             final boolean back = "name_desc".equals(order);
             Collections.sort(items, (a, b) -> back
@@ -2883,6 +2906,28 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         return "file".equals(folder.getUri().getScheme()) ? pathOf(folder) : folder.getUri().toString();
     }
 
+    /**
+     * A file's extension in lower case, without the dot; empty for a folder, a volume or a name that
+     * has none. A dot that opens the name (".hidden") is not one.
+     */
+    private static String extensionOf(final Item item) {
+        if (item.folder || item.volume) {
+            return "";
+        }
+        // A media server's title carries no extension and may well hold a dot ("Film.2020", "Vol. 2"):
+        // only a short tail with a letter in it counts, so a year or a number stays in the name.
+        final int dot = item.name.lastIndexOf('.');
+        final String tail = dot > 0 ? item.name.substring(dot + 1) : "";
+        return tail.length() >= 2 && tail.length() <= 5 && tail.matches("[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*")
+                ? tail.toLowerCase(java.util.Locale.ROOT) : "";
+    }
+
+    /** The name without its extension, which the meta line states instead (see videoMeta). */
+    private static String bareName(final Item item) {
+        final String ext = extensionOf(item);
+        return ext.isEmpty() ? item.name : item.name.substring(0, item.name.length() - ext.length() - 1);
+    }
+
     private String orderOf(final DocumentFile folder) {
         return Prefs.browseOrder(this, orderKey(folder));
     }
@@ -2895,9 +2940,10 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         final View anchor = findViewById(R.id.browse_sort);
         final androidx.appcompat.widget.PopupMenu popup = new androidx.appcompat.widget.PopupMenu(
                 this, anchor != null ? anchor : list, android.view.Gravity.END);
-        final String[] orders = { "name", "name_desc", "date", "date_asc" };
+        final String[] orders = { "name", "name_desc", "date", "date_asc", "type", "size" };
         final int[] titles = { R.string.browse_sort_name, R.string.browse_sort_name_desc,
-                R.string.browse_sort_date, R.string.browse_sort_date_asc };
+                R.string.browse_sort_date, R.string.browse_sort_date_asc,
+                R.string.browse_sort_type, R.string.browse_sort_size };
         final String current = orderOf(folder);
         for (int i = 0; i < orders.length; i++) {
             popup.getMenu().add(1, i, i, titles[i]).setChecked(orders[i].equals(current));
@@ -3706,7 +3752,9 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         }
 
         void bind(final Item item) {
-            name.setText(item.name);
+            // A list row moves the extension to the meta line, before the size; a tile has no room
+            // there and keeps the whole name.
+            name.setText(tile ? item.name : bareName(item));
             // The tag is what a late answer checks itself against: the row it was asked for may have
             // been recycled onto another file by the time a duration or a folder's contents come back.
             itemView.setTag(item);
@@ -3922,7 +3970,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             final Long when = dates.get(key);
             setDate(when != null ? when : item.file.lastModified());
             final StringBuilder line = new StringBuilder();
-            for (final String part : new String[]{ said, size }) {
+            final String ext = extensionOf(item).toUpperCase(java.util.Locale.ROOT);
+            for (final String part : new String[]{ said, ext, size }) {
                 if (part != null && !part.isEmpty()) {
                     if (line.length() > 0) {
                         line.append(" · ");

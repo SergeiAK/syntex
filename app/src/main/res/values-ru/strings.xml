@@ -647,6 +647,8 @@
     <string name="browse_sort_name_desc">По имени, Я → А</string>
     <string name="browse_sort_date">Сначала новые</string>
     <string name="browse_sort_date_asc">Сначала старые</string>
+    <string name="browse_sort_type">По типу файла</string>
+    <string name="browse_sort_size">Сначала большие</string>
     <string name="sleep_timer_less">На пять минут меньше</string>
     <string name="sleep_timer_more">На пять минут больше</string>
     <string name="pref_browser_header">Браузер файлов</string>
