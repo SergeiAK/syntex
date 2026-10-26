@@ -1036,6 +1036,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // The same, for the player that is loading: decided when its held start is spent (playPending), once
     // the length and the credits are known. Null when there is nothing to decide.
     private ResumePolicy.Start resumeCheck;
+    /** The viewer seeked while the start was held: their place stands, the resume decision is not made. */
+    private boolean seekedBeforeResume;
     private Dialog resumeDialog;
     private float subtitlesScale;
     private float secondarySubtitlesScale;
@@ -15520,6 +15522,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
             resumeCheck = resumeStart;
             resumeStart = null;
+            seekedBeforeResume = false;
             // "Always from the start" needs neither the length nor the credits, so it does not load the
             // remembered place only to leave it once the display has settled.
             final boolean startOver = resumeCheck != null && ResumePolicy.NEVER.equals(resumeMode());
@@ -15834,6 +15837,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             return false;
         }
         final long position = player.getCurrentPosition();
+        if (seekedBeforeResume) {
+            // A press during the hold after a display mode switch: the hold ended with the viewer's own
+            // place, and under 30 s the policy would have sent it back to 0 (Dune and Shield, 25.10).
+            Utils.log("resume: viewer seeked during the hold, staying at " + position);
+            return false;
+        }
         final long duration = player.getDuration();
         final ResumePolicy.Decision decision = ResumePolicy.decide(resumeMode(), start, position,
                 duration == C.TIME_UNSET ? 0 : duration, creditsMs());
@@ -16687,6 +16696,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         @Override
         public void onPositionDiscontinuity(Player.PositionInfo oldPosition,
                                             Player.PositionInfo newPosition, int reason) {
+            // The start position is given with the media item, not sought, so a seek before the
+            // resume check is the viewer's.
+            if (resumeCheck != null && reason == Player.DISCONTINUITY_REASON_SEEK
+                    && oldPosition.mediaItemIndex == newPosition.mediaItemIndex) {
+                seekedBeforeResume = true;
+            }
             // Not while scrubbing: a drag is dozens of seeks, each a different line the fold cannot merge.
             if (!isScrubbing) {
                 Utils.log("discontinuity reason=" + reason + " " + oldPosition.positionMs + " -> "
