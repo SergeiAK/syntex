@@ -1111,7 +1111,7 @@ public class Utils {
         // box. These panels size their own rows, so the inset only shortens them.
         button.setInsetTop(0);
         button.setInsetBottom(0);
-        button.setMinHeight(ui.dpS(48)); // the platform's floor for anything a finger has to hit
+        button.setMinHeight(ui.panelControl()); // the platform's floor for anything a finger has to hit
         focusRing(button);
         button.setPadding(ui.dpS(4), button.getPaddingTop(), ui.dpS(4), button.getPaddingBottom());
         // Shrunk rather than wrapped or clipped: the widest label already fills its share of the row at

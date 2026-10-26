@@ -988,6 +988,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     private int tvRailLift;
     /** The bottom inset the block stands on without the rail - where the rail itself stands. */
     private int tvRailBase;
+    /** The rail an open panel took the place of, to put back when it closes; RAIL_NONE otherwise. */
+    private int railUnderPanel = RAIL_NONE;
     /** Chapter stills of the file in {@link #chapterFramesFor}, by chapter start; taken on the frame worker. */
     private final Map<Long, Bitmap> chapterFrames = new HashMap<>();
     @Nullable
@@ -5286,7 +5288,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final OffsetPanel.Choice[] choices = hasSkipSegment()
                 ? new OffsetPanel.Choice[]{ skipModeChoice() } : new OffsetPanel.Choice[0];
         skipOffsetDialog = OffsetPanel.create(this, ui,
-                getString(R.string.skip_session_title), OFFSET_MAX_SEC, OFFSET_STEP_SEC, choices,
+                getString(isTvBox ? R.string.skip_session_title_short : R.string.skip_session_title),
+                OFFSET_MAX_SEC, OFFSET_STEP_SEC, choices,
                 // Captioned only while it shares the panel with the row above it; alone it is the panel.
                 new OffsetPanel.Line(choices.length == 0 ? null : getString(R.string.skip_offset_title),
                         skipOffsetSec, this::applySkipOffset));
@@ -5783,12 +5786,46 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (!isTvBox || tvButtonRow == null || tvButtonRow.getHeight() == 0 || getWindow() == null) {
             return null;
         }
+        // The rail under the row goes while a panel is open, and comes back when the last one closes
+        // (showPickerDialog). Over the rail a panel had 191dp of height on Dune and showed one row of
+        // subtitles; without it, 357. The row has not come down yet when this is asked - the insets are
+        // applied on the next pass - so the panel is placed where it is about to be.
+        int lowered = 0;
+        if (tvRailMode != RAIL_NONE) {
+            railUnderPanel = tvRailMode;
+            lowered = tvRailLift;
+            closeTvRail(false);
+        }
         final View root = getWindow().getDecorView();
         final int[] at = new int[2];
         tvButtonRow.getLocationOnScreen(at);
-        final int bottom = root.getHeight() - at[1] + ui.dpS(10);
+        final int bottom = root.getHeight() - at[1] + ui.dpS(10) - lowered;
         final int end = Math.max(0, root.getWidth() - (at[0] + tvButtonRow.getWidth()) - ui.dpS(8));
         return new Rect(0, 0, end, bottom);
+    }
+
+    /**
+     * The rail a panel took away (panelAnchor), back under the row - posted, because "More" closes
+     * before the panel it opens is shown, and the rail would otherwise come up and go again in between.
+     * The focus stays where the panel left it, on the button that opened it - unless the panel was
+     * opened from the rail itself (a key such as Captions on a card), whose card went with the rail:
+     * then the rail takes the focus back, or a remote would be left with nothing focused at all.
+     */
+    private void restoreRailUnderPanel() {
+        if (railUnderPanel == RAIL_NONE) {
+            return;
+        }
+        playerView.post(() -> {
+            final int mode = railUnderPanel;
+            if (pickerDialogs > 0 || mode == RAIL_NONE) {
+                return;
+            }
+            railUnderPanel = RAIL_NONE;
+            if (controllerVisibleFully && tvRailMode == RAIL_NONE) {
+                final View focused = getCurrentFocus();
+                showTvRail(mode, focused == null || !focused.isShown());
+            }
+        });
     }
 
     private void showPickerDialog(final android.app.Dialog dialog) {
@@ -5817,6 +5854,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 playerView.setControllerShowTimeoutMs(player != null && player.isPlaying()
                         ? CONTROLLER_TIMEOUT : -1);
                 playerView.showController();
+                restoreRailUnderPanel();
             }
             Utils.toggleSystemUi(PlayerActivity.this, playerView, controllerVisibleFully);
         });
@@ -9050,6 +9088,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     private void showTvRail(final int mode) {
+        showTvRail(mode, true);
+    }
+
+    /** @param takeFocus false to bring the rail back without moving the focus onto it */
+    private void showTvRail(final int mode, final boolean takeFocus) {
         final View barView = findViewById(R.id.exo_bottom_bar);
         if (barView == null || !(barView.getParent() instanceof ViewGroup)) {
             return;
@@ -9080,7 +9123,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             playerView.requestApplyInsets();
         }
         resetHideCallbacks();
-        if (focus != null) {
+        if (focus != null && takeFocus) {
             focus.post(() -> {
                 focus.requestFocus();
                 final View scroller = (View) focus.getParent().getParent();
@@ -13064,7 +13107,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (speedDialog != null) {
             speedDialog.dismiss();
         }
-        speedDialog = SpeedPanel.create(this, ui, getString(R.string.speed_title), userSpeed(),
+        speedDialog = SpeedPanel.create(this, ui,
+                getString(isTvBox ? R.string.speed_title_short : R.string.speed_title), userSpeed(),
                 this::applySpeed);
         showPickerDialog(speedDialog);
     }
@@ -20931,24 +20975,17 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         applyAspectMode((current + 1) % ASPECT_CYCLE_COUNT);
     }
 
+    // The panel every other picker is, not a Material alert: on a television that was a dark list the
+    // full height of the screen on the left, the one panel of "More" that did not stand over the row.
     private void showAspectModePicker() {
-        final Context dialogContext = Dialogs.dialogContext(this);
         final List<AspectMode> modes = getAspectModes();
-        final String[] labels = new String[modes.size()];
-        int checked = -1;
+        final List<Dialogs.MenuItem> items = new ArrayList<>();
         for (int i = 0; i < modes.size(); i++) {
-            labels[i] = modes.get(i).label;
-            if (isCurrentAspectMode(modes.get(i)))
-                checked = i;
+            final int which = i;
+            items.add(new Dialogs.MenuItem(modes.get(i).label, null, isCurrentAspectMode(modes.get(i)),
+                    () -> applyAspectMode(which)));
         }
-        final AlertDialog dialog = new MaterialAlertDialogBuilder(dialogContext)
-                .setTitle(R.string.button_crop)
-                .setSingleChoiceItems(labels, checked, (d, which) -> {
-                    applyAspectMode(which);
-                    d.dismiss();
-                })
-                .create();
-        showPickerDialog(dialog);
+        Dialogs.menu(this, ui, () -> showPickerDialog(Dialogs.openMenu()), getString(R.string.button_crop), items);
     }
 
     private boolean isCurrentAspectMode(AspectMode mode) {

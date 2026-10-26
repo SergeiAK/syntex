@@ -898,6 +898,16 @@ final class Dialogs {
      */
     public static LinearLayout pickerHeader(final Context ctx, final UiMetrics ui, final View title,
                                             final Runnable back) {
+        return pickerHeader(ctx, ui, title, back, null);
+    }
+
+    /**
+     * @param action a panel's one action — Reset, Off — on the title's line before the close button, or
+     *               null. On a television that is where it goes (see UiMetrics.compactPanels): at the
+     *               foot it was the first thing the row under the panel cut off.
+     */
+    public static LinearLayout pickerHeader(final Context ctx, final UiMetrics ui, final View title,
+                                            final Runnable back, @Nullable final View action) {
         final LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -912,8 +922,30 @@ final class Dialogs {
         row.addView(title == null ? new View(ctx) : title,
                 new LinearLayout.LayoutParams(0, title == null
                         ? 1 : ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (action != null) {
+            final LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            actionLp.setMarginEnd(Utils.dpToPx(8));
+            row.addView(action, actionLp);
+        }
         row.addView(pickerClose(ctx, ui));
         return row;
+    }
+
+    /** The action a header carries: a text button in the accent, the size of the controls beside it. */
+    public static com.google.android.material.button.MaterialButton headerAction(
+            final Context ctx, final UiMetrics ui, final CharSequence label) {
+        final com.google.android.material.button.MaterialButton button =
+                new com.google.android.material.button.MaterialButton(ctx, null,
+                        android.R.attr.borderlessButtonStyle);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textAction());
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setMinHeight(ui.panelControl());
+        Utils.focusRing(button);
+        return button;
     }
 
     /**
@@ -1134,8 +1166,8 @@ final class Dialogs {
                 new com.google.android.material.button.MaterialButton(ctx, null, outlined
                         ? com.google.android.material.R.attr.materialIconButtonOutlinedStyle
                         : com.google.android.material.R.attr.materialIconButtonStyle);
-        final int glyph = ui.dpS(24);
-        final int box = ui.dpS(48); // the platform's floor for anything a finger has to hit
+        final int glyph = ui.panelGlyph();
+        final int box = ui.panelControl(); // the platform's floor for anything a finger has to hit
         button.setIconResource(icon);
         button.setIconSize(glyph);
         button.setIconTint(ColorStateList.valueOf(MaterialColors.getColor(ctx,

@@ -225,10 +225,16 @@ final class OffsetPanel {
         header.setTypeface(Typeface.DEFAULT_BOLD);
         // Space, not a rule: the hairline that used to sit here had a caption under it, and once the
         // caption went it landed a few pixels above the row of pills and read as their top border.
-        root.addView(Dialogs.pickerHeader(ctx, ui, header));
+        final List<Runnable> resets = new ArrayList<>();
+        // On a television Reset stands on the title's line (see UiMetrics.compactPanels): at the foot it
+        // was cut off under the row - the skip panel's on Dune, 26.10.2026.
+        final boolean compact = ui.compactPanels();
+        final MaterialButton reset = compact
+                ? Dialogs.headerAction(ctx, ui, ctx.getString(R.string.skip_offset_reset))
+                : new MaterialButton(ctx, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        root.addView(Dialogs.pickerHeader(ctx, ui, header, null, compact ? reset : null));
         root.addView(gap(ctx, rhythm.title));
 
-        final List<Runnable> resets = new ArrayList<>();
         final boolean picking = choices != null && choices.length > 0;
         MaterialButton firstPill = null;
         if (picking) {
@@ -276,25 +282,26 @@ final class OffsetPanel {
             }
         }
 
-        root.addView(gap(ctx, rhythm.block));
-
         // Outlined, like the segmented control above it: one button family for the whole panel. Material
         // draws its own focus and press states, which is what replaced the hand-drawn ring here.
-        final MaterialButton reset = new MaterialButton(ctx, null,
-                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        if (!compact) {
+            root.addView(gap(ctx, rhythm.block));
+        }
         reset.setText(ctx.getString(R.string.skip_offset_reset));
-        reset.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textAction());
-        // Material insets a button by 6dp top and bottom to reach its 48dp touch target from a 36dp
-        // box. This panel sizes its own rows, so the inset only shortens them.
-        reset.setInsetTop(0);
-        reset.setInsetBottom(0);
-        reset.setMinHeight(ui.dpS(48)); // a target this small is missed as often as it is hit
-        Utils.quietInk(reset);
-        Utils.focusRing(reset);
-        final LinearLayout.LayoutParams resetLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        resetLp.gravity = Gravity.CENTER_HORIZONTAL;
-        reset.setLayoutParams(resetLp);
+        if (!compact) {
+            reset.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textAction());
+            // Material insets a button by 6dp top and bottom to reach its 48dp touch target from a 36dp
+            // box. This panel sizes its own rows, so the inset only shortens them.
+            reset.setInsetTop(0);
+            reset.setInsetBottom(0);
+            reset.setMinHeight(ui.dpS(48)); // a target this small is missed as often as it is hit
+            Utils.quietInk(reset);
+            Utils.focusRing(reset);
+            final LinearLayout.LayoutParams resetLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            resetLp.gravity = Gravity.CENTER_HORIZONTAL;
+            reset.setLayoutParams(resetLp);
+        }
         // One pill for the panel rather than one per slider: every value it clears is on screen and goes
         // white as it happens, and dragging a slider back to the middle undoes it in a second.
         reset.setOnClickListener(v -> {
@@ -302,7 +309,9 @@ final class OffsetPanel {
                 one.run();
             }
         });
-        root.addView(reset);
+        if (!compact) {
+            root.addView(reset);
+        }
 
         // Only the sheet's own padding now: Utils.pickerWindow insets the card from the system bars
         // and the overscan, so nothing here has to know about either.
@@ -648,8 +657,8 @@ final class OffsetPanel {
         // The 48dp floor, not the television's scaled-up box: at 62dp the pair outweighed the slider
         // between them. A remote never presses these (the slider takes the D-pad), and 48 is still the
         // platform's floor for a finger.
-        final int box = ui.dp(48);
-        final int glyph = ui.dp(24);
+        final int box = ui.compactPanels() ? ui.panelControl() : ui.dp(48);
+        final int glyph = ui.compactPanels() ? ui.panelGlyph() : ui.dp(24);
         final int pad = (box - glyph) / 2;
         button.setIconSize(glyph);
         button.setPadding(pad, pad, pad, pad);

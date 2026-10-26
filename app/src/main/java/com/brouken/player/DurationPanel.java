@@ -162,7 +162,14 @@ final class DurationPanel {
         // without the title touching the durations under it.
         header.setMinHeight(ui.dp(48));
         header.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(Dialogs.pickerHeader(ctx, ui, header));
+        // On a television Off stands on the title's line and Start at the end of the readout, so the
+        // panel ends with the readout (see UiMetrics.compactPanels): the foot with the two actions was
+        // what the row under the panel cut off (Dune, 26.10.2026).
+        final boolean compact = ui.compactPanels();
+        final MaterialButton off = compact
+                ? Dialogs.headerAction(ctx, ui, ctx.getString(R.string.sleep_timer_off))
+                : action(ctx, ui, ctx.getString(R.string.sleep_timer_off), false);
+        root.addView(Dialogs.pickerHeader(ctx, ui, header, null, compact ? off : null));
 
         // The durations across the panel, whichever way it is held: five segments share a full-width
         // row at 60dp or more, and half a landscape panel would leave each of them under the 48dp a
@@ -252,12 +259,12 @@ final class DurationPanel {
         // fields cleared the unit named under each of them - and with that label gone there is nothing
         // to clear: a slot the height of a field, hung from the top of a row a taller field sets, put
         // the minus and the plus visibly above the digits they belong to.
-        valueRow.setGravity(Gravity.CENTER_VERTICAL | Gravity.CENTER_HORIZONTAL);
+        valueRow.setGravity(Gravity.CENTER_VERTICAL | (compact ? Gravity.START : Gravity.CENTER_HORIZONTAL));
         final LinearLayout.LayoutParams valueLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         // The gap that separates the picked from the typed. Sideways there is no height to spend on
         // saying it twice — the column already sets the readout apart by standing it under a button.
-        valueLp.topMargin = landscape ? gap : Utils.dpToPx(24);
+        valueLp.topMargin = landscape || compact ? gap : Utils.dpToPx(24);
         valueRow.setLayoutParams(valueLp);
         readoutColumn.addView(valueRow);
 
@@ -267,7 +274,7 @@ final class DurationPanel {
         // Measured on tv_720p before this line changed: the minus and the plus stood 9px right of the
         // middle of their own circles. On a telephone the two units are the same number, which is why
         // it was never seen there.
-        final int backspaceBox = ui.dpS(48);
+        final int backspaceBox = ui.panelControl();
         // Material's floor between two touch targets, and the reason it is needed here rather than
         // assumed: the button used to be a bare glyph, so nothing of it reached the field. A circle with
         // an edge does, and at no gap at all it read as attached to the minutes.
@@ -288,7 +295,7 @@ final class DurationPanel {
         // on the card's, and a circle with its rim on the boundary reads as a circle cut in half.
         // Two round controls and a colon come out of the width before the fields do, and a few dp of
         // slack after that: at exactly what was left, a circle's rim landed on the card's own edge.
-        final int boxW = Math.min(ui.dpS(96),
+        final int boxW = Math.min(compact ? ui.dp(56) : ui.dpS(96),
                 (colW - colonW - (backspaceBox + backspaceGap) * 2 - Utils.dpToPx(8)) / 2);
         // And 72dp tall, except where the height is the scarce dimension: sideways the column has 206dp
         // for the end-of-file button, the readout, its wall-clock line and the actions, and at Material's
@@ -297,7 +304,7 @@ final class DurationPanel {
         // it — the readout, the button above it and the actions below then draw the same three lines as
         // the keys do, which is the whole point of putting them side by side. The digits are 40sp,
         // whose cap height is about 28dp, so they sit in 48 without touching its edges.
-        final int boxH = landscape ? rowHeight : ui.dpS(72);
+        final int boxH = compact ? ui.dp(40) : landscape ? rowHeight : ui.dpS(72);
         final int fieldFill = MaterialColors.getColor(ctx, R.attr.colorSurfaceContainerHighest,
                 ContextCompat.getColor(ctx, R.color.sheet_surface));
 
@@ -371,7 +378,6 @@ final class DurationPanel {
         actionsLp.topMargin = landscape ? gap : Utils.dpToPx(16);
         actions.setLayoutParams(actionsLp);
 
-        final MaterialButton off = action(ctx, ui, ctx.getString(R.string.sleep_timer_off), false);
         off.setOnClickListener(v -> {
             listener.onDurationPicked(0);
             dialog.dismiss();
@@ -385,8 +391,15 @@ final class DurationPanel {
             listener.onDurationPicked(totalMinutes(typed[0]));
             dialog.dismiss();
         });
-        actions.addView(off);
-        actions.addView(start);
+        if (compact) {
+            // At the end of the readout's own line: the one action a typed length needs, beside it.
+            valueRow.addView(new View(ctx), new LinearLayout.LayoutParams(0, 1, 1f));
+            startLp.setMarginStart(0);
+            valueRow.addView(start);
+        } else {
+            actions.addView(off);
+            actions.addView(start);
+        }
 
         // The deadline, read once: what is left of the timer is a snapshot the panel does not tick, but
         // the clock time it ends at is a fixed point, and recomputing it from that snapshot walked it
@@ -449,8 +462,10 @@ final class DurationPanel {
         // spring above, and a viewport the scroll view fills so the spring has something to push
         // against. Where the content is taller than the card the spring is nothing and the actions
         // follow it as before.
-        root.addView(new View(ctx), new LinearLayout.LayoutParams(1, 0, 1f));
-        root.addView(actions);
+        if (!compact) {
+            root.addView(new View(ctx), new LinearLayout.LayoutParams(1, 0, 1f));
+            root.addView(actions);
+        }
 
         less.setOnClickListener(v -> step(typed, -5, render));
         more.setOnClickListener(v -> step(typed, 5, render));
@@ -599,7 +614,7 @@ final class DurationPanel {
         // box. This panel sizes its own rows, so the inset only shortens them.
         button.setInsetTop(0);
         button.setInsetBottom(0);
-        button.setMinHeight(ui.dpS(48));
+        button.setMinHeight(ui.compactPanels() ? ui.panelControl() : ui.dpS(48));
         if (!filled) {
             Utils.quietInk(button);
         }

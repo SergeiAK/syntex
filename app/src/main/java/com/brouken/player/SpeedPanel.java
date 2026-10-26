@@ -90,7 +90,13 @@ final class SpeedPanel {
         header.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         header.setMinHeight(ui.dp(48));
         header.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(Dialogs.pickerHeader(ctx, ui, header));
+        // On a television Reset stands on the title's line rather than at the foot (see
+        // UiMetrics.compactPanels): the foot was what the row under the panel cut off.
+        final boolean compact = ui.compactPanels();
+        final MaterialButton reset = compact
+                ? Dialogs.headerAction(ctx, ui, activity.getString(R.string.skip_offset_reset))
+                : new MaterialButton(ctx, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        root.addView(Dialogs.pickerHeader(ctx, ui, header, null, compact ? reset : null));
 
         final TextView value = new TextView(ctx);
         value.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textValue());
@@ -120,7 +126,7 @@ final class SpeedPanel {
         final LinearLayout.LayoutParams valueLp = new LinearLayout.LayoutParams(
                 Math.min(usableW, ui.dpS(280)), ViewGroup.LayoutParams.WRAP_CONTENT);
         valueLp.gravity = Gravity.CENTER_HORIZONTAL;
-        valueLp.topMargin = Utils.dpToPx(8);
+        valueLp.topMargin = Utils.dpToPx(compact ? 0 : 8);
         valueRow.setLayoutParams(valueLp);
         root.addView(valueRow);
 
@@ -136,7 +142,7 @@ final class SpeedPanel {
         }
         final LinearLayout.LayoutParams groupLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        groupLp.topMargin = Utils.dpToPx(16);
+        groupLp.topMargin = Utils.dpToPx(compact ? 8 : 16);
         group.setLayoutParams(groupLp);
         root.addView(group);
 
@@ -145,21 +151,21 @@ final class SpeedPanel {
         // "интуитивно непонятно, что для сброса надо выбрать 1×". Dim while the speed is already normal,
         // so it never claims there is something to undo. The label is the one the skip panel's reset
         // already carries; the two are the same word and the same act.
-        final MaterialButton reset = new MaterialButton(ctx, null,
-                com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        reset.setText(activity.getString(R.string.skip_offset_reset));
-        reset.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textAction());
-        reset.setInsetTop(0);
-        reset.setInsetBottom(0);
-        reset.setMinHeight(ui.dpS(48));
-        Utils.quietInk(reset);
-        Utils.focusRing(reset);
-        final LinearLayout.LayoutParams resetLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        resetLp.gravity = Gravity.CENTER_HORIZONTAL;
-        resetLp.topMargin = Utils.dpToPx(16);
-        reset.setLayoutParams(resetLp);
-        root.addView(reset);
+        if (!compact) {
+            reset.setText(activity.getString(R.string.skip_offset_reset));
+            reset.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textAction());
+            reset.setInsetTop(0);
+            reset.setInsetBottom(0);
+            reset.setMinHeight(ui.dpS(48));
+            Utils.quietInk(reset);
+            Utils.focusRing(reset);
+            final LinearLayout.LayoutParams resetLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            resetLp.gravity = Gravity.CENTER_HORIZONTAL;
+            resetLp.topMargin = Utils.dpToPx(16);
+            reset.setLayoutParams(resetLp);
+            root.addView(reset);
+        }
 
         final Runnable[] render = new Runnable[1];
         final Runnable apply = () -> {

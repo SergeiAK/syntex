@@ -234,6 +234,8 @@
          Short labels because four of them share the width of the panel; the settings screen is where
          each mode is spelled out in full. -->
     <string name="skip_session_title">Skips in this session</string>
+    <!-- On a television, where the title shares its line with the panel's action. -->
+    <string name="skip_session_title_short">Skips</string>
     <string name="skip_mode_brief_short">5 s</string>
     <string name="skip_mode_button_short">Button</string>
     <string name="skip_mode_auto_short">Auto</string>
@@ -400,6 +402,8 @@
     <string name="pref_subtitle_secondary_mode_always">Always — under the main subtitles</string>
     <string name="pref_subtitle_secondary_mode_demand">On demand — above the main subtitles when you pause</string>
     <string name="speed_title">Playback speed</string>
+    <!-- On a television, where the title shares its line with the panel's action. -->
+    <string name="speed_title_short">Speed</string>
     <string name="speed_refused_passthrough">Speed stays normal while the sound is bitstreamed to a receiver: a compressed stream cannot be resampled, and the picture follows the sound. Turn pass-through off to use speed</string>
     <string name="speed_refused_tunneling">Speed stays normal while playback is tunnelled: the decoding hardware keeps its own pace. Turn tunnelled playback off to use speed</string>
     <string name="speed_slower">Slower</string>

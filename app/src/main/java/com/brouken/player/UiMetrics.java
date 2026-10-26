@@ -89,6 +89,13 @@ final class UiMetrics {
     int episodeDiscMargin() { return dpS(6); }
     int spinnerSize()       { return dpS(60); }   // loading ring, centered over the hero — keep ∝ hero
     int listPad()           { return dpS(10); }
+    // A round control or a segment inside a player panel. On a television the panel stands over the
+    // button row with 357dp of height at most, and the phone's 48dp floor scaled by 1.3 made the speed,
+    // sleep-timer and skip panels taller than that: their last controls were cut off under the row (Dune,
+    // 26.10.2026). A remote aims by focus, not by finger, so the floor does not bind there.
+    int panelControl()      { return tv() ? dp(36) : dpS(48); }
+    int panelGlyph()        { return tv() ? dp(20) : dpS(24); }
+    boolean compactPanels() { return tv(); }
     int lockMarginEnd()     { return dpS(8); }
 
     int posterHeight() {
