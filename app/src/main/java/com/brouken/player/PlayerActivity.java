@@ -11676,7 +11676,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // keyboard leaves a phone about 130dp, that line costs 53dp — most of a result — and the field's
         // own label says the same word. So there the close button joins the field's line and the title
         // goes, rather than the list this panel exists to show.
-        final boolean titled = getResources().getConfiguration().screenHeightDp >= 480;
+        // On a television the same: its keyboard is always up under this panel and leaves it 384 px on
+        // Dune, where the title and the field took all of it and the first result was cut in half.
+        final boolean titled = !isTvBox && getResources().getConfiguration().screenHeightDp >= 480;
         if (titled) {
             final TextView header = new TextView(ctx);
             header.setText(getString(R.string.subtitle_search_manual));
