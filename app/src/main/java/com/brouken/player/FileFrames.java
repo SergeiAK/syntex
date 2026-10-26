@@ -383,6 +383,13 @@ final class FileFrames {
                         + (t4 - t3) + " ms, total " + (t4 - t0) + " ms, " + codecName);
                 return bitmap;
             }
+            // A decoder that has never given a picture and gives none now is a refusal, not a slow frame:
+            // the software HEVC on Dune takes a Dolby Vision 7 base layer and stays silent, 3 s on every
+            // frame asked of it (25.10.2026). Handed to frame() as its failure, the next decoder gets the
+            // frame; once a picture has come out, silence is this frame's and the decoder stays.
+            if (!delivered) {
+                throw new IllegalStateException("no picture in 3 s from a decoder that never gave one");
+            }
             Log.d(TAG, "frame " + positionMs + ": no picture in 3 s");
             return null;
         } catch (final IllegalStateException e) {
