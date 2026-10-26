@@ -1872,7 +1872,7 @@ public class Utils {
             // the settings screen does exactly that — and by then a temporary download link may be gone.
             // fileExists() settles it anyway: it answers false for any http URI, so a remembered network
             // subtitle was simply dropped and the track vanished. A local copy is a real file to both.
-            final boolean remote = isSupportedNetworkUri(subtitleUri);
+            final boolean remote = isSupportedNetworkUri(subtitleUri) || NetworkFiles.isNetwork(subtitleUri);
             if (!StandardCharsets.UTF_8.equals(charset) || remote) {
                 String filename = preferredName;
                 if (filename == null) {

@@ -19812,6 +19812,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             return;
         }
 
+        if (NetworkFiles.isNetwork(mPrefs.mediaUri)) {
+            searchNetworkSubtitles(mPrefs.mediaUri);
+            return;
+        }
+
         if (mPrefs.scopeUri != null || isTvBox) {
             DocumentFile video = null;
             File videoRaw = null;
@@ -19849,6 +19854,58 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 }
             }
         }
+    }
+
+    /**
+     * A subtitle beside a file on a share or a WebDAV server, by the same rule as on the device
+     * (SubtitleUtils.findSubtitle): the one subtitle in a folder of one video, or the one named after
+     * the video. Neither branch above reaches a network address - the guessed names are http only - so
+     * "3.mkv" with "3.ssa" next to it over SMB played without them (Dune and Shield, 25.10).
+     *
+     * <p>Off the main thread: the folder is a listing and the file a read. The subtitle is copied into
+     * the cache as UTF-8 (Utils.convertInputStreamToUTF), so the charset is read the way it is for a
+     * local one, and a rebuilt player finds a file rather than a share it would have to log in to again.
+     */
+    private void searchNetworkSubtitles(final Uri video) {
+        new Thread(() -> {
+            try {
+                final DocumentFile[] media = mediaAndFolder();
+                final DocumentFile found = media == null ? null
+                        : SubtitleUtils.findSubtitle(media[0], media[1]);
+                if (found == null) {
+                    return;
+                }
+                final Uri uri = found.getUri();
+                final androidx.media3.datasource.DataSource source =
+                        NetworkThumbs.sideFiles(this).createDataSource();
+                final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                try {
+                    source.open(new androidx.media3.datasource.DataSpec(uri));
+                    final byte[] buffer = new byte[64 * 1024];
+                    int n;
+                    while ((n = source.read(buffer, 0, buffer.length)) != -1) {
+                        bytes.write(buffer, 0, n);
+                    }
+                } finally {
+                    source.close();
+                }
+                final Uri copy = Utils.convertInputStreamToUTF(this, uri,
+                        new java.io.ByteArrayInputStream(bytes.toByteArray()));
+                Utils.log("subtitles: beside the file " + found.getName());
+                runOnUiThread(() -> {
+                    if (copy == null || !video.equals(mPrefs.mediaUri)) {
+                        return;
+                    }
+                    // Remembered either way: a player not built yet reads it when it is.
+                    mPrefs.updateSubtitle(copy);
+                    if (player != null) {
+                        addSubtitleTrack(copy);
+                    }
+                });
+            } catch (final Exception e) {
+                Utils.log("subtitles: none read beside the file: " + e);
+            }
+        }, "network-subtitles").start();
     }
 
     /**
