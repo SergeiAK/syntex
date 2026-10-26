@@ -11,6 +11,7 @@ import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.ExtractorsFactory;
 import androidx.media3.extractor.ForwardingExtractor;
 import androidx.media3.extractor.ForwardingExtractorsFactory;
+import androidx.media3.extractor.ForwardingSeekMap;
 import androidx.media3.extractor.PositionHolder;
 import androidx.media3.extractor.SeekMap;
 import androidx.media3.extractor.SeekPoint;
@@ -67,13 +68,41 @@ final class UnindexedFmp4 extends ForwardingExtractor {
 
             @Override
             public void seekMap(SeekMap seekMap) {
-                output.seekMap(seekMap);
+                output.seekMap(lengthened(seekMap));
                 if (!seekMap.isSeekable()) {
                     wantsIndex = true;
                     durationUs = seekMap.getDurationUs();
                 }
             }
         });
+    }
+
+    /**
+     * A map whose index runs past the duration it states keeps the index's word for it. An mfra written
+     * after the fact can outlive an mvhd written at the start: Chromium's
+     * bbb-320x240-2video-2audio.mp4 states 4.2 s in mvhd, has no mehd, and its tfra runs to 24 s - the
+     * player showed 4.2 s of a film it went on playing (D5, Dune and Shield, 25.10). The last point is
+     * where the last fragment starts, so one more fragment of the length before it is added.
+     */
+    static SeekMap lengthened(final SeekMap seekMap) {
+        final long statedUs = seekMap.getDurationUs();
+        if (!seekMap.isSeekable() || statedUs == C.TIME_UNSET) {
+            return seekMap;
+        }
+        final long lastUs = seekMap.getSeekPoints(Long.MAX_VALUE / 2).first.timeUs;
+        if (lastUs <= statedUs) {
+            return seekMap;
+        }
+        final long beforeUs = seekMap.getSeekPoints(lastUs - 1).first.timeUs;
+        final long durationUs = lastUs + Math.max(0, lastUs - beforeUs);
+        Utils.log("fmp4: index runs to " + lastUs / 1000 + " ms past the stated " + statedUs / 1000
+                + " ms, duration " + durationUs / 1000 + " ms");
+        return new ForwardingSeekMap(seekMap) {
+            @Override
+            public long getDurationUs() {
+                return durationUs;
+            }
+        };
     }
 
     @Override

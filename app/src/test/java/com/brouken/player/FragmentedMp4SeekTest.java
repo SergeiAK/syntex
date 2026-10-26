@@ -57,6 +57,20 @@ public class FragmentedMp4SeekTest {
         assertEquals(0, video.timeJumpsBack);
     }
 
+    /** mvhd says 4.2 s, the tfra runs to 24 s (D5): the length is the index's. */
+    @Test
+    public void durationFollowsTheIndex() throws IOException {
+        final FragmentedMp4Extractor extractor = new FragmentedMp4Extractor(
+                new DefaultSubtitleParserFactory(), FragmentedMp4Extractor.FLAG_READ_MFRA_FOR_SEEK_MAP);
+        final ExtractorHarness.Result result = ExtractorHarness.readSamples(extractor, testFile(), 1);
+        final long statedUs = result.seekMap.getDurationUs();
+        final long durationUs = UnindexedFmp4.lengthened(result.seekMap).getDurationUs();
+        System.out.println("stated " + statedUs + " us, lengthened " + durationUs + " us");
+        assertTrue(statedUs < 5_000_000L);
+        assertTrue(durationUs > 22_000_000L);
+        assertTrue(durationUs < 27_000_000L);
+    }
+
     private static File testFile() {
         return ExtractorHarness.testFile("frag-mfra.mp4");
     }
