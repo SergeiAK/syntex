@@ -95,6 +95,13 @@ final class NetworkThumbs {
     /** The source of the still in progress, to be cut off when a player comes up. */
     @Nullable
     private static volatile Source current;
+    /**
+     * The player has waited its PLAYER_WAIT_MS once since it came up and the still was not done: it does
+     * not wait again. Media3 asks the codec selector at every track selection, not once, so without this
+     * each ask stood another 8 s on the playback thread ({@code player waited 8000 ms ... still busy} in a
+     * row, WebDAV on the Dune, 26.10.2026).
+     */
+    private static volatile boolean gaveUp;
     private static boolean registered;
     /**
      * The stills the browser has had of files on a share, by address: the width, the height and the
@@ -167,6 +174,7 @@ final class NetworkThumbs {
     static void playerVisible(final boolean visible) {
         if (visible) {
             PLAYERS_OPEN.incrementAndGet();
+            gaveUp = false;
             // Measured on the Dune, 0041: the still of the very file being opened had read 121 MB in
             // 33 s, and the player waited 12 s of it. The retriever cannot be told to stop; its source
             // can stop answering.
@@ -229,7 +237,7 @@ final class NetworkThumbs {
      * wait is left to finish, and the player takes what decoder it is given, as before.
      */
     static void awaitIdle() {
-        if (!ONE_AT_A_TIME.isLocked() || ONE_AT_A_TIME.isHeldByCurrentThread()) {
+        if (gaveUp || !ONE_AT_A_TIME.isLocked() || ONE_AT_A_TIME.isHeldByCurrentThread()) {
             return;
         }
         final long start = SystemClock.elapsedRealtime();
@@ -241,6 +249,8 @@ final class NetworkThumbs {
         } finally {
             if (idle) {
                 ONE_AT_A_TIME.unlock();
+            } else {
+                gaveUp = true;
             }
         }
         Utils.log("thumbs: player waited " + (SystemClock.elapsedRealtime() - start) + " ms for a still"
@@ -540,6 +550,10 @@ final class NetworkThumbs {
                         durationMs / 4, durationMs * 2 / 5};
                 Bitmap black = null;
                 for (final long at : tries) {
+                    if (source.aborted || source.spent) {
+                        // Cut off for a player: the next try would only wait on the decoder for nothing.
+                        break;
+                    }
                     final Bitmap frame = frames.frame(at, width);
                     if (frame == null) {
                         continue;
