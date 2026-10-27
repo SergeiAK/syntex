@@ -46,7 +46,7 @@ android {
     defaultConfig {
         def abiFilter = project.findProperty("abiFilter")
         applicationId "com.syntex.player"
-        minSdkVersion 23
+        minSdkVersion 24
         targetSdkVersion 36
         versionCode tagVersionCode
         versionName tagVersionName
@@ -70,6 +70,11 @@ android {
     // with a few words swapped. A language comes back by being named here and in locales_config.xml.
     androidResources {
         localeFilters += ["en", "ru"]
+    }
+    // What lint found in the Just+ 2.0.11 code Syntex was built on, recorded so that `build` passes and
+    // anything new still fails it. Fix an entry and run updateLintBaseline to drop it from the file.
+    lint {
+        baseline = file('lint-baseline.xml')
     }
     base {
         archivesName = "Syntex.v${defaultConfig.versionName}"

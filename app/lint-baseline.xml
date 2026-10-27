@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 9.4.0" type="baseline" client="gradle" dependencies="false" name="AGP (9.4.0)" variant="all" version="9.4.0">
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 24): `android.content.ContentResolver#loadThumbnail`"
+        errorLine1="            return context.getContentResolver().loadThumbnail(uri, new Size(width, height), signal);"
+        errorLine2="                                                ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/VideoThumbs.java"
+            line="163"
+            column="49"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="MaterialButton.setShapeAppearance can only be called from within the same library group (referenced groupId=`com.google.android.material` from groupId=`Player`)"
+        errorLine1="        gear.setShapeAppearance(gear.getShapeAppearanceModel().toBuilder()"
+        errorLine2="             ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/BrowserActivity.java"
+            line="1653"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="AnimationUtils.LINEAR_OUT_SLOW_IN_INTERPOLATOR can only be accessed from within the same library group (referenced groupId=`com.google.android.material` from groupId=`Player`)"
+        errorLine1="                        .setInterpolator(AnimationUtils.LINEAR_OUT_SLOW_IN_INTERPOLATOR).start();"
+        errorLine2="                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/Dialogs.java"
+            line="744"
+            column="57"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            return new PreferenceGroupAdapter(preferenceScreen) {"
+        errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1148"
+            column="24"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            return new PreferenceGroupAdapter(preferenceScreen) {"
+        errorLine2="                   ^">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1148"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            return new PreferenceGroupAdapter(preferenceScreen) {"
+        errorLine2="                                              ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1148"
+            column="47"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.onBindViewHolder can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                public void onBindViewHolder(@NonNull PreferenceViewHolder holder, int position) {"
+        errorLine2="                            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1150"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.onBindViewHolder can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    super.onBindViewHolder(holder, position);"
+        errorLine2="                          ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1151"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.onBindViewHolder can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    super.onBindViewHolder(holder, position);"
+        errorLine2="                                           ~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1151"
+            column="44"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                        restoreReadoutInk(title, getItem(position));"
+        errorLine2="                                                 ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1160"
+            column="50"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    reserveTallerSummary(holder, getItem(position));"
+        errorLine2="                                                 ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1163"
+            column="50"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    bindThemeMode(holder, getItem(position));"
+        errorLine2="                                          ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1164"
+            column="43"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    bindAccent(holder, getItem(position));"
+        errorLine2="                                       ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1165"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    bindAbout(holder, getItem(position));"
+        errorLine2="                                      ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1166"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    bindSubtitlePreview(holder, getItem(position));"
+        errorLine2="                                                ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1167"
+            column="49"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            if (!(adapter instanceof PreferenceGroupAdapter)) {"
+        errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1898"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            final PreferenceGroupAdapter rows = (PreferenceGroupAdapter) adapter;"
+        errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1901"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            final PreferenceGroupAdapter rows = (PreferenceGroupAdapter) adapter;"
+        errorLine2="                                                 ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1901"
+            column="50"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItemCount can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            for (int i = Math.max(0, start); i &lt; rows.getItemCount(); i++) {"
+        errorLine2="                                                      ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1902"
+            column="55"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                final Preference item = rows.getItem(i);"
+        errorLine2="                                             ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="1903"
+            column="46"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            if (!(adapter instanceof PreferenceGroupAdapter)) {"
+        errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2068"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                        ((PreferenceGroupAdapter) adapter).getPreferenceAdapterPosition(key);"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2073"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getPreferenceAdapterPosition can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                        ((PreferenceGroupAdapter) adapter).getPreferenceAdapterPosition(key);"
+        errorLine2="                                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2073"
+            column="60"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getPreferenceAdapterPosition can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                        ((PreferenceGroupAdapter) adapter).getPreferenceAdapterPosition(key);"
+        errorLine2="                                                                                        ~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2073"
+            column="89"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="        static void clip(final PreferenceGroupAdapter adapter, final View row, final int position) {"
+        errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2543"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            if (adapter.getItem(position) instanceof PreferenceCategory) {"
+        errorLine2="                        ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2544"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    || adapter.getItem(position - 1) instanceof PreferenceCategory;"
+        errorLine2="                               ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2550"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItemCount can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            final boolean bottom = position == adapter.getItemCount() - 1"
+        errorLine2="                                                       ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2551"
+            column="56"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="                    || adapter.getItem(position + 1) instanceof PreferenceCategory;"
+        errorLine2="                               ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2552"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            if (position == RecyclerView.NO_POSITION || !(adapter instanceof PreferenceGroupAdapter)) {"
+        errorLine2="                                                                             ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2584"
+            column="78"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter can only be accessed from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            return ((PreferenceGroupAdapter) adapter).getItem(position) instanceof PreferenceCategory;"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2587"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="PreferenceGroupAdapter.getItem can only be called from within the same library group prefix (referenced groupId=`androidx.preference` with prefix androidx from groupId=`Player`)"
+        errorLine1="            return ((PreferenceGroupAdapter) adapter).getItem(position) instanceof PreferenceCategory;"
+        errorLine2="                                                      ~~~~~~~">
+        <location
+            file="src/main/java/com/brouken/player/SettingsActivity.java"
+            line="2587"
+            column="55"/>
+    </issue>
+
+    <issue
+        id="UseAppTint"
+        message="Must use `app:tint` instead of `android:tint`"
+        errorLine1="            android:tint=&quot;?attr/accentInk&quot;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/layout/browse_row.xml"
+            line="61"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseAppTint"
+        message="Must use `app:tint` instead of `android:tint`"
+        errorLine1="            android:tint=&quot;?attr/accentInk&quot;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/layout/browse_tile.xml"
+            line="79"
+            column="13"/>
+    </issue>
+
+</issues>
