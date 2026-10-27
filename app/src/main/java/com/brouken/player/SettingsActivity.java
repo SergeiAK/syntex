@@ -425,9 +425,6 @@ public class SettingsActivity extends AppCompatActivity
             boolean hadAllowSystemFrameRateKey =
                     androidx.preference.PreferenceManager.getDefaultSharedPreferences(getContext())
                             .contains("allowSystemFrameRate");
-            boolean hadFrameRateMatchingKey =
-                    androidx.preference.PreferenceManager.getDefaultSharedPreferences(getContext())
-                            .contains("frameRateMatching");
 
             // Before inflation: the preferences below read these keys, and either value may still be
             // living in the shape it was stored in two versions ago.
@@ -473,10 +470,6 @@ public class SettingsActivity extends AppCompatActivity
             Preference preferenceFrameRateMatching = findPreference("frameRateMatching");
             if (preferenceFrameRateMatching != null) {
                 preferenceFrameRateMatching.setEnabled(Build.VERSION.SDK_INT >= 23);
-                if (!hadFrameRateMatchingKey && preferenceFrameRateMatching instanceof SwitchPreferenceCompat) {
-                    // Device-specific default, as Prefs reads it: on on TV, off elsewhere.
-                    ((SwitchPreferenceCompat) preferenceFrameRateMatching).setChecked(Utils.isTvBox(getContext()));
-                }
             }
             SwitchPreferenceCompat preferenceAllowSystemFrameRate = findPreference("allowSystemFrameRate");
             if (preferenceAllowSystemFrameRate != null) {

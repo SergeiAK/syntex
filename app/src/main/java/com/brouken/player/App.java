@@ -48,6 +48,20 @@ public class App extends Application {
         // (Prefs.snapshot): three dozen keys appearing at once while a film is paused behind it read as
         // "a setting changed" and rebuilt the player - over a torrent server, a stream re-opened from
         // zero for a screen that was opened and closed. false: existing choices are never overwritten.
+        // Two defaults depend on the device, which the XML cannot say: written first, or the XML's
+        // would be stored in their place and every later read would find it (a fresh install on a
+        // Shield kept 59.94 Hz under a 23.976 film, 27.10.2026).
+        final android.content.SharedPreferences stored =
+                androidx.preference.PreferenceManager.getDefaultSharedPreferences(this);
+        final boolean tv = Utils.isTvBox(this);
+        final android.content.SharedPreferences.Editor deviceDefaults = stored.edit();
+        if (!stored.contains("frameRateMatching")) {
+            deviceDefaults.putBoolean("frameRateMatching", tv);
+        }
+        if (!stored.contains("allowSystemFrameRate")) {
+            deviceDefaults.putBoolean("allowSystemFrameRate", !tv);
+        }
+        deviceDefaults.apply();
         androidx.preference.PreferenceManager.setDefaultValues(this, R.xml.root_preferences, false);
         initSentry();
         // Lets the skip-segment lookups honour the caching their sources ask for (see the method).
