@@ -184,10 +184,14 @@ final class Trickplay {
             return kept;
         }
         try {
+            final long start = android.os.SystemClock.elapsedRealtime();
             final byte[] bytes = read(sheets[sheet]);
+            final long read = android.os.SystemClock.elapsedRealtime();
             final BitmapRegionDecoder decoder = Build.VERSION.SDK_INT >= 31
                     ? BitmapRegionDecoder.newInstance(bytes, 0, bytes.length)
                     : newInstanceLegacy(bytes);
+            Log.d(TAG, "sheet " + sheet + ": read " + (read - start) + " ms, " + (bytes.length >> 10)
+                    + " KiB, decoder " + (android.os.SystemClock.elapsedRealtime() - read) + " ms");
             if (decoder != null) {
                 decoders.put(sheet, decoder);
             }

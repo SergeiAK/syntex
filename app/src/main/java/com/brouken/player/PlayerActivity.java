@@ -16458,7 +16458,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             if (trickplayAsked.get() != ask) {
                 return;
             }
+            final long started = SystemClock.elapsedRealtime();
             final Bitmap frame = set.frame(frameAt);
+            android.util.Log.d("Trickplay", "frame " + frameAt + " in " + (SystemClock.elapsedRealtime() - started) + " ms");
             runOnUiThread(() -> {
                 if (frame != null && trickplayWanted.get() >= 0 && ask > trickplayShown && set == trickplay) {
                     trickplayShown = ask;
