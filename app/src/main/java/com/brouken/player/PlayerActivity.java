@@ -3827,6 +3827,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final Uri uri = intent.getData();
         final String type = intent.getType();
         final Bundle extras = intent.getExtras();
+        // Names only: the values of a launcher's extras carry tokens and addresses.
+        Utils.log("intent extras: " + (extras == null ? "none" : new java.util.TreeSet<>(extras.keySet())));
         if (extras != null && extras.containsKey(API_PLAYLIST)) {
             handlePlaylistIntent(extras, type);
             return;
@@ -3918,6 +3920,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     private void handlePlaylistIntent(final Bundle extras, final String type) {
         final Bundle playlist = extras.getBundle(API_PLAYLIST);
         final PlaylistRequest request = PlaylistRequest.read(playlist != null ? playlist : new Bundle());
+        Utils.log("playlist: " + request.items.size() + " items, start " + request.startIndex
+                + ", ask_resume " + request.askResume + ", callback " + (request.resultCallback != null)
+                + (request.warnings.isEmpty() ? "" : ", dropped " + request.warnings));
         if (request.error != null) {
             refusePlaylist(request);
             return;
