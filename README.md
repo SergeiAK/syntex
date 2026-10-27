@@ -2,70 +2,77 @@
 
 > **Syntex** is a video player for Android TV, phones and tablets by SergeiAK. It is built on [Just Player](https://github.com/moneytoo/Player) by Marcel Dopita and [Just+ Player](https://github.com/just-plus-player/just-plus-player) 2.0.11 by @levende, plays through [Media3](https://github.com/androidx/media) and [FFmpeg](https://ffmpeg.org), and owes many of its answers to Kodi, Plezy, Wholphin, Nova, DDD Player, Vimu and others — see [Credits](#credits). A personal project made for my own use; it is not a Just+ build and comes with no support.
 
-### What Syntex changes in Just+ 2.0.11
+## Install
 
-Built from the Just+ 2.0.11 source, the last one published upstream: the official releases from 2.1.1 on are APK-only, and none of their changes are here. What Syntex changes:
+Download `Syntex.v<version>.apk` from [Releases](https://github.com/SergeiAK/syntex/releases) and install it (Android 7.0 or later; one APK for TV, phone and tablet). From then on the app checks this repository for new releases itself, shows what changed and installs the update through the system installer.
 
- * **Installs next to the official app.** Package `com.syntex.player`, shown in the launcher as "Syntex" with its own icon and TV banner, with its own settings. Apps that hand the player series and episode details by package name (LAMPA among them) talk to the official app only; for them this one is a plain video player
- * **Updates and the source link point here.** The in-app update check looks at this repository's releases, and About → Source code (and its QR code) open this repository
+Syntex installs next to the official Just+ Player and does not touch its settings. Builds made from source before v3.0.0 were signed with a different key: remove such a build before installing a release — its settings, network folders and resume positions do not carry over.
+
+Interface languages: English and Russian.
+
+## What Syntex changes in Just+ 2.0.11
+
+Built from the Just+ 2.0.11 source, the last one published upstream: the official releases from 2.1.1 on are APK-only. Where Syntex does what a later Just+ does, the behaviour was written anew (see [Credits](#credits)).
+
+**Launchers: LAMPA, media servers**
+
+ * **LAMPA's playlist contract.** The nested `playlist` extra of Just+ 2.1.1+ is read — episodes, season and episode numbers, per-episode segments and positions, qualities, subtitles, `ask_resume` — and answered through the launcher's `result_callback` with the position of every episode and the history of the session, as section 7 of the [playlist API](https://github.com/just-plus-player/just-plus-player/blob/master/docs/PLAYLIST_API.md) describes. LAMPA sends playlists only to the player packages it knows; until `com.syntex.player` is among them, LAMPA hands Syntex a single link and keeps no progress from it
+ * **Resume follows the launcher:** a watched episode (the last 5 %, or past the start of the credits) starts over, `ask_resume` asks, otherwise it resumes without a question
+ * **The same dub on the next episode.** The audio and subtitle choice made in one episode is carried to the next one of the series, matched by language and name rather than by track number
+ * **HLS by the manifest's extension** even when the launcher calls it `video/*`, so a one-time link is not spent on a probe
+ * **The frame mode chosen on a LAMPA launch is kept** for the next one
+ * **Segments without ids** are looked up by the file and folder names, or by an exact TMDB match
+ * Media server apps that hand a video to an external player (Wholphin, Plezy, Emby) get the MX Player contract: position in, position and `end_by` back. Checked with Wholphin
+
+**Network**
+
+ * **SMB several times faster:** several reads in flight, read-ahead after samba's own client, no signing where the server does not ask for it, and a choice of protection in Settings (automatic by default: signing first, encryption only where signing is slow)
+ * **A minute's patience** for a network that went away, and a buffer that refills from 40 s instead of 15 — a 30-second Wi-Fi drop no longer stops the film
+ * Only the connection that failed is replaced; the player buffer never takes more than 40 % of the memory
+ * **Subtitles beside a file on a share or WebDAV** are found, converted to UTF-8 and attached — several of them (`.eng1.srt`, `.eng2.srt`): all in the picker, the first in your languages on screen, the pick kept per file
 
 **File browser**
 
- * **Sort per folder.** A Sort button in the toolbar: name A→Z or Z→A, newest or oldest first. Each folder remembers its own order; folders stay above files either way
- * **Start page button** in the toolbar, next to Search. On a TV it goes straight back to the start page from however deep you are; on a phone or tablet, to the top of the current destination
- * **Stills for files on network shares.** Files on SMB and WebDAV get a frame from the video, read over the network one file at a time and cached
- * **Date column.** The date sits at the end of each row with the full year, for files and folders
- * **Long names** of the row in focus scroll instead of being cut off
- * **Toolbar focus** is an accent disc, visible from across the room
+ * **Pictures beside the videos** (`<name>-thumb.jpg`, `<name>.jpg`, `folder.jpg`, `poster.jpg`), Matroska and MP4 covers, then a frame of the video — locally, over SMB and WebDAV. Folder rows show their picture
+ * **Sort per folder:** name, date, file type or size, both ways; each folder remembers its own order
+ * **A bar of first letters** beside a long folder sorted by name
+ * **Start page button**, date column with the full year, long names that scroll, `m2ts`/`mts`/`mpg`/`vob`/`flv` listed by name
+ * Media scan on a TV box covers the device's own volumes, not a share the system has mounted
 
 **Player on a TV**
 
- * **Buttons above the seek bar** on the right — [quality] [playlist] subtitles, audio, more — and the buffer/network line in the bottom bar where they were. Aspect ratio moves into More
- * **Up opens the controls on audio**, as Down opens them on the seek bar. From audio, Left is subtitles and Right is more
- * **Focus** is a white disc under a dark glyph; the accent colour still means "on" (subtitles enabled)
- * **New glyphs** for audio (a waveform), subtitles and playlist
- * **Long titles** scroll in the header
- * **Controls timeout** (Settings → On screen): 3.5, 5, 8 or 15 seconds, and an option to keep the controls while paused until Back
+ * **Seek preview:** a frame on the card while seeking with the remote and over the scrubber on the bar — from Jellyfin's trickplay set beside the file, or cut from the file itself; one jump at the end, playback does not stop. On by default (Settings → On screen)
+ * **Controls on one plate**, as a card or a fade (Settings); a smaller header with the main facts as tags, the series logo where the launcher sends one
+ * **Chapters** of the file as marks on the bar and a list under the transport, intro and credits skipped by chapter name
+ * **Audio delay in the sound panel,** live, and kept per output (speakers, HDMI, Bluetooth)
+ * **Remaining time follows the playback speed**; OK on the seek bar plays and pauses; a landing at the very end stops 5 s short of it
+ * Buttons above the seek bar, focus as a white disc, controls timeout and other layout changes from earlier Syntex builds
 
 **Frame rate and resolution matching**
 
- * **Refresh rate for the frame rate:** as the video (25 fps at 25 Hz), doubled (at 50 Hz, falling back to the rate itself where there is no double) or the highest, which is the default
- * **No 24p** leaves 23.976/24 Hz and their doubles out, for sets that flicker or stay dark for long at 24 Hz. Where no whole multiple exists, 3:2 on the content's own clock comes next (23.976 at 59.94, 24 at 60)
- * **The frame changes only to an exact rate.** The resolution follows the video only to a width that has a mode at a whole multiple of the content rate within the density group of the running mode (SD / 720 / 1080+); otherwise only the rate moves. This stops an activity rebuild loop and an HDMI renegotiation every few seconds seen on a Dune HD
- * **A set pause after the switch** (Settings, under frame rate matching: 0 / 0.5 / 1 / 2 / 3 / 5 s, 3 s by default) before playback starts, so the first seconds of picture and sound are not lost while the panel is dark
- * **The frame rate is measured by its commonest step,** not the average, so a broadcast recording that drops a field now and then still reads 25 fps and not 49.5
- * Every setting has a hint line under it saying what it is for
+ * **On by default on a TV**, off on a phone
+ * Refresh rate as the video, doubled or the highest; **No 24p**; the frame changes only to an exact rate; a set pause after the switch; the frame rate measured by its commonest step
+ * **The decoder is told the frame rate the stream states**
 
 **Statistics**
 
- * **A statistics card** in place of the side panel: Menu or INFO on the remote (on a phone, More → Statistics) opens one grouped view of video, audio, display and buffer/network — format, frame rate, bitrate, hardware or software decoder, SDR / HDR10 / HLG / Dolby Vision with its profile, the display mode and the rule that chose it
- * **A mode, not a one-off.** Once switched on, the card opens by itself on the next file and after a restart, until the same key switches it off; Back hides it for the current file only
- * **Dropped frames over the last minute** next to the total (`12 · last minute: 0`), counted all through playback and reset on a seek. Hardware decoding and native Dolby Vision are shown in green, software decoding and dropped frames in yellow
- * On a Shield the ≡ key reaches the app only when the remote's settings send it as Menu
+ * A statistics card (Menu/INFO): video, audio, display, buffer and network — with the container, the frame rate counted by frames, read speed and stalls. Device info on its own screen
 
-**Video decoding**
+**Formats and decoding**
 
- * **A software video decoder** (FFmpeg 7.1, LGPL) for what the device's own decoders refuse: MPEG-4 ASP (XviD and DivX, GMC and quarter-pixel included), H.263, MS-MPEG-4 v2/v3 (DivX 3), VC-1, MPEG-1/2 and MJPEG. It steps in only after the platform decoder has failed on a file, so what plays in hardware stays there. Output is 8-bit SDR without deinterlacing. Build script and JNI source are in `ffvideo/`
+ * **A software video decoder** (FFmpeg 7.1, LGPL) for what the device refuses: MPEG-4 ASP (XviD, DivX, GMC — sent there up front), H.263, MS-MPEG-4, VC-1, MPEG-1/2, MJPEG. 8-bit SDR, no deinterlacing. Build script and JNI source are in `ffvideo/`
+ * **Blu-ray M2TS:** plays, TrueHD by its AC-3 core, Dolby Digital Plus and DTS-HD tracks read; LPCM is left out instead of being taken for video
+ * **MPEG-1 program streams**, QuickTime without `ftyp` keeps its sound
+ * **Matroska:** seeks without an index (estimate by bitrate, then find the cluster), skips a broken stretch to the next cluster instead of stopping
+ * **Fragmented MP4:** seeks by its `mfra`, or by a map of the fragments where there is no index at all; the duration from the index where it runs past `mvhd`
+ * **AVI:** exact audio times after a seek, compressed audio reframed, MPEG-4 in presentation order and packed B-frames unpacked, checked frame by frame against FFmpeg
 
-**Resume**
+**Resume, subtitles, other**
 
- * **Ask where to start.** A setting chooses between asking when a file is opened (the default), asking for every video, always resuming and always starting over. A film past 95 % of its length, or past the start of end credits no longer than 15 % of it, counts as watched and starts over; in the asking modes under 30 seconds watched also starts over without a question
- * A position given by a launcher or a room is not asked about. On a TV the focus is on "Resume", also after a key press has left touch mode
-
-**AVI files**
-
- * **Audio timing.** Syntex carries its own copy of Media3's AVI extractor (Apache 2.0, `com.brouken.player.avi`) with exact audio times after a seek and for byte-counted audio (AC3, DTS, MP3/MP2, PCM); upstream Media3 stamps the first audio chunk after a seek about 40 ms early and DTS near zero
- * **Compressed audio is reframed** (AC3, MPEG audio, DTS) so the decoder gets whole frames instead of the half-frames an AVI chunk can hold; MP2 tagged as MPEG audio layer I/II is accepted, and a header with an odd-sized chunk no longer breaks
- * **MPEG-4 video in presentation order** (FFmpeg's `genpts`) and DivX packed B-frames unpacked as `mpeg4_unpack_bframes` does, so a stream with B-frames no longer judders on decoders that show uneven times; checked frame by frame against FFmpeg
-
-**Subtitles**
-
- * **Forced subtitles only,** for a dub in a language from the subtitle list: the first line shows the forced track in that language (by the container flag or the track name such as "rusForced", "форсированные", "надписи") and nothing if the file has none
-
-**Other**
-
- * **Bottom bar order on phones:** subtitles → audio → quality → playlist (upstream 2.0.11: quality → audio → subtitles → playlist)
- * **Watch together on Android 6:** the room list no longer crashes there (`List.sort` needs Android 7; replaced with `Collections.sort`)
+ * Ask where to start (four modes), watched past 95 % or into the credits; a seek made while the start was held stands
+ * **Forced subtitles only** for a dub in your language
+ * Header: the file name without its extension and library tags (`[1080p]`, `{tmdb-…}`)
+ * Phone bottom bar order
 
 ## Credits
 
@@ -88,11 +95,7 @@ Built from the Just+ 2.0.11 source, the last one published upstream: the officia
  * **[Nova Video Player](https://github.com/nova-video-player/aos-AVP)** and **[DDD Player](https://github.com/usmanec/dddplayer)** — read through for what to take next; nothing of theirs is in the code yet
  * **Vimu**, **MX Player**, **VLC**, **mpv** and the **Dune HD** media centre — the reference for what a file should look and sound like when Syntex got it wrong
 
-The Syntex part of the code is released under the Unlicense, as Just and Just+ are; the Media3 copies stay under Apache 2.0 and FFmpeg under LGPL 2.1.
-
-## Install
-
-No releases are published here yet; build from source with `./gradlew assembleLatestUniversalDebug`. Once there are releases, sideloaded builds check for updates themselves, show what changed and install the new version through the system installer, without going through a store.
+Syntex is released under the [MIT licence](LICENSE), copyright Sergey K. The Just and Just+ code it is built on is under the Unlicense; the Media3 copies stay under Apache 2.0 and FFmpeg under LGPL 2.1. Every third-party part and its licence: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## The base: Just+ Player 2.0.11
 
@@ -244,6 +247,8 @@ JDK 17 and the Gradle wrapper:
 
 Two flavour dimensions: `targetSdk` (`latest` = targetSdk 36, `legacy` = targetSdk 29 for legacy storage access) × `distribution` (`universal` with the in-app updater, `amazon`, `accrescent`). `latestUniversal` is the one that gets released.
 
+The release build is signed when `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS` and `RELEASE_KEY_PASSWORD` are set — in `local.properties`, as `-P` properties or as environment variables; without them it is built unsigned.
+
 `app/libs/lib-*.aar` are **prebuilt binaries** — an ExoPlayer core plus the ffmpeg, AV1, IAMF and MPEG-H decoder extensions. They are what makes AC3/DTS/TrueHD work, and their version has to stay in step with `media3_version` in `app/build.gradle`. All but one are taken as upstream publishes them; the AV1 one carries a rebuilt native library for 10-bit AV1. See [`app/libs/README.md`](app/libs/README.md).
 
 ## Integration
@@ -291,6 +296,8 @@ A queue is passed the same way, with everything aligned by index against `video_
 | `video_list.subtitles` | Parcelable[] or ArrayList of Bundle | External subtitles per item. Each Bundle holds `uris` (Parcelable[] of Uri) and `names` (String[]), aligned with each other |
 | `video_list.quality_levels.<i>` | String[] | Quality labels for item `<i>` (0-based index in `video_list`) |
 | `video_list.quality_urls.<i>` | String[] | Matching URLs for item `<i>` |
+
+Syntex also reads the nested `playlist` Bundle of Just+ 2.1.1+ and answers it through `result_callback` — see the [playlist API](https://github.com/just-plus-player/just-plus-player/blob/master/docs/PLAYLIST_API.md), sections 2–7. Voices (`voices`) and the track keys of the report are not implemented.
 
 `video_list` and every `video_list.*` string array, as well as `quality_levels` and `quality_urls`, are read leniently — `String[]`, `ArrayList<String>` and `CharSequence[]` all work, and `quality_urls` also takes a `Parcelable[]` of `Uri`. `subs`, `subs.name` and `headers` are not: they have to be exactly the types in the table above, or they are silently ignored.
 
@@ -398,10 +405,10 @@ The system folder picker, used when the app asks for access to a folder, always 
 
 ### The orientation button does nothing
 
-Since Android 16 apps cannot [switch orientation](https://android-developers.googleblog.com/2025/01/orientation-and-resizability-changes-in-android-16.html) programmatically, but it can be re-enabled per app: open "Aspect ratio" in system Settings, find Just+ Player and switch it from "Full screen" to "App default".
+Since Android 16 apps cannot [switch orientation](https://android-developers.googleblog.com/2025/01/orientation-and-resizability-changes-in-android-16.html) programmatically, but it can be re-enabled per app: open "Aspect ratio" in system Settings, find Syntex and switch it from "Full screen" to "App default".
 
 ## Credits and licence
 
-Built on [Just (Video) Player](https://github.com/moneytoo/Player) by Marcel Dopita and on [AndroidX Media3](https://github.com/androidx/media). Translations come from upstream's [Weblate project](https://hosted.weblate.org/engage/just-player/). Released into the public domain under [the Unlicense](LICENSE), like upstream.
+Built on [Just (Video) Player](https://github.com/moneytoo/Player) by Marcel Dopita and on [AndroidX Media3](https://github.com/androidx/media). Translations come from upstream's [Weblate project](https://hosted.weblate.org/engage/just-player/). Everything else Syntex owes and the licence — under [Credits](#credits).
 
 Other open source Android video players worth knowing: [VLC](https://code.videolan.org/videolan/vlc-android), [mpv](https://github.com/mpv-android/mpv-android), [Next Player](https://github.com/anilbeesetti/nextplayer), [Fermata](https://github.com/AndreyPavlenko/Fermata), [Nova Video Player](https://github.com/nova-video-player/aos-AVP), [Kodi](https://github.com/xbmc/xbmc) — or a [longer list on IzzyOnDroid](https://android.izzysoft.de/applists/category/named/multimedia_video_player).
