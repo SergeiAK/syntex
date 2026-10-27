@@ -1,6 +1,7 @@
 package com.brouken.player;
 
 import android.app.ActivityManager;
+import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -9,6 +10,7 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.Animatable;
 import android.graphics.drawable.Drawable;
 import android.hardware.display.DisplayManager;
@@ -23,6 +25,7 @@ import android.util.TypedValue;
 import android.view.Display;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -187,6 +190,10 @@ public class ErrorActivity extends AppCompatActivity {
             btnShare.setVisibility(View.GONE);
         }
         btnShare.setOnClickListener(v -> share(report));
+        final MaterialButton btnView = findViewById(R.id.btnView);
+        label(btnView, R.string.report_view);
+        Utils.focusRing(btnView);
+        btnView.setOnClickListener(v -> showReportText());
         btnUpload.setOnClickListener(v -> upload());
         // The link and its code are one big button once they are there: the glyph that copies the link
         // says so only in a tooltip, and the URL itself is deliberately not selectable (it trapped the
@@ -484,6 +491,39 @@ public class ErrorActivity extends AppCompatActivity {
      * As a .txt file: a messenger cuts a message of five hundred trace lines short or splits it, and a
      * file arrives whole. Text only when the file cannot be written.
      */
+    /**
+     * The report itself on the screen, the text Copy, Share and Upload carry. On a box it is the only way
+     * to read it there: Copy and Share are hidden, and Upload publishes - with the paths of a stream's
+     * links, which stripUrlQuery leaves alone and some CDNs sign. A stall on the Dune went unexplained on
+     * 27.10.2026 for that reason: the trace that said why was in this report and nowhere else.
+     *
+     * <p>Whole-screen, opened at its end, where the latest lines are. The remote scrolls it (the scroller
+     * holds focus, the text holds none - focusable text trapped the D-pad on this screen before), Back
+     * closes it. Not selectable: on a phone Copy is the way out.
+     */
+    private void showReportText() {
+        final boolean tv = Utils.isTvBox(this);
+        final UiMetrics metrics = UiMetrics.of(this, tv);
+        final View anchor = findViewById(R.id.error_root);
+        final TextView text = new TextView(this);
+        text.setText(report);
+        text.setTypeface(Typeface.MONOSPACE);
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, tv ? 14f : 12f);
+        text.setTextColor(MaterialColors.getColor(anchor, com.google.android.material.R.attr.colorOnSurface));
+        final int pad = Utils.dpToPx(16);
+        text.setPadding(pad + metrics.overscanH(), pad + metrics.overscanV(),
+                pad + metrics.overscanH(), pad + metrics.overscanV());
+        final ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(MaterialColors.getColor(anchor, com.google.android.material.R.attr.colorSurface));
+        scroll.setFocusable(true);
+        scroll.addView(text);
+        final Dialog dialog = new Dialog(this, android.R.style.Theme_Material_NoActionBar_Fullscreen);
+        dialog.setContentView(scroll);
+        dialog.show();
+        scroll.requestFocus();
+        scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+    }
+
     private void share(final String text) {
         final Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");

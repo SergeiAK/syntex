@@ -18,6 +18,7 @@
     <string name="error_share">Поделиться</string>
     <string name="error_share_subject">Отчёт об ошибке Just+ Player</string>
     <string name="error_upload">Отправить лог</string>
+    <string name="report_view">Показать лог</string>
     <string name="error_uploading">Отправка…</string>
     <string name="error_upload_failed">Не удалось отправить — нажмите, чтобы повторить</string>
     <string name="error_upload_hint">Отсканируйте код или откройте ссылку, чтобы поделиться этим отчётом.</string>

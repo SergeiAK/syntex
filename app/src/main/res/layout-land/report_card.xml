@@ -149,6 +149,8 @@
         android:gravity="end"
         android:orientation="horizontal">
 
+        <include layout="@layout/report_view_button" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCopy"
             style="@style/Widget.JustPlus.Button.Icon.Outlined"

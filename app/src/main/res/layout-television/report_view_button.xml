@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reading the report on a television: a lettered pill beside the upload one, outlined because it keeps
+     the report on the box - Copy and Share are hidden there, so until this the only way to see the trace
+     was to publish it. Same size and type as the upload pill, so the row reads as one line of actions.
+     See layout/report_view_button.xml for the phone's glyph. -->
+<com.google.android.material.button.MaterialButton
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/btnView"
+    style="@style/Widget.JustPlus.Button.Outlined"
+    android:layout_width="wrap_content"
+    android:layout_height="56dp"
+    android:layout_marginEnd="12dp"
+    android:contentDescription="@string/report_view"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:text="@string/report_view"
+    android:textSize="18sp"
+    app:icon="@drawable/ic_view_list_24dp"
+    app:iconPadding="12dp"
+    app:iconSize="24dp" />

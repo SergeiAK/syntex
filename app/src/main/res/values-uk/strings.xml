@@ -50,6 +50,7 @@
     <string name="error_share">Поділитися</string>
     <string name="error_share_subject">Звіт про помилку Just+ Player</string>
     <string name="error_upload">Надіслати лог</string>
+    <string name="report_view">Показати лог</string>
     <string name="error_uploading">Надсилання…</string>
     <string name="error_upload_failed">Не вдалося надіслати — торкніться, щоб повторити</string>
     <string name="error_upload_hint">Відскануйте код або відкрийте посилання, щоб поділитися цим звітом.</string>

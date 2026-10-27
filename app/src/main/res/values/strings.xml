@@ -90,6 +90,7 @@
     <string name="error_share">Share</string>
     <string name="error_share_subject">Just+ Player error report</string>
     <string name="error_upload">Upload log</string>
+    <string name="report_view">Show log</string>
     <string name="error_uploading">Uploading…</string>
     <string name="error_upload_failed">Upload failed — tap to retry</string>
     <string name="error_upload_hint">Scan the code or open the link to share this report.</string>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reads the report on the screen, without it leaving the device: first in the row, outlined like Copy
+     and Share, because like them it keeps the report here. See layout-television for the lettered pill a
+     set gets, where it stands beside the upload pill. -->
+<com.google.android.material.button.MaterialButton
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/btnView"
+    style="@style/Widget.JustPlus.Button.Icon.Outlined"
+    android:layout_width="48dp"
+    android:layout_height="48dp"
+    android:layout_marginEnd="8dp"
+    android:contentDescription="@string/report_view"
+    app:icon="@drawable/ic_view_list_24dp" />
