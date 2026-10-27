@@ -555,6 +555,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
 
         @Override
+        public void onAudioInputFormatChanged(AnalyticsListener.EventTime eventTime, Format format,
+                                              @Nullable DecoderReuseEvaluation evaluation) {
+            // The header names the codec the decoder is fed, which an HLS rendition only reveals
+            // here - see asPlaying.
+            updateMediaInfo();
+        }
+
+        @Override
         public void onBandwidthEstimate(AnalyticsListener.EventTime eventTime, int totalLoadTimeMs,
                                         long totalBytesLoaded, long bitrateEstimate) {
             bandwidthBitrate = bitrateEstimate;
@@ -7514,13 +7522,38 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             if (group.getType() == C.TRACK_TYPE_AUDIO && group.isSelected()) {
                 for (int i = 0; i < group.length; i++) {
                     if (group.isTrackSelected(i)) {
-                        return group.getMediaTrackGroup().getFormat(i);
+                        return asPlaying(group.getMediaTrackGroup().getFormat(i));
                     }
                 }
-                return group.getMediaTrackGroup().getFormat(0);
+                return asPlaying(group.getMediaTrackGroup().getFormat(0));
             }
         }
         return null;
+    }
+
+    /**
+     * The audio track's format with the codec the decoder is actually fed, where the two disagree. An HLS
+     * rendition's format is the master playlist's word: a variant that lists a single audio codec has it
+     * written over every audio rendition it carries (HlsSampleStreamWrapper.deriveFormat), whatever the
+     * segments hold. KinoPub declares mp4a.40.2 on every variant, so its AC3 dub was headed "AAC" while
+     * the decoder was c2.amlogic.audio.decoder.ac3 (27.10.2026). The format Media3 plays carries the
+     * track's own id (Format.withManifestFormatInfo), which is what matches the two; a track that is not
+     * playing keeps what the playlist says, as nothing better is known of it until it plays.
+     */
+    private Format asPlaying(@Nullable final Format track) {
+        final Format playing = player != null ? player.getAudioFormat() : null;
+        if (track == null || playing == null || track.id == null || !track.id.equals(playing.id)
+                || playing.sampleMimeType == null || playing.sampleMimeType.equals(track.sampleMimeType)) {
+            return track;
+        }
+        final Format.Builder corrected = track.buildUpon()
+                .setSampleMimeType(playing.sampleMimeType)
+                // Not the playing format's codecs: Media3 fills those in from the same playlist entry.
+                .setCodecs(null);
+        if (track.averageBitrate == Format.NO_VALUE && track.peakBitrate == Format.NO_VALUE) {
+            corrected.setAverageBitrate(playing.averageBitrate).setPeakBitrate(playing.peakBitrate);
+        }
+        return corrected.build();
     }
 
     private static String languageDisplayName(final String language) {
@@ -9988,7 +10021,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 // Numbered along with the rest, so the fallback "Track N" heading counts tracks the way
                 // the container orders them - and the way resolveNamesForType already counts them.
                 number++;
-                final String[] text = trackRowText(format, number);
+                final String[] text = trackRowText(asPlaying(format), number);
                 // Lenient on purpose. A track the decoder merely exceeds is one the selector will still
                 // take, because exceedRendererCapabilitiesIfNecessary is on by default - calling that one
                 // undecodable would deny a track the viewer can hear, and strip its tick while it plays.
