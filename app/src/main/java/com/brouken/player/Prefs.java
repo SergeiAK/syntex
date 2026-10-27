@@ -555,7 +555,9 @@ class Prefs {
                 PREF_KEY_DISABLE_VOLUME_BRIGHTNESS_GESTURES, disableVolumeBrightnessGestures);
         holdSpeedMode = getHoldSpeedMode(mContext);
         tunneling = mSharedPreferences.getBoolean(PREF_KEY_TUNNELING, tunneling);
-        frameRateMatching = mSharedPreferences.getBoolean(PREF_KEY_FRAMERATE_MATCHING, frameRateMatching);
+        // On by default on a TV: a film at 23.976 on a 59.94 screen judders, and a box is where films are
+        // watched; a phone has no display modes worth switching.
+        frameRateMatching = mSharedPreferences.getBoolean(PREF_KEY_FRAMERATE_MATCHING, Utils.isTvBox(mContext));
         backBufferMs = Integer.parseInt(mSharedPreferences.getString(PREF_KEY_BACK_BUFFER_MS,
                 String.valueOf(backBufferMs)));
         displayResolutionMatching = mSharedPreferences.getBoolean(PREF_KEY_DISPLAY_RESOLUTION_MATCHING,
