@@ -9772,7 +9772,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         final boolean show = player != null && buildQualityChoices().size() >= 2;
         buttonQuality.setVisibility(show ? View.VISIBLE : View.GONE);
-        // Light the HD icon coral when a specific quality is pinned (anything other than Auto).
+        // The icon names what is playing right now, not what was asked for: an adaptive stream on Auto
+        // drifts between renditions, and a source variant may be labelled one thing and be another.
+        final Format video = player != null ? player.getVideoFormat() : null;
+        buttonQuality.setImageResource(video != null
+                ? QualityIcon.of(video.width, video.height) : R.drawable.ic_high_quality_24dp);
+        // Light the icon coral when a specific quality is pinned (anything other than Auto).
         buttonQuality.setSelected(selectedVideoQualityMode != VideoQualityChoice.MODE_AUTO);
     }
 
@@ -16779,8 +16784,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         @Override
         public void onVideoSizeChanged(VideoSize videoSize) {
             // Fires when the new rendition actually renders, which is when getVideoFormat() finally
-            // reports it — onTracksChanged is too early for the header badge.
+            // reports it — onTracksChanged is too early for the header badge, and for the quality icon.
             updateMediaInfo();
+            updateQualityButton();
             // Media3 resets the content-frame AR to the video's natural AR on every size change (e.g. a
             // mid-stream video-track switch), silently dropping a forced ratio. Reassert it after that
             // update (posted, so it wins).

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quality: 4K in a frame, drawn like ic_high_quality_24dp (29.10.2026). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:tint="#FFFFFF"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M5,5h14a2.5,2.5 0,0 1,2.5 2.5v9a2.5,2.5 0,0 1,-2.5 2.5h-14a2.5,2.5 0,0 1,-2.5 -2.5v-9a2.5,2.5 0,0 1,2.5 -2.5z"
+        android:strokeWidth="1.8"
+        android:strokeColor="@android:color/white" />
+    <path
+        android:pathData="M9.3,14.5v-5L6.4,13.1h3.9 M13.5,9.5v5 M17.2,9.5l-3.7,3.1 M14.8,11.6l2.4,2.9"
+        android:strokeWidth="1.6"
+        android:strokeColor="@android:color/white"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quality: FHD, narrower letters to fit three in a frame, drawn like ic_high_quality_24dp (29.10.2026). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:tint="#FFFFFF"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M5,5h14a2.5,2.5 0,0 1,2.5 2.5v9a2.5,2.5 0,0 1,-2.5 2.5h-14a2.5,2.5 0,0 1,-2.5 -2.5v-9a2.5,2.5 0,0 1,2.5 -2.5z"
+        android:strokeWidth="1.8"
+        android:strokeColor="@android:color/white" />
+    <path
+        android:pathData="M7.9,9.5h-2.2v5 M5.7,12h1.8 M9.6,9.5v5 M12.3,9.5v5 M9.6,12h2.7 M14.3,9.5v5h1.1a2.5,2.5 0,0 0,0 -5z"
+        android:strokeWidth="1.4"
+        android:strokeColor="@android:color/white"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
