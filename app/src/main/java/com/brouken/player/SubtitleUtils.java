@@ -248,7 +248,7 @@ class SubtitleUtils {
         return getTrailPathFromUri(uri).split("/");
     }
 
-    private static String getFileBaseName(String name) {
+    static String getFileBaseName(String name) {
         if (name.indexOf(".") > 0)
             return name.substring(0, name.lastIndexOf("."));
         return name;

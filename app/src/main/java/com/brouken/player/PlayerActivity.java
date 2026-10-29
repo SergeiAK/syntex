@@ -7523,10 +7523,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             if (group.getType() == C.TRACK_TYPE_AUDIO && group.isSelected()) {
                 for (int i = 0; i < group.length; i++) {
                     if (group.isTrackSelected(i)) {
-                        return asPlaying(group.getMediaTrackGroup().getFormat(i));
+                        return asPlaying(group.getMediaTrackGroup().getFormat(i), true);
                     }
                 }
-                return asPlaying(group.getMediaTrackGroup().getFormat(0));
+                return asPlaying(group.getMediaTrackGroup().getFormat(0), true);
             }
         }
         return null;
@@ -7537,14 +7537,28 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * rendition's format is the master playlist's word: a variant that lists a single audio codec has it
      * written over every audio rendition it carries (HlsSampleStreamWrapper.deriveFormat), whatever the
      * segments hold. KinoPub declares mp4a.40.2 on every variant, so its AC3 dub was headed "AAC" while
-     * the decoder was c2.amlogic.audio.decoder.ac3 (27.10.2026). The format Media3 plays carries the
-     * track's own id (Format.withManifestFormatInfo), which is what matches the two; a track that is not
-     * playing keeps what the playlist says, as nothing better is known of it until it plays.
+     * the decoder was c2.amlogic.audio.decoder.ac3 (27.10.2026). A track that is not playing keeps what
+     * the playlist says, as nothing better is known of it until it plays.
+     *
+     * <p>The two are matched by id where the playing format has one (Format.withManifestFormatInfo). On
+     * KinoPub it does not — the report on the Dune read {@code Audio: id=null} with the rendition's
+     * language and label (29.10.2026), and 0117, which matched by id only, kept saying "AAC" — so a
+     * selected track with the same language and label is taken as the one playing.
+     *
+     * @param selected whether the track is the selected one: only that one can be what plays, and it
+     *                 keeps two renditions that share a label from both being renamed
      */
-    private Format asPlaying(@Nullable final Format track) {
+    private Format asPlaying(@Nullable final Format track, final boolean selected) {
         final Format playing = player != null ? player.getAudioFormat() : null;
-        if (track == null || playing == null || track.id == null || !track.id.equals(playing.id)
+        if (track == null || playing == null || !selected
                 || playing.sampleMimeType == null || playing.sampleMimeType.equals(track.sampleMimeType)) {
+            return track;
+        }
+        final boolean same = playing.id != null
+                ? playing.id.equals(track.id)
+                : track.label != null && track.label.equals(playing.label)
+                        && Objects.equals(track.language, playing.language);
+        if (!same) {
             return track;
         }
         final Format.Builder corrected = track.buildUpon()
@@ -10027,7 +10041,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 // Numbered along with the rest, so the fallback "Track N" heading counts tracks the way
                 // the container orders them - and the way resolveNamesForType already counts them.
                 number++;
-                final String[] text = trackRowText(asPlaying(format), number);
+                final String[] text = trackRowText(asPlaying(format, group.isTrackSelected(i)), number);
                 // Lenient on purpose. A track the decoder merely exceeds is one the selector will still
                 // take, because exceedRendererCapabilitiesIfNecessary is on by default - calling that one
                 // undecodable would deny a track the viewer can hear, and strip its tick while it plays.
@@ -11254,6 +11268,97 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
     }
 
+    /** A copy the app downloaded — a search result or its translation — which lives in the cache. */
+    private boolean isDownloadedSubtitle(final Uri uri) {
+        final String path = uri.getPath();
+        return "file".equals(uri.getScheme()) && path != null
+                && path.startsWith(getCacheDir().getPath() + "/");
+    }
+
+    /**
+     * The first line's subtitle when it is a downloaded one: painted from its file, or — after a
+     * rebuild has restored it (rememberedSubtitle) — the selected track whose id is that file.
+     */
+    @Nullable
+    private Uri onlineSubtitleOnScreen() {
+        if (paintedSubtitleUri != null) {
+            return isDownloadedSubtitle(paintedSubtitleUri) ? paintedSubtitleUri : null;
+        }
+        if (player == null || !mainLineTrackSelected()) {
+            return null;
+        }
+        for (final Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() != C.TRACK_TYPE_TEXT) {
+                continue;
+            }
+            for (int i = 0; i < group.length; i++) {
+                final Format format = group.getTrackFormat(i);
+                if (group.isTrackSelected(i) && format.id != null
+                        && !format.equals(secondaryTextTrack.get())) {
+                    final Uri uri = Uri.parse(format.id);
+                    return isDownloadedSubtitle(uri) ? uri : null;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether {@link #mediaAndFolder} can be expected to find a folder, decided without asking it: over
+     * a storage grant it walks the tree, which is not for the main thread a menu is built on.
+     */
+    private boolean mayHaveFolder() {
+        final Uri media = mPrefs.mediaUri;
+        return media != null && ("file".equals(media.getScheme()) || NetworkFiles.isNetwork(media)
+                || mPrefs.scopeUri != null);
+    }
+
+    /**
+     * Writes the downloaded subtitle beside the video as {@code Film.ru.srt} (SubtitleSave), moved by
+     * the offset the viewer set: the offset lasts only the session, and the sync they found is the
+     * point of keeping it. What is on screen is left alone — the saved copy is what the next watch
+     * opens with.
+     */
+    private void saveSubtitleBesideVideo(final Uri subtitle, final long offsetMs) {
+        new Thread(() -> {
+            String message;
+            try {
+                final DocumentFile[] media = mediaAndFolder();
+                if (media == null) {
+                    throw new IOException("no folder for " + mPrefs.mediaUri.getScheme());
+                }
+                final String text;
+                try (java.io.InputStream in = new java.io.FileInputStream(subtitle.getPath())) {
+                    text = new String(SubtitleSave.readAll(in), java.nio.charset.StandardCharsets.UTF_8);
+                }
+                final byte[] content = SubtitleSave.shifted(text, offsetMs)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                final String language = SubtitleUtils.getSubtitleLanguage(subtitle);
+                final SubtitleSave.Result result = SubtitleSave.save(this, media[0], media[1],
+                        language == null ? "und" : language, isMachineTranslated(subtitle), content);
+                Utils.log("subtitles: saved " + result.name + (result.already ? " (already there)" : "")
+                        + ", offset " + offsetMs + " ms");
+                message = getString(result.already ? R.string.subtitle_saved_already
+                        : R.string.subtitle_saved, result.name);
+            } catch (final Exception e) {
+                Utils.log("subtitles: save failed, " + e);
+                message = getString(R.string.subtitle_save_failed, saveFailureReason(e));
+            }
+            final String shown = message;
+            runOnUiThread(() -> showNotice(shown, true, R.drawable.ic_download_24dp));
+        }, "SubtitleSave").start();
+    }
+
+    /** The innermost message, which is the one that names the cause (access denied, no space). */
+    private static String saveFailureReason(final Throwable e) {
+        Throwable cause = e;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        final String text = cause.getMessage();
+        return text == null || text.isEmpty() ? cause.getClass().getSimpleName() : text;
+    }
+
     /** Translated by a machine — by this app, or by whoever uploaded it. See {@link #MACHINE_TRANSLATED}. */
     private static boolean isMachineTranslated(Uri uri) {
         final String path = uri.getPath();
@@ -11439,7 +11544,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // Remembered as well, so the next rebuild selects the file picked rather than the first.
             final boolean ticked = painting
                     && (filesOnly.size() == 1 || fileOnly.equals(paintedSubtitleUri));
-            items.add(new Dialogs.MenuItem(subtitleFileLabel(fileOnly), null, ticked,
+            items.add(new Dialogs.MenuItem(subtitleFileLabel(fileOnly),
+                    isDownloadedSubtitle(fileOnly) ? getString(R.string.subtitle_online) : null, ticked,
                     () -> {
                         mPrefs.updateSubtitle(fileOnly);
                         addSubtitleTrack(fileOnly);
@@ -11468,6 +11574,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     continue;
                 }
                 final String[] text = trackRowText(format, number);
+                // A downloaded file reads exactly like a sidecar ("Russian"), and only one of the two
+                // can be saved next to the video — the second line says which.
+                if (format.id != null && isDownloadedSubtitle(Uri.parse(format.id))) {
+                    text[1] = getString(R.string.subtitle_online);
+                }
                 final int index = i;
                 // !painting: an embedded track can stay selected while the file is painted over it
                 // (SubtitleOffset drops the renderer's cues), and two ticked rows is a lie.
@@ -11488,6 +11599,17 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         items.add(Dialogs.MenuItem.rule());
         items.add(new Dialogs.MenuItem(R.drawable.ic_search_24dp, getString(R.string.subtitle_search_manual),
                 null, false, () -> showSubtitleSearchDialog(false)));
+        // Only while a subtitle found online is the one on screen, and only where the video has a folder
+        // to put it in: a stream from LAMPA or a single content:// grant has none.
+        final Uri online = onlineSubtitleOnScreen();
+        if (online != null && mayHaveFolder()) {
+            final long offsetMs = Math.round(subtitleOffsetSec * 1000);
+            final String what = subtitleFileLabel(online);
+            items.add(new Dialogs.MenuItem(R.drawable.ic_download_24dp, getString(R.string.subtitle_save),
+                    offsetMs == 0 ? what : getString(R.string.subtitle_save_shifted, what,
+                            OffsetPanel.format(this, subtitleOffsetSec)),
+                    false, () -> saveSubtitleBesideVideo(online, offsetMs)));
+        }
         Dialogs.menu(this, ui, () -> showPickerDialog(Dialogs.openMenu()), getString(R.string.subtitle_title), items);
     }
 

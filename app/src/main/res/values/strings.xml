@@ -552,6 +552,12 @@
     <string name="pref_subtitle_search_language_summary">A manual search offers the language list first, for that search only</string>
     <string name="subtitle_search_found">Subtitles found: %1$s</string>
     <string name="subtitle_search_manual">Find subtitles online</string>
+    <string name="subtitle_online">Found online</string>
+    <string name="subtitle_save">Save next to the video</string>
+    <string name="subtitle_save_shifted">%1$s, shifted %2$s</string>
+    <string name="subtitle_saved">Saved: %1$s</string>
+    <string name="subtitle_saved_already">Already saved: %1$s</string>
+    <string name="subtitle_save_failed">Could not save the subtitles: %1$s</string>
     <string name="subtitle_search_label">Title or id</string>
     <string name="subtitle_search_hint">Silo, 125988 or tt14688458</string>
     <string name="subtitle_search_language_title">Choose language</string>

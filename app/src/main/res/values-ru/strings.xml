@@ -451,6 +451,12 @@
     <string name="pref_subtitle_search_language_summary">Ручной поиск сначала предлагает список языков — только для этого поиска</string>
     <string name="subtitle_search_found">Найдены субтитры: %1$s</string>
     <string name="subtitle_search_manual">Найти субтитры онлайн</string>
+    <string name="subtitle_online">Найдено онлайн</string>
+    <string name="subtitle_save">Сохранить рядом с видео</string>
+    <string name="subtitle_save_shifted">%1$s, со сдвигом %2$s</string>
+    <string name="subtitle_saved">Сохранено: %1$s</string>
+    <string name="subtitle_saved_already">Уже сохранено: %1$s</string>
+    <string name="subtitle_save_failed">Не удалось сохранить субтитры: %1$s</string>
     <string name="subtitle_search_label">Название или id</string>
     <string name="subtitle_search_hint">Silo, 125988 или tt14688458</string>
     <string name="subtitle_search_language_title">Выбор языка</string>

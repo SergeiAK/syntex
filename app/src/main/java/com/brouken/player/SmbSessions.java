@@ -71,6 +71,44 @@ final class SmbSessions {
         }
     }
 
+    /**
+     * Writes a new file, reconnecting once on the same terms as {@link #open}. Never over an existing
+     * one: the create is refused by the server when the name is taken, which is the only check that
+     * cannot race another writer.
+     *
+     * @return false when a file of that name is already there
+     */
+    static boolean create(final Context context, final Uri uri, final byte[] content)
+            throws IOException {
+        DiskShare used = null;
+        try {
+            used = share(context, uri, null);
+            return createFile(used, uri, content);
+        } catch (final Exception first) {
+            if (permanent(first) || interrupted(first)) {
+                throw first instanceof IOException ? (IOException) first : new IOException(first);
+            }
+            return createFile(share(context, uri, retire(used, first)), uri, content);
+        }
+    }
+
+    private static boolean createFile(final DiskShare share, final Uri uri, final byte[] content)
+            throws IOException {
+        try (com.hierynomus.smbj.share.File file = share.openFile(pathOf(uri),
+                EnumSet.of(AccessMask.GENERIC_WRITE), null, SMB2ShareAccess.ALL,
+                SMB2CreateDisposition.FILE_CREATE, null)) {
+            file.write(content, 0);
+            return true;
+        } catch (final SMBApiException e) {
+            if (e.getStatus() == com.hierynomus.mserref.NtStatus.STATUS_OBJECT_NAME_COLLISION) {
+                return false;
+            }
+            throw new IOException(e);
+        } catch (final RuntimeException e) {
+            throw new IOException(e);
+        }
+    }
+
     /** Lists a folder, reconnecting once on the same terms as {@link #open}. */
     static List<com.hierynomus.msfscc.fileinformation.FileIdBothDirectoryInformation> list(
             final Context context, final Uri uri) throws IOException {

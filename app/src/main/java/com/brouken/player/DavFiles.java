@@ -65,6 +65,33 @@ final class DavFiles {
                 .build();
     }
 
+    /**
+     * Uploads a new file. {@code If-None-Match: *} makes the server refuse a name already taken, so
+     * nothing is ever written over — the same guarantee a create gives on a share.
+     *
+     * @return false when a file of that name is already there
+     */
+    static boolean create(final Context context, final Uri uri, final byte[] content)
+            throws IOException {
+        final Request.Builder request = new Request.Builder()
+                .url(http(uri).toString())
+                .put(RequestBody.create(content, MediaType.parse("application/x-subrip")))
+                .header("If-None-Match", "*");
+        final String authorization = NetworkFiles.authorization(context, uri);
+        if (authorization != null) {
+            request.header("Authorization", authorization);
+        }
+        try (Response response = PlayerActivity.MEDIA_HTTP_CLIENT.newCall(request.build()).execute()) {
+            if (response.code() == 412) {
+                return false;
+            }
+            if (!response.isSuccessful()) {
+                throw new DavException(response.code(), response.message());
+            }
+            return true;
+        }
+    }
+
     static DocumentFile folder(final Context context, final Uri uri, final String name) {
         return new androidx.documentfile.provider.NetworkDocumentFile(null, uri, name, true, 0, 0,
                 new Lister(context));
