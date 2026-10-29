@@ -11,6 +11,9 @@
     <string name="error_stream_broken">Поток видео повреждён или недоступен. Попробуйте ещё раз.</string>
     <string name="error_stream_http_status">Ошибка сервера %1$d на %2$s</string>
     <string name="error_media_access_expired">Доступ к этому видео истёк. Откройте его снова из того приложения.</string>
+    <string name="error_video_beyond_device">Это видео (%1$s) устройство не декодирует, а программного декодера для него в приложении нет.</string>
+    <string name="video_bit_depth">%1$d бит</string>
+    <string name="error_media_storage_denied">Видео на месте, но приложению не разрешён доступ к файлам устройства.</string>
     <string name="error_media_missing">Этого видео больше нет.</string>
     <string name="error_details">Подробности</string>
     <string name="error_copy">Копировать</string>

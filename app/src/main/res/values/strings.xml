@@ -84,6 +84,9 @@
     <string name="error_stream_broken">The video stream is damaged or unavailable. Please try again.</string>
     <string name="error_stream_http_status">Server error %1$d at %2$s</string>
     <string name="error_media_access_expired">Access to this video has expired. Open it again from the app you shared it from.</string>
+    <string name="error_video_beyond_device">This device cannot decode this video (%1$s), and the app has no software decoder for it.</string>
+    <string name="video_bit_depth">%1$d bit</string>
+    <string name="error_media_storage_denied">The video is there, but this app is not allowed to read the files on this device.</string>
     <string name="error_media_missing">This video is no longer available.</string>
     <string name="error_copy">Copy</string>
     <string name="error_copied">Copied</string>

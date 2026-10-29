@@ -5,6 +5,7 @@ import static android.content.pm.PackageManager.FEATURE_EXPANDED_PICTURE_IN_PICT
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -17565,6 +17566,19 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     && recoverByLoweringQuality()) {
                 return;
             }
+            // The device decoder said before it opened that the stream is beyond it, and ffmpeg was not an
+            // answer either (the branch above). Nothing below changes that: the screen restart and three
+            // retries hand the same stream to the same codec — Hi10p H.264 on Shield, 29.10.2026, nine
+            // seconds of spinner ending in a crash report. The file's format, not an app failure: one line.
+            if (isVideoBeyondDevice(error)) {
+                reportOutcome("video-unsupported", error);
+                heldAfterError = mPrefs.mediaUri;
+                setEpisodeNavLoading(false);
+                updateLoading(false);
+                showSnack(getString(R.string.error_video_beyond_device,
+                        videoFormatWords(((ExoPlaybackException) error).rendererFormat)), null);
+                return;
+            }
             // On a TV box the window goes first, not last. Every re-read and rebuild below hands the codec
             // back to the window it has just failed in, and the field trace of the box this was written for
             // shows twelve such retries and four Dolby Vision rebuilds, every one refused with the same
@@ -17603,7 +17617,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 reportOutcome("media-unavailable", error);
                 heldAfterError = mPrefs.mediaUri;
                 setEpisodeNavLoading(false);
-                showSnack(getString(unavailable), null);
+                if (unavailable == R.string.error_media_storage_denied) {
+                    showStorageDenied();
+                } else {
+                    showSnack(getString(unavailable), null);
+                }
                 return;
             }
             // A single bad read from a streaming server is not the end of playback — re-read before
@@ -18184,6 +18202,32 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * selection reaches FfmpegVideoRenderer. The set is the guard: a second failure of the same format
      * ends on the error screen. A failure in the FFmpeg renderer itself is not answered here.
      */
+    // A video renderer whose decoder declared the format beyond it (FORMAT_EXCEEDS_CAPABILITIES): Media3
+    // still tries such a codec when it is the only one for the mime, and it fails as declared.
+    private static boolean isVideoBeyondDevice(PlaybackException error) {
+        if (!(error instanceof ExoPlaybackException)) {
+            return false;
+        }
+        final ExoPlaybackException exo = (ExoPlaybackException) error;
+        return exo.type == ExoPlaybackException.TYPE_RENDERER
+                && exo.rendererFormatSupport == C.FORMAT_EXCEEDS_CAPABILITIES
+                && exo.rendererFormat != null && MimeTypes.isVideo(exo.rendererFormat.sampleMimeType);
+    }
+
+    // "H.264, 10 bit, 320×180" — what the viewer can compare with another copy of the film.
+    private String videoFormatWords(final Format video) {
+        final StringBuilder words = new StringBuilder();
+        final String codec = shortCodec(video.sampleMimeType);
+        words.append(codec != null ? codec : video.sampleMimeType);
+        if (video.colorInfo != null && video.colorInfo.lumaBitdepth > 8) {
+            words.append(", ").append(getString(R.string.video_bit_depth, video.colorInfo.lumaBitdepth));
+        }
+        if (video.width > 0 && video.height > 0) {
+            words.append(", ").append(video.width).append('×').append(video.height);
+        }
+        return words.toString();
+    }
+
     private boolean recoverByDecodingVideoWithFfmpeg(PlaybackException error) {
         if (!(error instanceof ExoPlaybackException)) {
             return false;
@@ -19428,7 +19472,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 return R.string.error_media_access_expired;
             }
             if (t instanceof FileNotFoundException) {
-                return R.string.error_media_missing;
+                // open() says FileNotFoundException for EACCES too: a file that is right there, behind a
+                // grant this app does not hold — a fresh install, a new signing key. Calling it gone sent
+                // the viewer looking for a file that was never missing (Shield, 29.10.2026).
+                return Utils.canListStorage(this)
+                        ? R.string.error_media_missing : R.string.error_media_storage_denied;
             }
         }
         return 0;
@@ -19850,6 +19898,28 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     /** Returns the dialog on TV, which stays until dismissed; null elsewhere, where the snack times out. */
+    // The way to the grant, from where the viewer meets its absence: the same button Files offers. All-files
+    // access is a settings screen, the older grant a runtime prompt. Either way the video is opened again by
+    // hand afterwards — the error screen is held, and a grant arriving later is no reason to start playing.
+    private void showStorageDenied() {
+        final AlertDialog.Builder builder = new MaterialAlertDialogBuilder(Dialogs.dialogContext(this));
+        builder.setMessage(R.string.error_media_storage_denied);
+        builder.setPositiveButton(R.string.browse_grant_access, (dialog, i) -> {
+            if (Utils.permissionOpensStorage(this)) {
+                requestPermissions(new String[]{ Manifest.permission.READ_EXTERNAL_STORAGE }, 0);
+            } else {
+                Utils.askForAllFiles(this);
+            }
+        });
+        builder.setNegativeButton(android.R.string.cancel, (dialog, i) -> dialog.dismiss());
+        // Focus on the way out, not on Cancel where the D-pad first lands (Shield, 29.10.2026).
+        final AlertDialog dialog = builder.show();
+        final View grant = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        if (grant != null) {
+            grant.requestFocus();
+        }
+    }
+
     AlertDialog showSnack(final String textPrimary, final String textSecondary) {
         final Context dialogContext = Dialogs.dialogContext(this);
         // On TV the Snackbar action button is not reachable with the D-pad, so the "Details" affordance
