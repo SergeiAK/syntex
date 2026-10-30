@@ -748,10 +748,15 @@
     <string name="pref_sync_folder">Папка</string>
     <string name="pref_sync_folder_none">Не выбрана. Каждое устройство пишет в неё свой файл и читает чужие</string>
     <string name="pref_sync_folder_now">Синхронизировать сейчас</string>
-    <string name="pref_sync_folder_never">Само — при входе в браузер и при выходе из видео</string>
+    <string name="pref_sync_folder_never">С папкой и hub — само, при входе в браузер и при выходе из видео</string>
     <string name="pref_sync_folder_forget">Не синхронизировать с папкой</string>
     <string name="pref_sync_folder_forget_summary">Файлы в ней остаются как есть</string>
-    <string name="pref_sync_folder_status">%1$s — прочитано файлов: %2$d, взято: %3$d</string>
+    <string name="pref_sync_part">%1$s: прочитано %2$d, взято %3$d</string>
+    <string name="pref_sync_part_folder">папка</string>
+    <string name="pref_sync_part_hub">hub</string>
+    <string name="pref_sync_hub_category">Discovery-hub</string>
+    <string name="pref_sync_hub">Адрес hub</string>
+    <string name="pref_sync_hub_summary">Не задан. Например, http://192.168.1.40:8790 — hub хранит копию каждого устройства</string>
     <string name="pref_sync_folder_status_unreadable">Не прочитано: %1$d.</string>
-    <string name="pref_sync_folder_status_failed">%1$s — ошибка: %2$s</string>
+    <string name="pref_sync_part_failed">%1$s: ошибка: %2$s</string>
 </resources>

@@ -462,9 +462,14 @@ public class SettingsActivity extends AppCompatActivity
             where.setSummary(folder == null ? getString(R.string.pref_sync_folder_none)
                     : NetworkFiles.isNetwork(folder) ? NetworkFiles.address(folder)
                     : folder.getPath());
+            final EditTextPreference hub = findPreference(Sync.PREF_HUB);
+            if (hub != null) {
+                final String address = Sync.hub(context);
+                hub.setSummary(address == null ? getString(R.string.pref_sync_hub_summary) : address);
+            }
             final Preference now = findPreference("syncFolderNow");
             if (now != null) {
-                now.setVisible(folder != null);
+                now.setVisible(Sync.shared(context));
                 final String status = androidx.preference.PreferenceManager
                         .getDefaultSharedPreferences(context).getString(Sync.PREF_FOLDER_STATUS, "");
                 now.setSummary(status.isEmpty() ? getString(R.string.pref_sync_folder_never) : status);
@@ -910,6 +915,22 @@ public class SettingsActivity extends AppCompatActivity
                     forget.setOnPreferenceClickListener(preference -> {
                         Sync.setFolder(requireContext(), null);
                         bindSyncFolder();
+                        return true;
+                    });
+                }
+                final Preference hub = findPreference(Sync.PREF_HUB);
+                if (hub != null) {
+                    hub.setOnPreferenceChangeListener((preference, value) -> {
+                        // Posted: the value is stored only once this listener has said yes.
+                        getListView().post(() -> {
+                            if (!isAdded()) {
+                                return;
+                            }
+                            bindSyncFolder();
+                            if (Sync.hub(requireContext()) != null) {
+                                syncFolderNow();
+                            }
+                        });
                         return true;
                     });
                 }

@@ -48,6 +48,8 @@ final class Sync {
     static final String PREF_SETTINGS = "syncSettings";
     /** The folder shared by every box, as a uri; empty when there is none. Stays on this device. */
     static final String PREF_FOLDER = "syncFolder";
+    /** Discovery-hub's address, {@code http://host:port}; empty when there is none. Stays here. */
+    static final String PREF_HUB = "syncHub";
     /** What the last run with the folder did, one line for the settings screen. Not on the screen's XML. */
     static final String PREF_FOLDER_STATUS = "syncFolderStatus";
     /** The name of this device's own file in the folder, chosen once (see {@link #ownFile}). */
@@ -67,7 +69,7 @@ final class Sync {
             "decoderPriority", "tunneling", "mapDV7ToHevc", "refuseDolbyVision", "removeHdr10Plus",
             "backBufferMs", "allFilesAccess",
             "togetherNick", "togetherPassword",
-            PREF_POSITIONS, PREF_WATCHED, PREF_SETTINGS, PREF_FOLDER));
+            PREF_POSITIONS, PREF_WATCHED, PREF_SETTINGS, PREF_FOLDER, PREF_HUB));
 
     /** When each setting was last changed by hand here - kept apart from the settings themselves. */
     private static final String TIMES = "sync_setting_times";
@@ -281,7 +283,7 @@ final class Sync {
      */
     static void withFolder(final Context context, final boolean force, final Done done) {
         final Context app = context.getApplicationContext();
-        if (folder(app) == null) {
+        if (!shared(app)) {
             return;
         }
         if (!force && System.currentTimeMillis() - lastRun < QUIET_MS) {
@@ -299,49 +301,159 @@ final class Sync {
         });
     }
 
-    /** One run, here and now; null when no folder is set. Says how it went in {@link #PREF_FOLDER_STATUS}. */
+    /** Whether there is anywhere to sync with: a folder, the hub, or both. */
+    static boolean shared(final Context context) {
+        return folder(context) != null || hub(context) != null;
+    }
+
+    /**
+     * One run, here and now, with the folder and with the hub - whichever are set; null when
+     * neither is. Each is on its own: a NAS that is asleep does not stop the hub, nor the other way
+     * round. Says how it went in {@link #PREF_FOLDER_STATUS}, one part per place.
+     */
     static FolderRun runFolder(final Context context) {
         final Uri folder = folder(context);
-        if (folder == null) {
+        final String hub = hub(context);
+        if (folder == null && hub == null) {
             return null;
         }
         lastRun = System.currentTimeMillis();
         final FolderRun run = new FolderRun();
         final String stamp = new SimpleDateFormat("dd.MM HH:mm", Locale.ROOT).format(new Date());
-        String status;
-        try {
-            final String own = ownFile(context);
-            for (final DocumentFile file : list(context, folder)) {
-                final String name = file.getName();
-                if (name == null || name.equals(own) || !name.startsWith("syntex-")
-                        || !name.toLowerCase(Locale.ROOT).endsWith(".json")) {
-                    continue;
-                }
-                try {
-                    final String text = new String(SubtitleSave.read(context, file.getUri()),
-                            StandardCharsets.UTF_8);
-                    final SyncData.Taken taken = apply(context, SyncData.fromJson(text));
-                    run.taken += taken.total();
-                    run.changedPlayback |= !taken.positions.isEmpty() || !taken.watched.isEmpty();
-                    run.read++;
-                } catch (final IOException | JSONException e) {
-                    // Another box's file is not this box's to fix: skipped, counted and said.
-                    Utils.log("sync: " + name + " skipped: " + e);
-                    run.unreadable++;
-                }
-            }
-            write(context, folder, own, collect(context).toJson().getBytes(StandardCharsets.UTF_8));
-            run.written = own;
-            status = context.getString(R.string.pref_sync_folder_status, stamp, run.read, run.taken)
-                    + (run.unreadable > 0 ? " " + context.getString(
-                    R.string.pref_sync_folder_status_unreadable, run.unreadable) : "");
-        } catch (final Exception e) {
-            Utils.log("sync: folder run failed: " + e);
-            status = context.getString(R.string.pref_sync_folder_status_failed, stamp,
-                    String.valueOf(e.getMessage()));
+        final StringBuilder status = new StringBuilder(stamp);
+        if (folder != null) {
+            status.append(" — ").append(runPart(context, run,
+                    context.getString(R.string.pref_sync_part_folder), () -> fromFolder(context, folder)));
+        }
+        if (hub != null) {
+            status.append(" — ").append(runPart(context, run,
+                    context.getString(R.string.pref_sync_part_hub), () -> fromHub(context, hub)));
         }
         PreferenceManager.getDefaultSharedPreferences(context).edit()
-                .putString(PREF_FOLDER_STATUS, status).apply();
+                .putString(PREF_FOLDER_STATUS, status.toString()).apply();
+        return run;
+    }
+
+    /** One place's part of a run: what was read and taken there, or why it could not be. */
+    private interface Place {
+        /** Reads everybody else's document, takes from each, writes this device's; @return counts */
+        FolderRun exchange() throws Exception;
+    }
+
+    private static String runPart(final Context context, final FolderRun total, final String label,
+                                  final Place place) {
+        try {
+            final FolderRun part = place.exchange();
+            total.taken += part.taken;
+            total.read += part.read;
+            total.unreadable += part.unreadable;
+            total.changedPlayback |= part.changedPlayback;
+            total.written = part.written;
+            return context.getString(R.string.pref_sync_part, label, part.read, part.taken)
+                    + (part.unreadable > 0 ? " " + context.getString(
+                    R.string.pref_sync_folder_status_unreadable, part.unreadable) : "");
+        } catch (final Exception e) {
+            Utils.log("sync: " + label + " failed: " + e);
+            return context.getString(R.string.pref_sync_part_failed, label, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Takes what is newer from one document of another box, counting it into {@code run}. */
+    private static void take(final Context context, final FolderRun run, final String from,
+                             final String text) {
+        try {
+            final SyncData.Taken taken = apply(context, SyncData.fromJson(text));
+            run.taken += taken.total();
+            run.changedPlayback |= !taken.positions.isEmpty() || !taken.watched.isEmpty();
+            run.read++;
+        } catch (final JSONException e) {
+            // Another box's document is not this box's to fix: skipped, counted and said.
+            Utils.log("sync: " + from + " skipped: " + e);
+            run.unreadable++;
+        }
+    }
+
+    private static FolderRun fromFolder(final Context context, final Uri folder) throws Exception {
+        final FolderRun run = new FolderRun();
+        final String own = ownFile(context);
+        for (final DocumentFile file : list(context, folder)) {
+            final String name = file.getName();
+            if (name == null || name.equals(own) || !name.startsWith("syntex-")
+                    || !name.toLowerCase(Locale.ROOT).endsWith(".json")) {
+                continue;
+            }
+            final String text;
+            try {
+                text = new String(SubtitleSave.read(context, file.getUri()), StandardCharsets.UTF_8);
+            } catch (final IOException e) {
+                Utils.log("sync: " + name + " unreadable: " + e);
+                run.unreadable++;
+                continue;
+            }
+            take(context, run, name, text);
+        }
+        write(context, folder, own, collect(context).toJson().getBytes(StandardCharsets.UTF_8));
+        run.written = own;
+        return run;
+    }
+
+    // ---- Discovery-hub ----------------------------------------------------------------------
+    //
+    // The same exchange as the folder, over http: the hub keeps one document per box and merges
+    // nothing (lampa-media-stack, curator/syncdocs.py). PUT /sync/{device} stores this box's,
+    // GET /sync?except={device} hands back everybody else's as {"documents": [...]}.
+
+    @androidx.annotation.Nullable
+    static String hub(final Context context) {
+        final String stored = PreferenceManager.getDefaultSharedPreferences(context)
+                .getString(PREF_HUB, "").trim();
+        if (stored.isEmpty()) {
+            return null;
+        }
+        final String withScheme = stored.contains("://") ? stored : "http://" + stored;
+        return withScheme.replaceAll("/+$", "");
+    }
+
+    /** What this box is called on the hub: its file's name without the wrapping. */
+    static String hubDevice(final Context context) {
+        // The hub takes at most 80 characters of [A-Za-z0-9._-], which is what ownFile is made of;
+        // the tail is kept, since that is where the piece of the Android id is.
+        final String device = ownFile(context).replaceAll("^syntex-|\\.json$", "");
+        return device.length() > 80 ? device.substring(device.length() - 80) : device;
+    }
+
+    private static FolderRun fromHub(final Context context, final String hub) throws Exception {
+        final FolderRun run = new FolderRun();
+        final String device = hubDevice(context);
+        final okhttp3.Request list = new okhttp3.Request.Builder()
+                .url(hub + "/sync?except=" + Uri.encode(device)).build();
+        try (okhttp3.Response response = PlayerActivity.MEDIA_HTTP_CLIENT.newCall(list).execute()) {
+            final okhttp3.ResponseBody body = response.body();
+            if (!response.isSuccessful() || body == null) {
+                throw new IOException("GET /sync " + response.code());
+            }
+            final org.json.JSONArray documents = new org.json.JSONObject(body.string())
+                    .getJSONArray("documents");
+            for (int i = 0; i < documents.length(); i++) {
+                final org.json.JSONObject document = documents.optJSONObject(i);
+                if (document == null) {
+                    run.unreadable++;
+                    continue;
+                }
+                take(context, run, "hub #" + i + " " + document.optString("device"), document.toString());
+            }
+        }
+        final okhttp3.Request put = new okhttp3.Request.Builder()
+                .url(hub + "/sync/" + Uri.encode(device))
+                .put(okhttp3.RequestBody.create(collect(context).toJson().getBytes(StandardCharsets.UTF_8),
+                        okhttp3.MediaType.parse("application/json")))
+                .build();
+        try (okhttp3.Response response = PlayerActivity.MEDIA_HTTP_CLIENT.newCall(put).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("PUT /sync " + response.code());
+            }
+        }
+        run.written = device;
         return run;
     }
 

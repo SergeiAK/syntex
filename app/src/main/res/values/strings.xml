@@ -772,10 +772,15 @@
     <string name="pref_sync_folder">Folder</string>
     <string name="pref_sync_folder_none">Not chosen. Every device writes its own file into it and reads those of the others</string>
     <string name="pref_sync_folder_now">Sync now</string>
-    <string name="pref_sync_folder_never">Happens on opening the browser and on leaving a video</string>
+    <string name="pref_sync_folder_never">With the folder and the hub, on opening the browser and on leaving a video</string>
     <string name="pref_sync_folder_forget">Stop syncing with the folder</string>
     <string name="pref_sync_folder_forget_summary">Files in it are left as they are</string>
-    <string name="pref_sync_folder_status">%1$s — files read: %2$d, taken: %3$d</string>
+    <string name="pref_sync_part">%1$s: read %2$d, taken %3$d</string>
+    <string name="pref_sync_part_folder">folder</string>
+    <string name="pref_sync_part_hub">hub</string>
+    <string name="pref_sync_hub_category">Discovery-hub</string>
+    <string name="pref_sync_hub">Hub address</string>
+    <string name="pref_sync_hub_summary">Not set. For example http://192.168.1.40:8790 — the hub keeps a copy for every device</string>
     <string name="pref_sync_folder_status_unreadable">Unreadable: %1$d.</string>
-    <string name="pref_sync_folder_status_failed">%1$s — failed: %2$s</string>
+    <string name="pref_sync_part_failed">%1$s: failed: %2$s</string>
 </resources>

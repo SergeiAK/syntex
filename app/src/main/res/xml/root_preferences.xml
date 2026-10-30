@@ -893,15 +893,29 @@
                     app:title="@string/pref_sync_folder" />
 
                 <Preference
-                    app:key="syncFolderNow"
-                    app:icon="@drawable/ic_cloud_upload_24dp"
-                    app:title="@string/pref_sync_folder_now" />
-
-                <Preference
                     app:key="syncFolderForget"
                     app:icon="@drawable/ic_link_off_24dp"
                     app:summary="@string/pref_sync_folder_forget_summary"
                     app:title="@string/pref_sync_folder_forget" />
+
+            </PreferenceCategory>
+
+            <!-- The same exchange with Discovery-hub on the NAS (lampa-media-stack, curator/syncdocs.py):
+                 the hub keeps one document per box and merges nothing. Empty address - not used. -->
+            <PreferenceCategory app:title="@string/pref_sync_hub_category">
+
+                <EditTextPreference
+                    app:dialogLayout="@layout/preference_dialog_url_field"
+                    app:key="syncHub"
+                    app:icon="@drawable/ic_cloud_24dp"
+                    app:title="@string/pref_sync_hub"
+                    app:dialogTitle="@string/pref_sync_hub" />
+
+                <!-- One run for both places, and one line saying how each went. -->
+                <Preference
+                    app:key="syncFolderNow"
+                    app:icon="@drawable/ic_cloud_upload_24dp"
+                    app:title="@string/pref_sync_folder_now" />
 
             </PreferenceCategory>
 
