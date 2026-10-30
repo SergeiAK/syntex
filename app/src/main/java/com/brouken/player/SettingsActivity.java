@@ -439,6 +439,62 @@ public class SettingsActivity extends AppCompatActivity
                             }
                         });
 
+        private final androidx.activity.result.ActivityResultLauncher<Intent> chooseFolder =
+                registerForActivityResult(
+                        new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+                        result -> {
+                            if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null
+                                    && result.getData().getData() != null) {
+                                Sync.setFolder(requireContext(), result.getData().getData());
+                                bindSyncFolder();
+                                syncFolderNow();
+                            }
+                        });
+
+        /** The folder rows: where it is, how the last run went, and the way out - only once there is one. */
+        private void bindSyncFolder() {
+            final Preference where = findPreference("syncFolder");
+            if (where == null) {
+                return;
+            }
+            final Context context = requireContext();
+            final Uri folder = Sync.folder(context);
+            where.setSummary(folder == null ? getString(R.string.pref_sync_folder_none)
+                    : NetworkFiles.isNetwork(folder) ? NetworkFiles.address(folder)
+                    : folder.getPath());
+            final Preference now = findPreference("syncFolderNow");
+            if (now != null) {
+                now.setVisible(folder != null);
+                final String status = androidx.preference.PreferenceManager
+                        .getDefaultSharedPreferences(context).getString(Sync.PREF_FOLDER_STATUS, "");
+                now.setSummary(status.isEmpty() ? getString(R.string.pref_sync_folder_never) : status);
+            }
+            final Preference forget = findPreference("syncFolderForget");
+            if (forget != null) {
+                forget.setVisible(folder != null);
+            }
+        }
+
+        private void syncFolderNow() {
+            final Activity activity = requireActivity();
+            final Context app = activity.getApplicationContext();
+            new Thread(() -> {
+                final Sync.FolderRun run = Sync.runFolder(app);
+                activity.runOnUiThread(() -> {
+                    if (activity.isFinishing() || activity.isDestroyed() || !isAdded()) {
+                        return;
+                    }
+                    bindSyncFolder();
+                    if (run != null) {
+                        Notice.show(activity, androidx.preference.PreferenceManager
+                                        .getDefaultSharedPreferences(app)
+                                        .getString(Sync.PREF_FOLDER_STATUS, ""), true,
+                                R.drawable.ic_cloud_24dp);
+                    }
+                });
+            }, "sync-folder-now").start();
+        }
+
         /** Writes or reads the file off the main thread - it may be on a share - and says how it went. */
         private void syncInBackground(final Uri uri, final boolean export) {
             final Activity activity = requireActivity();
@@ -833,6 +889,31 @@ public class SettingsActivity extends AppCompatActivity
                             .putExtra(BrowserActivity.EXTRA_SYNC_FILE, true));
                     return true;
                 });
+            }
+
+            Preference syncFolder = findPreference("syncFolder");
+            if (syncFolder != null) {
+                syncFolder.setOnPreferenceClickListener(preference -> {
+                    chooseFolder.launch(new Intent(requireContext(), BrowserActivity.class)
+                            .putExtra(BrowserActivity.EXTRA_SAVE_FOLDER, true));
+                    return true;
+                });
+                final Preference now = findPreference("syncFolderNow");
+                if (now != null) {
+                    now.setOnPreferenceClickListener(preference -> {
+                        syncFolderNow();
+                        return true;
+                    });
+                }
+                final Preference forget = findPreference("syncFolderForget");
+                if (forget != null) {
+                    forget.setOnPreferenceClickListener(preference -> {
+                        Sync.setFolder(requireContext(), null);
+                        bindSyncFolder();
+                        return true;
+                    });
+                }
+                bindSyncFolder();
             }
 
             Preference checkUpdate = findPreference("checkUpdateNow");

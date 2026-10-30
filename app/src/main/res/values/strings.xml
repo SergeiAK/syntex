@@ -768,4 +768,14 @@
     <string name="pref_sync_imported">Taken: positions %1$d, watched marks %2$d, settings %3$d</string>
     <string name="pref_sync_nothing_new">Nothing newer in the file</string>
     <string name="pref_sync_failed">Failed: %1$s</string>
+    <string name="pref_sync_folder_category">Shared folder</string>
+    <string name="pref_sync_folder">Folder</string>
+    <string name="pref_sync_folder_none">Not chosen. Every device writes its own file into it and reads those of the others</string>
+    <string name="pref_sync_folder_now">Sync now</string>
+    <string name="pref_sync_folder_never">Happens on opening the browser and on leaving a video</string>
+    <string name="pref_sync_folder_forget">Stop syncing with the folder</string>
+    <string name="pref_sync_folder_forget_summary">Files in it are left as they are</string>
+    <string name="pref_sync_folder_status">%1$s — files read: %2$d, taken: %3$d</string>
+    <string name="pref_sync_folder_status_unreadable">Unreadable: %1$d.</string>
+    <string name="pref_sync_folder_status_failed">%1$s — failed: %2$s</string>
 </resources>

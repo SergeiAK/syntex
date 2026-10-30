@@ -80,23 +80,37 @@ final class SmbSessions {
      */
     static boolean create(final Context context, final Uri uri, final byte[] content)
             throws IOException {
+        return write(context, uri, content, SMB2CreateDisposition.FILE_CREATE);
+    }
+
+    /**
+     * Writes a file whether or not it is there, replacing what was - the one file a device keeps
+     * in a sync folder (see {@link Sync}), which is its own and rewritten every time.
+     */
+    static void replace(final Context context, final Uri uri, final byte[] content)
+            throws IOException {
+        write(context, uri, content, SMB2CreateDisposition.FILE_OVERWRITE_IF);
+    }
+
+    private static boolean write(final Context context, final Uri uri, final byte[] content,
+                                 final SMB2CreateDisposition disposition) throws IOException {
         DiskShare used = null;
         try {
             used = share(context, uri, null);
-            return createFile(used, uri, content);
+            return createFile(used, uri, content, disposition);
         } catch (final Exception first) {
             if (permanent(first) || interrupted(first)) {
                 throw first instanceof IOException ? (IOException) first : new IOException(first);
             }
-            return createFile(share(context, uri, retire(used, first)), uri, content);
+            return createFile(share(context, uri, retire(used, first)), uri, content, disposition);
         }
     }
 
-    private static boolean createFile(final DiskShare share, final Uri uri, final byte[] content)
-            throws IOException {
+    private static boolean createFile(final DiskShare share, final Uri uri, final byte[] content,
+                                      final SMB2CreateDisposition disposition) throws IOException {
         try (com.hierynomus.smbj.share.File file = share.openFile(pathOf(uri),
                 EnumSet.of(AccessMask.GENERIC_WRITE), null, SMB2ShareAccess.ALL,
-                SMB2CreateDisposition.FILE_CREATE, null)) {
+                disposition, null)) {
             file.write(content, 0);
             return true;
         } catch (final SMBApiException e) {

@@ -3461,6 +3461,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         // Every leave and every stop but a recreate (screen off, Home, Back, the task swiped away).
         sendPlaylistReport();
+        // Where the viewer stopped, told to the shared folder. A moment later rather than now: the
+        // position is written further down this stop, or by the release that follows it.
+        final Context app = getApplicationContext();
+        new Handler(Looper.getMainLooper()).postDelayed(() -> Sync.withFolder(app, true, null), 2000);
         // With no session worth keeping (leaving for good, or nothing loaded) tear down as before —
         // the empty state and its pulse are only ever (re)built by initializePlayer.
         if (isFinishing() || player == null || !haveMedia) {

@@ -828,6 +828,24 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         // is another app and hands back no result. Coming home from it is the only signal there is.
         // show() is what re-reads what the index was built under - see its head.
         show();
+        // What the other boxes wrote into the shared folder since the last look. A minute apart at
+        // most (Sync.QUIET_MS), and on a thread: the listing above does not wait for a share that may
+        // be asleep. Rows already drawn get their runs again if a position or a mark came in.
+        Sync.withFolder(this, false, run -> {
+            if (!run.changedPlayback) {
+                return;
+            }
+            final Map<String, Long> read = Prefs.readPositions(this);
+            final Map<String, Long> marks = Prefs.readWatched(this);
+            runOnUiThread(() -> {
+                if (isDestroyed() || list == null || list.getAdapter() == null) {
+                    return;
+                }
+                positions = read;
+                watched = marks;
+                rebindChangedRuns();
+            });
+        });
         // Stills refused while a player was up are asked for again once it is gone, which is after
         // this onStart: binding the rows again is what makes Glide begin a failed request anew.
         NetworkThumbs.whenPlayerGone(() -> {
@@ -2423,6 +2441,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         final boolean mark = !Prefs.isWatched(watched, uri.toString());
         new Thread(() -> {
             Prefs.markWatched(this, uri, mark);
+            Sync.withFolder(this, true, null);
             final Map<String, Long> marks = Prefs.readWatched(this);
             runOnUiThread(() -> {
                 watched = marks;

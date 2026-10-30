@@ -78,10 +78,23 @@ final class DavFiles {
 
     static boolean create(final Context context, final Uri uri, final byte[] content,
                           final String type) throws IOException {
+        return put(context, uri, content, type, true);
+    }
+
+    /** Uploads a file over whatever is at that name - a device's own file in a sync folder. */
+    static void replace(final Context context, final Uri uri, final byte[] content,
+                        final String type) throws IOException {
+        put(context, uri, content, type, false);
+    }
+
+    private static boolean put(final Context context, final Uri uri, final byte[] content,
+                               final String type, final boolean onlyNew) throws IOException {
         final Request.Builder request = new Request.Builder()
                 .url(http(uri).toString())
-                .put(RequestBody.create(content, MediaType.parse(type)))
-                .header("If-None-Match", "*");
+                .put(RequestBody.create(content, MediaType.parse(type)));
+        if (onlyNew) {
+            request.header("If-None-Match", "*");
+        }
         final String authorization = NetworkFiles.authorization(context, uri);
         if (authorization != null) {
             request.header("Authorization", authorization);

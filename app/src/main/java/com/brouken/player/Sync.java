@@ -29,6 +29,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * This device's side of {@link SyncData}: gathering it out of where the player keeps things, putting
@@ -43,6 +46,12 @@ final class Sync {
     static final String PREF_POSITIONS = "syncPositions";
     static final String PREF_WATCHED = "syncWatched";
     static final String PREF_SETTINGS = "syncSettings";
+    /** The folder shared by every box, as a uri; empty when there is none. Stays on this device. */
+    static final String PREF_FOLDER = "syncFolder";
+    /** What the last run with the folder did, one line for the settings screen. Not on the screen's XML. */
+    static final String PREF_FOLDER_STATUS = "syncFolderStatus";
+    /** The name of this device's own file in the folder, chosen once (see {@link #ownFile}). */
+    private static final String PREF_OWN_FILE = "syncOwnFile";
 
     /**
      * Settings that describe this box and its screen rather than the viewer, so they stay where
@@ -58,7 +67,7 @@ final class Sync {
             "decoderPriority", "tunneling", "mapDV7ToHevc", "refuseDolbyVision", "removeHdr10Plus",
             "backBufferMs", "allFilesAccess",
             "togetherNick", "togetherPassword",
-            PREF_POSITIONS, PREF_WATCHED, PREF_SETTINGS));
+            PREF_POSITIONS, PREF_WATCHED, PREF_SETTINGS, PREF_FOLDER));
 
     /** When each setting was last changed by hand here - kept apart from the settings themselves. */
     private static final String TIMES = "sync_setting_times";
@@ -216,6 +225,208 @@ final class Sync {
             editor.commit();
         }
         return taken;
+    }
+
+    // ---- The shared folder ------------------------------------------------------------------
+    //
+    // Every box writes one file of its own into the folder and reads everybody's. Nobody writes a
+    // file another box writes, so two boxes playing at once cannot lose each other's work to a race;
+    // what one of them wrote while the other was reading is read on the next run. A file half
+    // written when it is read fails to parse and is skipped for that run.
+
+    private static final ExecutorService FOLDER = Executors.newSingleThreadExecutor(runnable -> {
+        final Thread thread = new Thread(runnable, "sync-folder");
+        thread.setPriority(Thread.MIN_PRIORITY);
+        return thread;
+    });
+    /** A run is waiting on the executor: asking again adds nothing. */
+    private static final AtomicBoolean QUEUED = new AtomicBoolean();
+    /** How soon after a run an unforced one is skipped - a browser shown five times a minute. */
+    private static final long QUIET_MS = 60_000;
+    private static volatile long lastRun;
+
+    /** What a run did, for the screen that asked. */
+    static final class FolderRun {
+        int taken;
+        int read;
+        int unreadable;
+        /** This device's file as written, or null when the run failed before it could write. */
+        String written;
+        /** A position or a watched mark came in: a list on screen is drawn from out of date maps. */
+        boolean changedPlayback;
+    }
+
+    interface Done {
+        void done(FolderRun run);
+    }
+
+    static Uri folder(final Context context) {
+        final String stored = PreferenceManager.getDefaultSharedPreferences(context)
+                .getString(PREF_FOLDER, "");
+        return stored.isEmpty() ? null : Uri.parse(stored);
+    }
+
+    static void setFolder(final Context context, final Uri folder) {
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putString(PREF_FOLDER, folder == null ? "" : folder.toString())
+                .remove(PREF_FOLDER_STATUS)
+                .apply();
+    }
+
+    /**
+     * Reads every box's file in the folder and writes this one's, on a thread of its own, when a
+     * folder is set. Unforced it is skipped within a minute of the last run - the browser asks on
+     * every return to it; the player forces it on leaving a video, which is when there is something
+     * new to say. {@code done} runs on that thread, and only after a run that happened.
+     */
+    static void withFolder(final Context context, final boolean force, final Done done) {
+        final Context app = context.getApplicationContext();
+        if (folder(app) == null) {
+            return;
+        }
+        if (!force && System.currentTimeMillis() - lastRun < QUIET_MS) {
+            return;
+        }
+        if (!QUEUED.compareAndSet(false, true)) {
+            return;
+        }
+        FOLDER.execute(() -> {
+            QUEUED.set(false);
+            final FolderRun run = runFolder(app);
+            if (run != null && done != null) {
+                done.done(run);
+            }
+        });
+    }
+
+    /** One run, here and now; null when no folder is set. Says how it went in {@link #PREF_FOLDER_STATUS}. */
+    static FolderRun runFolder(final Context context) {
+        final Uri folder = folder(context);
+        if (folder == null) {
+            return null;
+        }
+        lastRun = System.currentTimeMillis();
+        final FolderRun run = new FolderRun();
+        final String stamp = new SimpleDateFormat("dd.MM HH:mm", Locale.ROOT).format(new Date());
+        String status;
+        try {
+            final String own = ownFile(context);
+            for (final DocumentFile file : list(context, folder)) {
+                final String name = file.getName();
+                if (name == null || name.equals(own) || !name.startsWith("syntex-")
+                        || !name.toLowerCase(Locale.ROOT).endsWith(".json")) {
+                    continue;
+                }
+                try {
+                    final String text = new String(SubtitleSave.read(context, file.getUri()),
+                            StandardCharsets.UTF_8);
+                    final SyncData.Taken taken = apply(context, SyncData.fromJson(text));
+                    run.taken += taken.total();
+                    run.changedPlayback |= !taken.positions.isEmpty() || !taken.watched.isEmpty();
+                    run.read++;
+                } catch (final IOException | JSONException e) {
+                    // Another box's file is not this box's to fix: skipped, counted and said.
+                    Utils.log("sync: " + name + " skipped: " + e);
+                    run.unreadable++;
+                }
+            }
+            write(context, folder, own, collect(context).toJson().getBytes(StandardCharsets.UTF_8));
+            run.written = own;
+            status = context.getString(R.string.pref_sync_folder_status, stamp, run.read, run.taken)
+                    + (run.unreadable > 0 ? " " + context.getString(
+                    R.string.pref_sync_folder_status_unreadable, run.unreadable) : "");
+        } catch (final Exception e) {
+            Utils.log("sync: folder run failed: " + e);
+            status = context.getString(R.string.pref_sync_folder_status_failed, stamp,
+                    String.valueOf(e.getMessage()));
+        }
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putString(PREF_FOLDER_STATUS, status).apply();
+        return run;
+    }
+
+    /**
+     * This device's file in the folder: its name and a short piece of its Android id, so two boxes
+     * of one model that nobody named are two files and not one written over by turns. Chosen once
+     * and kept, so renaming the box does not leave its old file behind as a second device.
+     */
+    static String ownFile(final Context context) {
+        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        final String kept = prefs.getString(PREF_OWN_FILE, "");
+        if (!kept.isEmpty()) {
+            return kept;
+        }
+        String id = null;
+        try {
+            id = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ANDROID_ID);
+        } catch (final Exception ignored) {
+            // No id: the name alone, and a second unnamed box of the model has to be named.
+        }
+        final String name = "syntex-" + deviceName(context).replaceAll("[^A-Za-z0-9._-]+", "_")
+                + (id == null || id.length() < 6 ? "" : "-" + id.substring(0, 6)) + ".json";
+        prefs.edit().putString(PREF_OWN_FILE, name).apply();
+        return name;
+    }
+
+    private static DocumentFile[] list(final Context context, final Uri folder) throws IOException {
+        final String scheme = folder.getScheme();
+        final DocumentFile dir;
+        if ("file".equals(scheme)) {
+            dir = DocumentFile.fromFile(new File(folder.getPath()));
+        } else if (ContentResolver.SCHEME_CONTENT.equals(scheme)) {
+            dir = DocumentFile.fromTreeUri(context, folder);
+        } else {
+            dir = NetworkFiles.folder(context, folder, "");
+        }
+        if (dir == null) {
+            throw new IOException("Not a folder: " + folder);
+        }
+        final DocumentFile[] files = dir.listFiles();
+        // A network folder that would not open lists as empty, with the reason kept aside - and an
+        // empty folder is not a reason to go on and write as if it had been read.
+        final Throwable failure = NetworkFiles.isNetwork(folder) ? NetworkFiles.failure() : null;
+        if (failure != null) {
+            throw failure instanceof IOException ? (IOException) failure : new IOException(failure);
+        }
+        return files;
+    }
+
+    /** Writes this device's file over the one it wrote last time. */
+    private static void write(final Context context, final Uri folder, final String name,
+                              final byte[] content) throws IOException {
+        final String scheme = folder.getScheme();
+        if ("file".equals(scheme)) {
+            try (OutputStream out = new FileOutputStream(new File(folder.getPath(), name))) {
+                out.write(content);
+            }
+            return;
+        }
+        if (SmbSessions.SCHEME.equals(scheme)) {
+            SmbSessions.replace(context, folder.buildUpon().appendPath(name).build(), content);
+            return;
+        }
+        if (DavFiles.speaks(folder)) {
+            DavFiles.replace(context, folder.buildUpon().appendPath(name).build(), content,
+                    "application/json");
+            return;
+        }
+        final DocumentFile dir = DocumentFile.fromTreeUri(context, folder);
+        if (dir == null) {
+            throw new IOException("Not a folder: " + folder);
+        }
+        DocumentFile target = dir.findFile(name);
+        if (target == null) {
+            target = dir.createFile("application/json", name);
+        }
+        if (target == null) {
+            throw new IOException("Folder refused " + name);
+        }
+        try (OutputStream out = context.getContentResolver().openOutputStream(target.getUri(), "wt")) {
+            if (out == null) {
+                throw new IOException("No stream for " + target.getUri());
+            }
+            out.write(content);
+        }
     }
 
     private static boolean sectionOn(final Context context, final String key) {

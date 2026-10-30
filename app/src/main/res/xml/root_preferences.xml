@@ -841,8 +841,8 @@
     <PreferenceCategory app:title="@string/pref_section_system">
 
         <!-- Carrying where the viewer stopped, what is watched and the settings to another box. Three
-             switches, one per thing carried, read on both ends; then the ways it travels. Only the
-             file for now - the NAS folder and the hub are to come (roadmap, 30.10.2026). -->
+             switches, one per thing carried, read on both ends; then the ways it travels: a file by
+             hand and a shared folder. The hub is to come (roadmap, 30.10.2026). -->
         <PreferenceScreen
             app:key="syncScreen"
             app:icon="@drawable/ic_cloud_24dp"
@@ -880,6 +880,28 @@
                     app:icon="@drawable/ic_download_24dp"
                     app:summary="@string/pref_sync_import_summary"
                     app:title="@string/pref_sync_import" />
+
+            </PreferenceCategory>
+
+            <!-- A folder every box reads and writes its own file into: on entering the browser, at
+                 most once a minute, and on leaving a video. -->
+            <PreferenceCategory app:title="@string/pref_sync_folder_category">
+
+                <Preference
+                    app:key="syncFolder"
+                    app:icon="@drawable/ic_cloud_24dp"
+                    app:title="@string/pref_sync_folder" />
+
+                <Preference
+                    app:key="syncFolderNow"
+                    app:icon="@drawable/ic_cloud_upload_24dp"
+                    app:title="@string/pref_sync_folder_now" />
+
+                <Preference
+                    app:key="syncFolderForget"
+                    app:icon="@drawable/ic_link_off_24dp"
+                    app:summary="@string/pref_sync_folder_forget_summary"
+                    app:title="@string/pref_sync_folder_forget" />
 
             </PreferenceCategory>
 
