@@ -577,6 +577,13 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         // to a destination the screen was not on.
         dest = destFromText(savedInstanceState != null
                 ? savedInstanceState.getString(STATE_DEST) : Prefs.getBrowseDest(this));
+        if (syncFile || saveFolder) {
+            // The settings screen's pickers have no rail or bar to change destination with, so the
+            // one remembered from browsing would be all they could reach - opened from Network, the
+            // device and a USB drive were out of sight (Dune, 30.10.2026). Files is the destination
+            // whose top is the shared root of a picker: volumes and network places together.
+            dest = Dest.FILES;
+        }
         wireNavigation();
         // Started here rather than waited for later: the index is what lets a folder open out of one
         // query instead of a walk, and the first thing anybody does with this screen is open a folder.
@@ -2232,7 +2239,11 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         openSoleVolume();
         final Item folder = trail.isEmpty() ? null : trail.get(trail.size() - 1);
         showChrome();
-        Prefs.setBrowseTrail(this, dest.name(), trailAsText());
+        // Not from the settings screen's pickers: where a sync file was picked is not where browsing
+        // was left, and their destination is forced (see onCreate).
+        if (!syncFile && !saveFolder) {
+            Prefs.setBrowseTrail(this, dest.name(), trailAsText());
+        }
         // What is on screen belongs to the level being left, and listing a folder takes as long as the
         // folder is big. Left there, those rows stay clickable: tapping the same row again descended
         // into the same folder again, and a big folder could be walked into itself forever.
