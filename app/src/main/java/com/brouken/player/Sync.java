@@ -250,8 +250,11 @@ final class Sync {
     });
     /** A run is waiting on the executor: asking again adds nothing. */
     private static final AtomicBoolean QUEUED = new AtomicBoolean();
-    /** How soon after a run an unforced one is skipped - a browser shown five times a minute. */
-    private static final long QUIET_MS = 60_000;
+    /**
+     * How soon after a run an unforced one is skipped - a browser shown five times a minute. Short:
+     * a minute let a box walked to straight from the other one miss what it had just written.
+     */
+    private static final long QUIET_MS = 15_000;
     private static volatile long lastRun;
 
     /** What a run did, for the screen that asked. */
@@ -284,7 +287,7 @@ final class Sync {
 
     /**
      * Reads every box's file in the folder and writes this one's, on a thread of its own, when a
-     * folder is set. Unforced it is skipped within a minute of the last run - the browser asks on
+     * folder is set. Unforced it is skipped within QUIET_MS of the last run - the browser asks on
      * every return to it; the player forces it on leaving a video, which is when there is something
      * new to say. {@code done} runs on that thread, and only after a run that happened.
      */

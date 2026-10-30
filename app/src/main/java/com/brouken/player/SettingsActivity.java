@@ -511,6 +511,10 @@ public class SettingsActivity extends AppCompatActivity
                         said = app.getString(R.string.pref_sync_exported, Sync.exportTo(app, uri));
                     } else {
                         final SyncData.Taken taken = Sync.importFrom(app, uri);
+                        // What came in goes on to the folder and the hub now, not at the next browse.
+                        if (taken.total() > 0) {
+                            Sync.withFolder(app, true, null);
+                        }
                         said = taken.total() == 0 ? app.getString(R.string.pref_sync_nothing_new)
                                 : app.getString(R.string.pref_sync_imported, taken.positions.size(),
                                 taken.watched.size(), taken.settings.size());

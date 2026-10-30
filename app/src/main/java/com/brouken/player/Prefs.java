@@ -1261,6 +1261,15 @@ class Prefs {
         // back below - the copy would put every one of those back as it was.
         loadPositions();
         final String key = SyncKey.of(uri.toString());
+        final Object had = positions.get(key);
+        // Nothing new is not written, and above all not given a new time: a file opened and left
+        // without playing would otherwise carry the newest stamp there is and win every merge, and
+        // its 0 - or the stale position it opened at - would wipe what another box had just watched
+        // to (Shield and Dune, 30.10.2026: a film opened on the Dune before it had synced came up at
+        // 00:00, and leaving it would have sent 0 over the Shield's 51 s).
+        if (had == null ? position == 0 : ((Long) had) == position) {
+            return;
+        }
         // Re-put at the tail, so the oldest-first trim below drops what was played longest ago.
         positions.remove(key);
         while (positions.size() > MAX_REMEMBERED)
