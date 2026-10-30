@@ -238,6 +238,25 @@ INFO (или Menu) на пульте открывает карточку с те
 
 </details>
 
+### Sync between boxes
+
+ * Where you stopped, what you have watched and your settings travel between TVs: stop a film on one box and continue it on another
+ * Three ways, any of them or together: a **shared folder** on a NAS (SMB, WebDAV, or local), where every box writes its own file and reads the others'; a **hub** — a small http server on the NAS that keeps one JSON per box (`PUT /sync/{box}`, `GET /sync?except={box}` → `{"documents": [...]}`; ours is Discovery-hub); or **export and import** of a file by hand
+ * A file is the same film on every box even when one reached the share by its address and another by its name. Of two entries the newer wins, one by one, so two boxes playing at once lose nothing
+ * **Watched** is a mark of its own: set by playing to the end, by leaving in the closing 5 %, by an episode moving on, or by hand from a row's menu; a watched row shows a full bar
+ * Settings that depend on the box stay where they are: frame rate and resolution, audio output and delays, decoders, buffer, nickname and room password. Each of the three — positions, watched, settings — has its own switch
+
+<details>
+<summary>По-русски</summary>
+
+ * Место остановки, просмотренное и настройки переходят между телевизорами: остановили фильм на одной приставке — продолжили на другой
+ * Три способа, по отдельности или вместе: **общая папка** на NAS (SMB, WebDAV или на устройстве) — каждая приставка пишет свой файл и читает чужие; **hub** — небольшой http-сервер на NAS, хранящий по одному JSON на приставку (`PUT /sync/{box}`, `GET /sync?except={box}` → `{"documents": [...]}`; у нас это Discovery-hub); **экспорт и импорт** файлом вручную
+ * Один фильм — одна запись на всех приставках, даже если шара подключена на одной по адресу, а на другой по имени. Из двух записей побеждает более новая, по каждой отдельно, — одновременный просмотр на двух ничего не теряет
+ * **«Просмотрено»** — отдельная отметка: ставится при досмотре до конца, при выходе в последних 5 %, при переходе серии и вручную из меню строки; у просмотренной строки полоса полная
+ * Настройки, зависящие от приставки, остаются на ней: частота и разрешение, вывод и задержки звука, декодеры, буфер, ник и пароль комнаты. У каждой из трёх частей — позиций, отметок, настроек — свой переключатель
+
+</details>
+
 ### Launchers: LAMPA and media servers
 
  * **LAMPA.** Syntex understands LAMPA's playlist launch — episodes with their numbers, segments to skip, positions, qualities, subtitles — resumes the way the launcher asks, carries the dub to the next episode, and reports the position of every episode back so LAMPA keeps your progress. **For all of this LAMPA has to recognise Syntex as a player it supports.** Until it does, LAMPA hands Syntex a single link: the video plays, but there is no playlist and no progress goes back. Once that support is in LAMPA, everything listed here works without any change in Syntex
