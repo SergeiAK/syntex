@@ -1256,11 +1256,19 @@ class Prefs {
             return;
         }
 
-        while (positions.size() > 100)
+        // From disk first, not from the copy loaded with this object: an import, or the browser writing
+        // a torrent server's timecode, may have changed the file since, and the whole map is written
+        // back below - the copy would put every one of those back as it was.
+        loadPositions();
+        final String key = SyncKey.of(uri.toString());
+        // Re-put at the tail, so the oldest-first trim below drops what was played longest ago.
+        positions.remove(key);
+        while (positions.size() > MAX_REMEMBERED)
             positions.remove(positions.keySet().toArray()[0]);
 
-        positions.put(uri.toString(), position);
+        positions.put(key, position);
         savePositions();
+        stamp(mContext, key);
         // A torrent server keeps the timecode for everything that plays off it, which is what lets a
         // film started in one player be continued in another. Told on the way out rather than as it
         // plays: this is called when a file is left or an episode changes, not per second.
@@ -1440,6 +1448,136 @@ class Prefs {
         }
     }
 
+    /**
+     * How many files a position, a length or a watched mark is kept for. Was 100 while it was one
+     * device's memory; carried between boxes it is a household's, and a series is a hundred files.
+     * Small either way: a key and a long, tens of kilobytes at the cap.
+     */
+    static final int MAX_REMEMBERED = 1000;
+
+    /**
+     * When each position was written, keyed as the positions are - what a merge between devices
+     * decides by (see {@link SyncData}). A position with no time is older than any that has one:
+     * it was written before this was kept, and a time made up for it now would beat a real one.
+     */
+    static Map<String, Long> readPositionTimes(final Context context) {
+        return readMap(context, "position_times");
+    }
+
+    private static void stamp(final Context context, final String key) {
+        stamp(context, key, System.currentTimeMillis());
+    }
+
+    private static synchronized void stamp(final Context context, final String key, final long at) {
+        final LinkedHashMap<String, Long> times = new LinkedHashMap<>(readMap(context, "position_times"));
+        times.remove(key);
+        times.put(key, at);
+        writeMap(context, "position_times", times);
+    }
+
+    /**
+     * Watched marks, keyed as the positions are: the time it was set, or minus the time it was taken
+     * off. A mark taken off is remembered rather than dropped, so a box that still has it set cannot
+     * hand it straight back.
+     *
+     * <p>A mark of its own and not a position: a film played to the end is remembered at 0 (see
+     * PlayerActivity.savePlayer), which is the same as one never opened.
+     */
+    static Map<String, Long> readWatched(final Context context) {
+        return readMap(context, "watched");
+    }
+
+    static boolean isWatched(final Map<String, Long> marks, final String uri) {
+        final Long at = marks.get(SyncKey.of(uri));
+        return at != null && at > 0;
+    }
+
+    static void markWatched(final Context context, final Uri uri, final boolean watched) {
+        if (uri != null) {
+            markWatched(context, SyncKey.of(uri.toString()), watched, System.currentTimeMillis());
+        }
+    }
+
+    /** The same, at a time given - one carried over from another device. */
+    static synchronized void markWatched(final Context context, final String key,
+                                         final boolean watched, final long at) {
+        final LinkedHashMap<String, Long> marks = new LinkedHashMap<>(readMap(context, "watched"));
+        final Long had = marks.get(key);
+        if (watched && had != null && had > 0) {
+            // Already marked: the first time it was watched is the one worth keeping.
+            return;
+        }
+        if (!watched && had == null) {
+            // Nothing to take off; a mark of "not watched" for a file nobody marked is a line in
+            // every export for nothing.
+            return;
+        }
+        marks.remove(key);
+        while (marks.size() > MAX_REMEMBERED) {
+            marks.remove(marks.keySet().toArray()[0]);
+        }
+        marks.put(key, watched ? at : -at);
+        writeMap(context, "watched", marks);
+    }
+
+    /**
+     * A position carried over from another device, with the time it was written there. The length
+     * comes along when that device knew it, so the row here can draw a bar for a file this one has
+     * never opened.
+     */
+    static synchronized void rememberSynced(final Context context, final String key,
+                                            final long position, final long length, final long at) {
+        final LinkedHashMap<String, Long> known = new LinkedHashMap<>(readMap(context, "positions"));
+        known.remove(key);
+        while (known.size() > MAX_REMEMBERED) {
+            known.remove(known.keySet().toArray()[0]);
+        }
+        known.put(key, position);
+        writeMap(context, "positions", known);
+        if (length > 0) {
+            final LinkedHashMap<String, Long> lengths = new LinkedHashMap<>(readMap(context, "lengths"));
+            lengths.remove(key);
+            while (lengths.size() > MAX_REMEMBERED) {
+                lengths.remove(lengths.keySet().toArray()[0]);
+            }
+            lengths.put(key, length);
+            writeMap(context, "lengths", lengths);
+        }
+        stamp(context, key, at);
+    }
+
+    /**
+     * Files the positions and lengths under {@link SyncKey} once, where they were filed under the
+     * whole address before. Two boxes' worth of one share under two host names becomes one entry,
+     * the later of the two winning by being later in the map.
+     */
+    static void migrateToSyncKeys(final Context context) {
+        for (final String name : new String[] {"positions", "lengths"}) {
+            final Map<String, Long> known = readMap(context, name);
+            final LinkedHashMap<String, Long> keyed = new LinkedHashMap<>();
+            boolean changed = false;
+            for (final Map.Entry<String, Long> entry : known.entrySet()) {
+                final String key = SyncKey.of(entry.getKey());
+                changed |= !key.equals(entry.getKey());
+                keyed.remove(key);
+                keyed.put(key, entry.getValue());
+            }
+            if (changed) {
+                writeMap(context, name, keyed);
+            }
+        }
+    }
+
+    private static void writeMap(final Context context, final String name,
+                                 final LinkedHashMap<String, Long> map) {
+        try (FileOutputStream fos = context.openFileOutput(name, Context.MODE_PRIVATE);
+             ObjectOutputStream os = new ObjectOutputStream(fos)) {
+            os.writeObject(map);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Long> readMap(final Context context, final String name) {
         try (FileInputStream fis = context.openFileInput(name);
@@ -1462,10 +1600,13 @@ class Prefs {
      */
     static void rememberPosition(final Context context, final Uri uri, final long position) {
         remember(context, "positions", uri, position);
+        if (uri != null) {
+            stamp(context, SyncKey.of(uri.toString()));
+        }
     }
 
     @SuppressWarnings("unchecked")
-    private static void remember(final Context context, final String name, final Uri uri,
+    private static synchronized void remember(final Context context, final String name, final Uri uri,
                                  final long position) {
         if (uri == null) {
             return;
@@ -1477,15 +1618,17 @@ class Prefs {
         } catch (Exception e) {
             known = new LinkedHashMap<>(10);
         }
-        final Long had = known.get(uri.toString());
+        final String key = SyncKey.of(uri.toString());
+        final Long had = known.get(key);
         if (had != null && had == position) {
             // Nothing to write, and writing it would be a file rewritten per row of a listing.
             return;
         }
-        while (known.size() > 100) {
+        known.remove(key);
+        while (known.size() > MAX_REMEMBERED) {
             known.remove(known.keySet().toArray()[0]);
         }
-        known.put(uri.toString(), position);
+        known.put(key, position);
         try (FileOutputStream fos = context.openFileOutput(name, Context.MODE_PRIVATE);
              ObjectOutputStream os = new ObjectOutputStream(fos)) {
             os.writeObject(known);
@@ -1532,7 +1675,7 @@ class Prefs {
             return mediaUri != null && mediaUri.equals(this.mediaUri) ? nonPersitentPosition : 0L;
         }
 
-        Object val = positions.get(mediaUri.toString());
+        Object val = positions.get(SyncKey.of(mediaUri.toString()));
         if (val != null)
             return (long) val;
 

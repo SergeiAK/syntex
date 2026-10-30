@@ -418,6 +418,55 @@ public class SettingsActivity extends AppCompatActivity
 
     public static class SettingsFragment extends PreferenceFragmentCompat {
 
+        // The app's own browser picks where the file goes and which one comes back: a television
+        // often has no system picker, and none of them reaches a share or a WebDAV server.
+        private final androidx.activity.result.ActivityResultLauncher<Intent> exportInto =
+                registerForActivityResult(
+                        new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+                        result -> {
+                            if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null
+                                    && result.getData().getData() != null) {
+                                syncInBackground(result.getData().getData(), true);
+                            }
+                        });
+        private final androidx.activity.result.ActivityResultLauncher<Intent> importFrom =
+                registerForActivityResult(
+                        new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+                        result -> {
+                            if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null
+                                    && result.getData().getData() != null) {
+                                syncInBackground(result.getData().getData(), false);
+                            }
+                        });
+
+        /** Writes or reads the file off the main thread - it may be on a share - and says how it went. */
+        private void syncInBackground(final Uri uri, final boolean export) {
+            final Activity activity = requireActivity();
+            final Context app = activity.getApplicationContext();
+            new Thread(() -> {
+                CharSequence said;
+                try {
+                    if (export) {
+                        said = app.getString(R.string.pref_sync_exported, Sync.exportTo(app, uri));
+                    } else {
+                        final SyncData.Taken taken = Sync.importFrom(app, uri);
+                        said = taken.total() == 0 ? app.getString(R.string.pref_sync_nothing_new)
+                                : app.getString(R.string.pref_sync_imported, taken.positions.size(),
+                                taken.watched.size(), taken.settings.size());
+                    }
+                } catch (final Exception e) {
+                    Utils.log("sync: " + (export ? "export" : "import") + " failed: " + e);
+                    said = app.getString(R.string.pref_sync_failed, String.valueOf(e.getMessage()));
+                }
+                final CharSequence text = said;
+                activity.runOnUiThread(() -> {
+                    if (!activity.isFinishing() && !activity.isDestroyed()) {
+                        Notice.show(activity, text, true, R.drawable.ic_cloud_24dp);
+                    }
+                });
+            }, "sync-file").start();
+        }
+
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             // Inflation materializes switch defaults, so record whether the key was already
@@ -765,6 +814,23 @@ public class SettingsActivity extends AppCompatActivity
                 sendAppLog.setOnPreferenceClickListener(preference -> {
                     ErrorActivity.showReport(requireContext(), getString(R.string.pref_send_app_log),
                             getString(R.string.pref_send_app_log_summary), Utils.recentLog());
+                    return true;
+                });
+            }
+
+            Preference syncExport = findPreference("syncExport");
+            if (syncExport != null) {
+                syncExport.setOnPreferenceClickListener(preference -> {
+                    exportInto.launch(new Intent(requireContext(), BrowserActivity.class)
+                            .putExtra(BrowserActivity.EXTRA_SAVE_FOLDER, true));
+                    return true;
+                });
+            }
+            Preference syncImport = findPreference("syncImport");
+            if (syncImport != null) {
+                syncImport.setOnPreferenceClickListener(preference -> {
+                    importFrom.launch(new Intent(requireContext(), BrowserActivity.class)
+                            .putExtra(BrowserActivity.EXTRA_SYNC_FILE, true));
                     return true;
                 });
             }

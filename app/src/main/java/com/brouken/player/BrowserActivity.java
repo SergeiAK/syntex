@@ -114,6 +114,10 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
 
     /** Browse for a subtitle rather than for something to play. */
     public static final String EXTRA_SUBTITLES = "subtitles";
+    /** Started to pick a sync document (.json) - the settings screen's import. */
+    public static final String EXTRA_SYNC_FILE = "syncFile";
+    /** Started to pick a folder to write into - the settings screen's export. Lists folders only. */
+    public static final String EXTRA_SAVE_FOLDER = "saveFolder";
 
     /**
      * The four places this screen can be standing in. Only where they are listed changes with the
@@ -137,6 +141,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
     private static final String STATE_DEST = "dest";
 
     private boolean subtitles;
+    private boolean syncFile;
+    private boolean saveFolder;
 
     /**
      * True when this screen is standing in for a picker - fetching a subtitle, or answering somebody
@@ -308,6 +314,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
     private final Map<String, Long> shown = new HashMap<>();
     /** What the player has remembered, read once per listing — see {@link Prefs#readPositions}. */
     private Map<String, Long> positions = Collections.emptyMap();
+    /** Watched marks, read with the positions - see {@link Prefs#readWatched}. */
+    private Map<String, Long> watched = Collections.emptyMap();
     /** {@link #videoFolders()}, once built - and null until it is. Written on the main thread. */
     private volatile Map<String, long[]> videoFolders;
     /** True while {@link #indexFolders()} is building it, so it is built once and not once per row. */
@@ -402,10 +410,12 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
         subtitles = getIntent().getBooleanExtra(EXTRA_SUBTITLES, false);
+        syncFile = getIntent().getBooleanExtra(EXTRA_SYNC_FILE, false);
+        saveFolder = getIntent().getBooleanExtra(EXTRA_SAVE_FOLDER, false);
         // Started for a result, this screen is somebody's picker and has to stay one: the player is
         // waiting underneath for a uri, so destinations, a start page and a menu of other ways to
         // open something have no business here.
-        picker = subtitles || getCallingActivity() != null;
+        picker = subtitles || syncFile || saveFolder || getCallingActivity() != null;
         tv = Utils.isTvBox(this);
         appearance = appearanceKey();
         browsing = browsingKey();
@@ -676,6 +686,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         // destination included; elsewhere the top of the destination is, so the button waits for a
         // folder to stand in.
         menu.findItem(R.id.browse_go_home).setVisible(tv ? !picker : here != null);
+        menu.findItem(R.id.browse_save_here).setVisible(saveFolder && here != null
+                && Sync.canWriteInto(here.file.getUri()));
         // Only inside a folder: a list of volumes, shares or favourites is in the order it was made.
         menu.findItem(R.id.browse_sort).setVisible(dest != Dest.IPTV && here != null && query == null);
         menu.findItem(R.id.browse_open_link).setVisible(!picker);
@@ -740,6 +752,13 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         }
         if (item.getItemId() == R.id.browse_exit) {
             finishAndRemoveTask();
+            return true;
+        }
+        if (item.getItemId() == R.id.browse_save_here) {
+            if (!trail.isEmpty()) {
+                setResult(RESULT_OK, new Intent().setData(trail.get(trail.size() - 1).file.getUri()));
+                finish();
+            }
             return true;
         }
         if (item.getItemId() == R.id.browse_add_network) {
@@ -1293,6 +1312,12 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             // The star the toolbar shows for this row: filled while it is put aside.
             icons.add(saved ? R.drawable.ic_star_24dp : R.drawable.ic_star_outline_24dp);
             acts.add(() -> toggleFavorite(item));
+        }
+        if (!picker && !item.folder && !item.volume) {
+            final boolean seen = Prefs.isWatched(watched, item.file.getUri().toString());
+            labels.add(getString(seen ? R.string.browse_watched_remove : R.string.browse_watched_add));
+            icons.add(R.drawable.ic_visibility_24dp);
+            acts.add(() -> toggleWatched(item));
         }
         if (place != null && TorrFiles.speaks(item.file.getUri())) {
             // On the server's own row, because that is the one row that stands for the server rather
@@ -2253,6 +2278,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             // knows where another player stopped.
             final Map<String, Long> read = Prefs.readPositions(this);
             final Map<String, Long> played = Prefs.readLengths(this);
+            final Map<String, Long> marks = Prefs.readWatched(this);
             // Kept for the search, which then asks the server nothing: this is the same folder it
             // would have had to list, already listed. Only a plain listing - a search's own answer
             // is not what the folder holds.
@@ -2280,16 +2306,21 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                     }
                     dropSkeleton();
                     positions = read;
+                    watched = marks;
                     // A network file's length is known only if the player has had it: nothing here
                     // can open one to measure. A file on the device is measured as before, and a
                     // torrent's row says where the viewer stopped instead of drawing a bar.
-                    for (final Map.Entry<String, Long> entry : played.entrySet()) {
-                        final Uri uri = Uri.parse(entry.getKey());
-                        final String had = durations.get(entry.getKey());
-                        if (NetworkFiles.isNetwork(uri) && !TorrFiles.speaks(uri)
+                    // Asked per row, not walked off the file: it is filed by SyncKey, without the
+                    // host, and the rows here are addressed in full.
+                    for (final Item row : listed == null ? Collections.<Item>emptyList() : listed) {
+                        final Uri uri = row.file.getUri();
+                        final String key = uri.toString();
+                        final Long length = row.folder ? null : played.get(SyncKey.of(key));
+                        final String had = durations.get(key);
+                        if (length != null && NetworkFiles.isNetwork(uri) && !TorrFiles.speaks(uri)
                                 && (had == null || had.isEmpty())) {
-                            lengths.put(entry.getKey(), entry.getValue());
-                            durations.put(entry.getKey(), Utils.formatMilis(entry.getValue()));
+                            lengths.put(key, length);
+                            durations.put(key, Utils.formatMilis(length));
                         }
                     }
                     bound = wanted;
@@ -2370,10 +2401,44 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
      * Rebinds only the rows whose played run has moved since they were bound - in practice the one
      * film that was just watched, on the way back from it.
      */
+    /**
+     * What a row's run was drawn from, as one value a refresh can compare: the position, or -1 for
+     * a file marked watched and remembered at its start, which draws as a full run.
+     */
+    private Long shownRun(final String uri) {
+        final Long position = positions.get(SyncKey.of(uri));
+        if (Prefs.isWatched(watched, uri) && (position == null || position == 0)) {
+            return -1L;
+        }
+        return position;
+    }
+
+    /**
+     * Sets or takes off a row's watched mark, and redraws the row. A file played to its end gets the
+     * mark by itself (PlayerActivity.markWatchedIfDone); this is for the one watched elsewhere, or
+     * marked by mistake.
+     */
+    private void toggleWatched(final Item item) {
+        final Uri uri = item.file.getUri();
+        final boolean mark = !Prefs.isWatched(watched, uri.toString());
+        new Thread(() -> {
+            Prefs.markWatched(this, uri, mark);
+            final Map<String, Long> marks = Prefs.readWatched(this);
+            runOnUiThread(() -> {
+                watched = marks;
+                final int at = rows.indexOf(item);
+                if (at >= 0) {
+                    shown.remove(uri.toString());
+                    list.getAdapter().notifyItemChanged(at);
+                }
+            });
+        }, "watched-mark").start();
+    }
+
     private void rebindChangedRuns() {
         for (int i = 0; i < rows.size(); i++) {
             final String key = rows.get(i).file.getUri().toString();
-            final Long now = positions.get(key);
+            final Long now = shownRun(key);
             final Long was = shown.get(key);
             if (now == null ? was != null : !now.equals(was)) {
                 if (now == null) {
@@ -2494,7 +2559,9 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         // already on screen; a row that vanishes under a thumb is worse than a folder that turns out
         // to be empty.
         final Map<String, long[]> withVideos = videoFolders;
-        final boolean hideEmpty = withVideos != null && withVideos.containsKey(pathOf(folder));
+        // Not while picking a document or a folder to write into: neither is looking for a video.
+        final boolean hideEmpty = !syncFile && !saveFolder
+                && withVideos != null && withVideos.containsKey(pathOf(folder));
         // Both read once for the folder rather than per entry: the loop below runs five thousand
         // times in a camera roll, and neither answer can change while it does.
         final boolean showHidden = Prefs.showHiddenFiles(this);
@@ -2517,7 +2584,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             e.printStackTrace();
             return folders;
         }
-        final SideArt side = !subtitles && picturesFrom(folder.getUri()) ? new SideArt() : null;
+        final SideArt side = !subtitles && !syncFile && !saveFolder && picturesFrom(folder.getUri()) ? new SideArt() : null;
         for (final DocumentFile file : children) {
             final String name = file.getName();
             if (name == null || (!showHidden && name.startsWith("."))) {
@@ -2551,7 +2618,9 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             // not say so - no extension, or a .dat - which the list no longer shows; every file
             // manager on the device makes the same trade. Off the device the type is the only answer
             // there is, and it is free, because it arrived with the listing.
-            final boolean playable = subtitles
+            final boolean playable = saveFolder ? false
+                    : syncFile ? name.toLowerCase(Locale.ROOT).endsWith(".json")
+                    : subtitles
                     ? SubtitleUtils.hasSubtitleExtension(name.toLowerCase())
                     : local ? Utils.hasVideoExtension(name) : SubtitleUtils.isPlayableVideo(file);
             if (side != null && !playable && SideArt.isPicture(name)) {
@@ -2835,8 +2904,9 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             e.printStackTrace();
             return null;
         }
-        if (subtitles) {
-            // A subtitle is not in the video index, so that listing has to be the walk.
+        if (subtitles || syncFile || saveFolder) {
+            // A subtitle is not in the video index, so that listing has to be the walk - nor is a
+            // sync document, and a folder picked to write into is listed for its folders alone.
             return null;
         }
         order(folders, Prefs.browseOrder(this, path));
@@ -3217,7 +3287,9 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             showBlank(query != null
                     ? searchInOneFolder() ? R.string.browse_no_matches_folder
                             : R.string.browse_no_matches
-                    : subtitles ? R.string.browse_empty_subtitles : R.string.browse_empty, false);
+                    : subtitles ? R.string.browse_empty_subtitles
+                    : syncFile ? R.string.browse_empty_sync
+                    : saveFolder ? R.string.browse_empty_save_here : R.string.browse_empty, false);
             return;
         }
         blank.setVisibility(View.GONE);
@@ -4026,15 +4098,16 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             if (itemView.getTag() != item) {
                 return;
             }
-            if (lengths.containsKey(item.file.getUri().toString())) {
+            if (lengths.containsKey(item.file.getUri().toString()) || played >= 1f) {
                 // The length can arrive after the row does - off the retriever, or off the server's
-                // own answer - and the track comes with it.
+                // own answer - and the track comes with it. A watched file is a full run with or
+                // without one.
                 Utils.playedTrack(box);
             }
             if (played > 0) {
                 Utils.playedRun(box, played);
             }
-            final Long at = positions.get(item.file.getUri().toString());
+            final Long at = shownRun(item.file.getUri().toString());
             if (at != null) {
                 shown.put(item.file.getUri().toString(), at);
             }
@@ -4069,7 +4142,12 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
      * length off the retriever that was already reading this file for its running time.
      */
     private float playedFraction(final String uri) {
-        final Long position = positions.get(uri);
+        final Long position = positions.get(SyncKey.of(uri));
+        if (Prefs.isWatched(watched, uri) && (position == null || position == 0)) {
+            // Watched to the end, which is remembered as a position of 0: the full run says so
+            // whether or not a length is known here.
+            return 1f;
+        }
         final Long length = lengths.get(uri);
         if (position == null || length == null || length <= 0) {
             return -1f;
@@ -4092,7 +4170,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 lengths.put(key, stated);
             }
             durations.put(key, stated > 0 ? Utils.formatMilis(stated) : "");
-            final Long at = positions.get(key);
+            final Long at = positions.get(SyncKey.of(key));
             final boolean stopped = at != null && at > 0;
             row.late(item, stated > 0 ? Utils.formatMilis(stated) : null,
                     stopped ? row.sizeOf(item, this) : null,

@@ -722,4 +722,26 @@
     <string name="pref_seek_without_set">Если рядом с файлом нет кадров trickplay</string>
     <string name="pref_seek_without_set_card">Табличка со временем, без картинки</string>
     <string name="pref_seek_without_set_frames">Кадры из самого файла, где приставка их декодирует</string>
+    <string name="browse_watched_add">Отметить просмотренным</string>
+    <string name="browse_watched_remove">Снять отметку «просмотрено»</string>
+    <string name="browse_empty_sync">В этой папке нет файлов синхронизации (.json).</string>
+    <string name="browse_empty_save_here">Здесь нет папок. Сохранить в эту — кнопка «Сохранить сюда» вверху.</string>
+    <string name="browse_save_here">Сохранить сюда</string>
+    <string name="pref_sync_header">Синхронизация между устройствами</string>
+    <string name="pref_sync_header_summary">Позиции, отметки «просмотрено» и настройки — в файл и обратно</string>
+    <string name="pref_sync_positions">Позиции</string>
+    <string name="pref_sync_positions_summary">Где остановился просмотр каждого файла</string>
+    <string name="pref_sync_watched">Отметки «просмотрено»</string>
+    <string name="pref_sync_watched_summary">Досмотренные до конца и отмеченные вручную</string>
+    <string name="pref_sync_settings">Настройки</string>
+    <string name="pref_sync_settings_summary">Всё, кроме зависящего от устройства: частота и разрешение, вывод и задержки звука, декодеры, буфер, ник и пароль комнаты</string>
+    <string name="pref_sync_file_category">Файл</string>
+    <string name="pref_sync_export">Экспорт в файл</string>
+    <string name="pref_sync_export_summary">Выбрать папку — на устройстве, на флешке или сетевую</string>
+    <string name="pref_sync_import">Импорт из файла</string>
+    <string name="pref_sync_import_summary">Берётся то, что в файле новее; остальное остаётся как здесь</string>
+    <string name="pref_sync_exported">Сохранено: %1$s</string>
+    <string name="pref_sync_imported">Взято: позиций %1$d, отметок %2$d, настроек %3$d</string>
+    <string name="pref_sync_nothing_new">В файле нет ничего новее</string>
+    <string name="pref_sync_failed">Не удалось: %1$s</string>
 </resources>

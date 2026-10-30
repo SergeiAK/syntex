@@ -73,9 +73,14 @@ final class DavFiles {
      */
     static boolean create(final Context context, final Uri uri, final byte[] content)
             throws IOException {
+        return create(context, uri, content, "application/x-subrip");
+    }
+
+    static boolean create(final Context context, final Uri uri, final byte[] content,
+                          final String type) throws IOException {
         final Request.Builder request = new Request.Builder()
                 .url(http(uri).toString())
-                .put(RequestBody.create(content, MediaType.parse("application/x-subrip")))
+                .put(RequestBody.create(content, MediaType.parse(type)))
                 .header("If-None-Match", "*");
         final String authorization = NetworkFiles.authorization(context, uri);
         if (authorization != null) {

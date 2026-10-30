@@ -746,4 +746,26 @@
     <string name="pref_seek_without_set">Without trickplay frames beside the file</string>
     <string name="pref_seek_without_set_card">Time on the card, no picture</string>
     <string name="pref_seek_without_set_frames">Frames from the file itself where the box can decode them</string>
+    <string name="browse_watched_add">Mark as watched</string>
+    <string name="browse_watched_remove">Mark as unwatched</string>
+    <string name="browse_empty_sync">No sync files (.json) in this folder.</string>
+    <string name="browse_empty_save_here">No folders here. Use \"Save here\" in the bar to save into this one.</string>
+    <string name="browse_save_here">Save here</string>
+    <string name="pref_sync_header">Sync between devices</string>
+    <string name="pref_sync_header_summary">Positions, watched marks and settings — to a file and back</string>
+    <string name="pref_sync_positions">Positions</string>
+    <string name="pref_sync_positions_summary">Where playback stopped in each file</string>
+    <string name="pref_sync_watched">Watched marks</string>
+    <string name="pref_sync_watched_summary">Files played to the end or marked by hand</string>
+    <string name="pref_sync_settings">Settings</string>
+    <string name="pref_sync_settings_summary">Everything but what depends on this device: frame rate and resolution, audio output and delays, decoders, buffer, nickname and room password</string>
+    <string name="pref_sync_file_category">File</string>
+    <string name="pref_sync_export">Export to a file</string>
+    <string name="pref_sync_export_summary">Pick a folder — on this device, on a USB drive or a network one</string>
+    <string name="pref_sync_import">Import from a file</string>
+    <string name="pref_sync_import_summary">What is newer in the file is taken, the rest stays as it is here</string>
+    <string name="pref_sync_exported">Saved as %1$s</string>
+    <string name="pref_sync_imported">Taken: positions %1$d, watched marks %2$d, settings %3$d</string>
+    <string name="pref_sync_nothing_new">Nothing newer in the file</string>
+    <string name="pref_sync_failed">Failed: %1$s</string>
 </resources>

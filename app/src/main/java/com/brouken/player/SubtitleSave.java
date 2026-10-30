@@ -209,7 +209,7 @@ final class SubtitleSave {
         return builder.appendPath(name).build();
     }
 
-    private static byte[] read(final Context context, final Uri uri) throws IOException {
+    static byte[] read(final Context context, final Uri uri) throws IOException {
         if (SmbSessions.SCHEME.equals(uri.getScheme())) {
             try (com.hierynomus.smbj.share.File file = SmbSessions.open(context, uri);
                  InputStream in = file.getInputStream()) {

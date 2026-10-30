@@ -32,6 +32,8 @@ public class App extends Application {
         // left by a withdrawn option would otherwise sit there unnamed until something played.
         Prefs.migrateWithdrawnValues(
                 androidx.preference.PreferenceManager.getDefaultSharedPreferences(this));
+        // Before the browser reads them, which it does with no Prefs of its own (Prefs.readPositions).
+        Prefs.migrateToSyncKeys(this);
         // Here rather than in PlayerActivity, because "System" appearance resolves to whatever default
         // is in force and this is the only place guaranteed to have run. Prefs.isLight answers false on
         // a television whatever the system says, and Prefs.getNightMode leaves "System" UNSPECIFIED so
@@ -63,6 +65,8 @@ public class App extends Application {
         }
         deviceDefaults.apply();
         androidx.preference.PreferenceManager.setDefaultValues(this, R.xml.root_preferences, false);
+        // After the defaults, so writing them is not taken for a choice made at this moment.
+        Sync.watchSettings(this);
         initSentry();
         // Lets the skip-segment lookups honour the caching their sources ask for (see the method).
         SegmentFinder.setCacheDir(getCacheDir());

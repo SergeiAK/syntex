@@ -16152,7 +16152,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             }
         }
         final Uri uri = playlistUri(index);
-        final Long length = uri == null ? null : Prefs.readLengths(this).get(uri.toString());
+        final Long length = uri == null ? null : Prefs.readLengths(this).get(SyncKey.of(uri.toString()));
         if (length != null && length > 0) {
             return length;
         }
@@ -16298,9 +16298,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     // near the end, because savePlayer is also how a recovery rebuild carries the
                     // position across a released player: a decoder that wedges in the closing seconds
                     // has to come back where it was, not at the start.
-                    final long position = player.getPlaybackState() == Player.STATE_ENDED
-                            ? 0 : player.getCurrentPosition();
+                    final boolean ended = player.getPlaybackState() == Player.STATE_ENDED;
+                    final long position = ended ? 0 : player.getCurrentPosition();
                     mPrefs.updatePosition(position);
+                    markWatchedIfDone(mPrefs.mediaUri, ended, player.getCurrentPosition(),
+                            player.getDuration());
                     rememberEpisodePosition(player.getCurrentMediaItemIndex(), position);
                 }
                 // Not from a player that has no tracks yet (one held after an error, never prepared):
@@ -16320,6 +16322,23 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                             userSpeed());
                 }
             }
+        }
+    }
+
+    /**
+     * Marks a file watched when it was played to its end, or left within the last 5% - the credits
+     * of most films and episodes. Never takes a mark off: watching a watched film again does not
+     * make it unwatched, and the browser row is where a mark is taken off by hand.
+     */
+    private void markWatchedIfDone(final Uri uri, final boolean ended, final long position,
+                                   final long duration) {
+        if (uri == null || !mPrefs.persistentMode) {
+            return;
+        }
+        final boolean nearEnd = duration > 0 && duration != C.TIME_UNSET
+                && position >= duration - duration / 20;
+        if (ended || nearEnd) {
+            Prefs.markWatched(this, uri, true);
         }
     }
 
@@ -17036,6 +17055,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 final Uri leaving = playlistUri(oldIndex);
                 if (leaving != null && (playedToEnd || leftAt > 0)) {
                     mPrefs.updatePosition(leaving, leftAt);
+                }
+                if (leaving != null && playedToEnd) {
+                    markWatchedIfDone(leaving, true, 0, 0);
                 }
             }
             // Manually jumping back to an already-watched episode: resume where we left it. Auto-advance

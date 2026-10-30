@@ -180,6 +180,8 @@ android {
 dependencies {
     def media3_version = '1.11.0'
     testImplementation 'junit:junit:4.13.2'
+    // The real org.json for the sync document's tests: the one in android.jar is a stub there.
+    testImplementation 'org.json:json:20240303'
     implementation "androidx.media3:media3-session:$media3_version"
     implementation "androidx.media3:media3-datasource:$media3_version"
     // Media reads go through OkHttp rather than HttpURLConnection, for the connection pool (see

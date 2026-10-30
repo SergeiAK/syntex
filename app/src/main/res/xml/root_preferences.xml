@@ -840,6 +840,51 @@
 
     <PreferenceCategory app:title="@string/pref_section_system">
 
+        <!-- Carrying where the viewer stopped, what is watched and the settings to another box. Three
+             switches, one per thing carried, read on both ends; then the ways it travels. Only the
+             file for now - the NAS folder and the hub are to come (roadmap, 30.10.2026). -->
+        <PreferenceScreen
+            app:key="syncScreen"
+            app:icon="@drawable/ic_cloud_24dp"
+            app:summary="@string/pref_sync_header_summary"
+            app:title="@string/pref_sync_header">
+
+            <SwitchPreferenceCompat
+                app:key="syncPositions"
+                app:defaultValue="true"
+                app:summary="@string/pref_sync_positions_summary"
+                app:title="@string/pref_sync_positions" />
+
+            <SwitchPreferenceCompat
+                app:key="syncWatched"
+                app:defaultValue="true"
+                app:summary="@string/pref_sync_watched_summary"
+                app:title="@string/pref_sync_watched" />
+
+            <SwitchPreferenceCompat
+                app:key="syncSettings"
+                app:defaultValue="true"
+                app:summary="@string/pref_sync_settings_summary"
+                app:title="@string/pref_sync_settings" />
+
+            <PreferenceCategory app:title="@string/pref_sync_file_category">
+
+                <Preference
+                    app:key="syncExport"
+                    app:icon="@drawable/ic_cloud_upload_24dp"
+                    app:summary="@string/pref_sync_export_summary"
+                    app:title="@string/pref_sync_export" />
+
+                <Preference
+                    app:key="syncImport"
+                    app:icon="@drawable/ic_download_24dp"
+                    app:summary="@string/pref_sync_import_summary"
+                    app:title="@string/pref_sync_import" />
+
+            </PreferenceCategory>
+
+        </PreferenceScreen>
+
         <PreferenceScreen
             app:key="advancedScreen"
             app:icon="@drawable/ic_memory_24dp"

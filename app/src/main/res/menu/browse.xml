@@ -35,6 +35,14 @@
         android:title="@string/browse_favorite_add"
         app:showAsAction="always" />
 
+    <!-- Picking a folder to write into (the settings screen's export): the folder being stood in is
+         the answer, so the button that gives it is in the bar, one press from anywhere in the list. -->
+    <item
+        android:id="@+id/browse_save_here"
+        android:icon="@drawable/ic_download_24dp"
+        android:title="@string/browse_save_here"
+        app:showAsAction="always" />
+
     <!-- Its own button, and only where it belongs: adding a folder is what the Network destination is
          for before there is one in it, and a line in a menu is not where a viewer looks for it. -->
     <item
