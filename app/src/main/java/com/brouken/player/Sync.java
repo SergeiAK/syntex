@@ -211,6 +211,8 @@ final class Sync {
             final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             final Map<String, ?> all = prefs.getAll();
             final SharedPreferences.Editor editor = prefs.edit();
+            final SharedPreferences.Editor stamps =
+                    context.getSharedPreferences(TIMES, Context.MODE_PRIVATE).edit();
             for (final String key : new LinkedHashSet<>(taken.settings)) {
                 final SyncData.Setting setting = here.settings.get(key);
                 final Object had = all.get(key);
@@ -223,8 +225,13 @@ final class Sync {
                 }
                 ARRIVING.put(key, setting.at);
                 put(editor, key, setting.value);
+                stamps.putLong(key, setting.at);
             }
             editor.commit();
+            // Written here as well as by the listener: off the main thread the listener runs later,
+            // and a run that writes this box's document straight after would send the value with
+            // no time - measured on the Dune 30.10, a taken setting went out as "at": 0.
+            stamps.commit();
         }
         return taken;
     }
