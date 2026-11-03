@@ -31,6 +31,7 @@
     <string name="iptv_body">Тут відкриватимуться списки каналів і плейлисти M3U.</string>
     <string name="browse_empty_subtitles">У цій папці немає субтитрів.</string>
     <string name="loading_speed">%1$.1f МБ/с</string>
+    <string name="loading_server_busy">Сервер просить зачекати</string>
     <string name="error_link_invalid">Введіть посилання, що починається з http:// або rtsp://</string>
     <string name="open_subtitles">Завантажити субтитри</string>
     <string name="error_details">Детально</string>

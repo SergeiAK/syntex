@@ -65,6 +65,7 @@
     <string name="iptv_body">Здесь будут открываться списки каналов и плейлисты M3U.</string>
     <string name="browse_empty_subtitles">В этой папке нет субтитров.</string>
     <string name="loading_speed">%1$.1f МБ/с</string>
+    <string name="loading_server_busy">Сервер просит подождать</string>
     <string name="error_link_invalid">Введите ссылку, начинающуюся с http:// или rtsp://</string>
     <string name="video_orientation_sensor">Автоповорот</string>
     <string name="video_orientation_video">Ориентация видео</string>

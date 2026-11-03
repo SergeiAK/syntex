@@ -18,6 +18,10 @@ import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class NetworkRetryPolicyTest {
 
@@ -56,5 +60,24 @@ public class NetworkRetryPolicyTest {
         }
         assertTrue(total >= 55_000 && total <= 65_000);
         assertEquals(C.TIME_UNSET, NetworkRetryPolicy.delayFor(NetworkRetryPolicy.MAX_OUTAGE_RETRIES + 1));
+    }
+
+    private static Map<String, List<String>> retryAfter(final String value) {
+        final Map<String, List<String>> headers = new HashMap<>();
+        headers.put("Retry-After", Collections.singletonList(value));
+        return headers;
+    }
+
+    @Test
+    public void tooManyRequestsWaitsWhatTheServerSays() {
+        assertEquals(NetworkRetryPolicy.BUSY_DELAY_MS, NetworkRetryPolicy.busyDelayMs(null));
+        assertEquals(NetworkRetryPolicy.BUSY_DELAY_MS, NetworkRetryPolicy.busyDelayMs(new HashMap<>()));
+        assertEquals(30_000, NetworkRetryPolicy.busyDelayMs(retryAfter("30")));
+        // Held to its bounds: not hammering, not an evening's wait.
+        assertEquals(NetworkRetryPolicy.BUSY_MIN_MS, NetworkRetryPolicy.busyDelayMs(retryAfter("0")));
+        assertEquals(NetworkRetryPolicy.BUSY_MAX_MS, NetworkRetryPolicy.busyDelayMs(retryAfter("3600")));
+        // A date instead of seconds: the default minute.
+        assertEquals(NetworkRetryPolicy.BUSY_DELAY_MS,
+                NetworkRetryPolicy.busyDelayMs(retryAfter("Wed, 21 Oct 2026 07:28:00 GMT")));
     }
 }

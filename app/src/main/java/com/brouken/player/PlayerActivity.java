@@ -535,6 +535,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     static final okhttp3.OkHttpClient MEDIA_HTTP_CLIENT = new okhttp3.OkHttpClient.Builder()
             .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+            // Until the first byte of a body; from then on silence is cut at thirty seconds.
+            .addNetworkInterceptor(new StallTimeout())
             .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
@@ -1025,7 +1027,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             final double mbPerSec = Math.max(0, total - loadingSpeedBytes)
                     * 1000d / LOADING_SPEED_TICK_MS / (1024 * 1024);
             loadingSpeedBytes = total;
-            loadingSpeedView.setText(getString(R.string.loading_speed, mbPerSec));
+            // A server that answered 429 is waited for on purpose; a speed of nothing would read as broken.
+            loadingSpeedView.setText(SystemClock.elapsedRealtime() < NetworkRetryPolicy.busyUntilMs
+                    ? getString(R.string.loading_server_busy)
+                    : getString(R.string.loading_speed, mbPerSec));
             loadingSpeedView.setVisibility(View.VISIBLE);
             playerView.postDelayed(this, LOADING_SPEED_TICK_MS);
         }

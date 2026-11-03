@@ -1,9 +1,15 @@
 package com.brouken.player;
 
+import android.os.SystemClock;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
+import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * Media3's retry budget, with two exceptions at either end.
@@ -19,6 +25,11 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
  * (0054, 20.10.2026). Here the load keeps trying every two seconds, the buffer plays on, and a spinner
  * covers whatever the buffer did not. A load that gets bytes again starts its count afresh.
  *
+ * <p>A server that answers 429 (too many requests) is asked again three times, a minute apart or after
+ * whatever its Retry-After says, while the buffer plays. On the defaults it was asked three times within
+ * three seconds — the very thing it had just refused — and the video stopped on an error. Meanwhile the
+ * loading screen says the server asked to wait, not 0.0 MB/s ({@link #busyUntilMs}).
+ *
  * <p>Everything else keeps the default budget: a server hiccup is worth a second read, and a
  * refusal that is not about the password fails as it did.
  */
@@ -30,11 +41,29 @@ final class NetworkRetryPolicy extends DefaultLoadErrorHandlingPolicy {
     static final long DELAY_MS = 2_000;
     /** About a minute in all; after that the network is not coming back on its own. */
     static final int MAX_OUTAGE_RETRIES = 30;
+    /** HTTP 429: how many times it is asked again, and the wait when the server names none. */
+    static final int MAX_BUSY_RETRIES = 3;
+    static final long BUSY_DELAY_MS = 60_000;
+    /** The bounds a Retry-After is held to: not hammering, not an evening's wait either. */
+    static final long BUSY_MIN_MS = 5_000;
+    static final long BUSY_MAX_MS = 120_000;
+
+    /** Until when (elapsedRealtime) a load waits on a server that asked it to; 0 when none does. */
+    static volatile long busyUntilMs;
 
     @Override
     public long getRetryDelayMsFor(@NonNull final LoadErrorInfo info) {
         if (NetworkFiles.needsPassword(info.exception)) {
             return C.TIME_UNSET;
+        }
+        final HttpDataSource.InvalidResponseCodeException busy = busy(info.exception);
+        if (busy != null) {
+            final long delay = info.errorCount > MAX_BUSY_RETRIES ? C.TIME_UNSET
+                    : busyDelayMs(busy.headerFields);
+            busyUntilMs = delay == C.TIME_UNSET ? 0 : SystemClock.elapsedRealtime() + delay;
+            Utils.log("network: 429, retry " + info.errorCount + "/" + MAX_BUSY_RETRIES
+                    + (delay == C.TIME_UNSET ? ", giving up" : " in " + delay + " ms"));
+            return delay;
         }
         if (outage(info.exception)) {
             final long delay = delayFor(info.errorCount);
@@ -58,6 +87,36 @@ final class NetworkRetryPolicy extends DefaultLoadErrorHandlingPolicy {
     @Override
     public int getMinimumLoadableRetryCount(final int dataType) {
         return Integer.MAX_VALUE;
+    }
+
+    @Nullable
+    private static HttpDataSource.InvalidResponseCodeException busy(@Nullable final Throwable failure) {
+        for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof HttpDataSource.InvalidResponseCodeException
+                    && ((HttpDataSource.InvalidResponseCodeException) t).responseCode == 429) {
+                return (HttpDataSource.InvalidResponseCodeException) t;
+            }
+        }
+        return null;
+    }
+
+    /** Retry-After in seconds, held to its bounds; a minute when there is none or it is a date. */
+    static long busyDelayMs(@Nullable final Map<String, List<String>> headers) {
+        if (headers != null) {
+            for (final Map.Entry<String, List<String>> header : headers.entrySet()) {
+                if (header.getKey() == null || !"retry-after".equalsIgnoreCase(header.getKey())
+                        || header.getValue() == null || header.getValue().isEmpty()) {
+                    continue;
+                }
+                try {
+                    final long ms = Long.parseLong(header.getValue().get(0).trim()) * 1000;
+                    return Math.max(BUSY_MIN_MS, Math.min(BUSY_MAX_MS, ms));
+                } catch (final NumberFormatException e) {
+                    break;
+                }
+            }
+        }
+        return BUSY_DELAY_MS;
     }
 
     /** The wait before retry number {@code errorCount}, or {@link C#TIME_UNSET} to stop. */

@@ -70,6 +70,7 @@
     <string name="browse_torrent_delete">Delete</string>
     <string name="browse_torrent_remove_confirm">Delete %1$s from the server?</string>
     <string name="loading_speed">%1$.1f MB/s</string>
+    <string name="loading_server_busy">The server asked to wait</string>
     <string name="error_link_invalid">Enter a link starting with http:// or rtsp://</string>
     <string name="open_subtitles">Load subtitles</string>
     <string name="error_details">Details</string>
