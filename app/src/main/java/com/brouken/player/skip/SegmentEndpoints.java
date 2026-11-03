@@ -80,8 +80,11 @@ public final class SegmentEndpoints {
      * The docs call it heavily rate limited and not meant for production: swap in a registered id here.
      */
     static final String ANIMESKIP_CLIENT_ID = "ZGfO0sMF3eCwLYf8yMSCJjlynwNGRXWE";
-    /** TV + movies, tmdb-keyed (may 403 behind Cloudflare — treated as empty). */
-    static final String THEINTRODB = "https://api.theintrodb.org/v3/media";
+    /**
+     * TV + movies, keyed by tmdb or imdb id (may 403 behind Cloudflare — treated as empty). v4 answers as
+     * v3 did, with tvdb_id in place of the echoed tmdb_id, and also takes imdb_id (checked 03.11.2026).
+     */
+    static final String THEINTRODB = "https://api.theintrodb.org/v4/media";
     /** imdb → tmdb id. Called lazily, only inside the TheIntroDB step. */
     static final String TMDB_FIND = "https://api.themoviedb.org/3/find/";
     /** TMDB v3 base; used to resolve tmdb → imdb via {movie,tv}/{id}/external_ids. */

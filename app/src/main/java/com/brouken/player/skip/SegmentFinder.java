@@ -2337,11 +2337,17 @@ public final class SegmentFinder {
                                      boolean isMovie) {
         final long tmdbId = knownTmdbId >= 0 ? knownTmdbId : tmdbFind(imdbId, isMovie);
         final List<SkipSegment> out = new ArrayList<>();
-        if (tmdbId < 0) {
+        final HttpUrl.Builder url = HttpUrl.parse(SegmentEndpoints.THEINTRODB).newBuilder();
+        // The tmdb id first, as the season and episode are read in the numbering of whichever id the
+        // service resolves, and ours are TMDB's. v4 takes the imdb id as well, so a title TMDB could not
+        // find is still asked for rather than dropped.
+        if (tmdbId >= 0) {
+            url.addQueryParameter("tmdb_id", String.valueOf(tmdbId));
+        } else if (imdbId != null && imdbId.startsWith("tt")) {
+            url.addQueryParameter("imdb_id", imdbId);
+        } else {
             return new Scored(out, 0);
         }
-        final HttpUrl.Builder url = HttpUrl.parse(SegmentEndpoints.THEINTRODB).newBuilder()
-                .addQueryParameter("tmdb_id", String.valueOf(tmdbId));
         if (!isMovie) {
             url.addQueryParameter("season", String.valueOf(season));
             url.addQueryParameter("episode", String.valueOf(episode));
@@ -2353,6 +2359,7 @@ public final class SegmentFinder {
         addMsArray(out, root.optJSONArray("intro"), SkipSegment.Category.INTRO, SkipSegment.CoordBase.ABSOLUTE, TT_ABS);
         addMsArray(out, root.optJSONArray("recap"), SkipSegment.Category.RECAP, SkipSegment.CoordBase.ABSOLUTE, TT_ABS);
         addMsArray(out, root.optJSONArray("credits"), SkipSegment.Category.CREDITS, SkipSegment.CoordBase.ABSOLUTE, TT_ABS);
+        addMsArray(out, root.optJSONArray("preview"), SkipSegment.Category.PREVIEW, SkipSegment.CoordBase.ABSOLUTE, TT_ABS);
         // No per-result confidence field; a fixed medium-high signal (matches SkipDB on tested titles).
         return new Scored(out, 0.8);
     }
@@ -2506,8 +2513,9 @@ public final class SegmentFinder {
             final double start = o.optDouble("start_ms", Double.NaN) / 1000.0;
             final double endMs = o.optDouble("end_ms", Double.NaN);
             final boolean openEnded = Double.isNaN(endMs);
-            if (openEnded && category != SkipSegment.Category.CREDITS) {
-                continue; // open-ended only makes sense for credits
+            if (openEnded && category != SkipSegment.Category.CREDITS
+                    && category != SkipSegment.Category.PREVIEW) {
+                continue; // open-ended only makes sense for what runs to the end: credits, the next-episode preview
             }
             final double end = openEnded ? OPEN_ENDED_SEC : endMs / 1000.0;
             addSeg(out, start, end, category, coordBase, timeTrust);
