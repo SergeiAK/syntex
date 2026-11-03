@@ -1237,6 +1237,17 @@ class Prefs {
         }
     }
 
+    /**
+     * Forgets the audio track picked for the file that was playing. Within a playlist the next item takes
+     * the place of the media without updateMedia, which is what clears it for a file opened afresh.
+     */
+    public void clearAudioTrack() {
+        audioTrackId = null;
+        if (persistentMode) {
+            mSharedPreferences.edit().remove(PREF_KEY_AUDIO_TRACK_ID).apply();
+        }
+    }
+
     public void updatePosition(final long position) {
         updatePosition(mediaUri, position);
     }

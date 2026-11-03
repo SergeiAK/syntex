@@ -17151,6 +17151,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // attachSubtitleTrack() itself causes, and clearing there would undo the attach that raised it.
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                 mPrefs.updateSubtitle(null);
+                // The same for the audio track, which savePlayer writes on every pause to the settings.
+                // Kept, it was the "file's own" track of whichever episode came next or before: the series'
+                // pick stood aside for it (applySeriesTracks), and a rebuild applied the old episode's
+                // track id to this one.
+                mPrefs.clearAudioTrack();
                 // Painting is not tied to a track, so nothing else would stop the previous episode's
                 // subtitles from being drawn over this one.
                 clearSubtitleTimeline();
