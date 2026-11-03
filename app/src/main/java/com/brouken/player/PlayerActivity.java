@@ -15021,7 +15021,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // Set rather than left to the default so Dv7Converter can hand the very same instance to the
         // Matroska extractor it re-creates — subtitle parsing is a constructor argument there, and
         // matching it by construction beats matching Media3's defaults from memory.
-        final SubtitleParser.Factory subtitleParserFactory = new DefaultSubtitleParserFactory();
+        // Wrapped so that a text subtitle in cp1251, or UTF-8 mangled into cp1251 once, reaches the parser
+        // as UTF-8 — embedded tracks here, sideloaded ones through the media source factory below.
+        final SubtitleParser.Factory subtitleParserFactory =
+                new SubtitleCharset.ParserFactory(new DefaultSubtitleParserFactory());
         // https://github.com/google/ExoPlayer/issues/8571
         final int tsPayloadReaderFlags = DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS;
         final int tsTimestampSearchBytes = 1500 * TsExtractor.TS_PACKET_SIZE;
@@ -15669,8 +15672,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // decoder does not have and some refuse to be configured with (see Dv10AsAv1). Nothing below
         // here looks at the extractors by type, and the DV7 conversion above never sees a profile 10
         // track.
-        mediaSourceFactory = new DefaultMediaSourceFactory(this, new Dv10AsAv1(seekableExtractorsFactory))
-                .setDataSourceFactory(dataSourceFactory)
+        // The subtitle parser factory goes in through the constructor: it is what parses a sideloaded file,
+        // and left out, Media3 builds its own default one that reads every file as UTF-8.
+        mediaSourceFactory = new DefaultMediaSourceFactory(dataSourceFactory,
+                new Dv10AsAv1(seekableExtractorsFactory), subtitleParserFactory)
                 // No retry for a refused password, a minute's patience for a network that went away.
                 .setLoadErrorHandlingPolicy(new NetworkRetryPolicy());
         playerBuilder.setMediaSourceFactory(mediaSourceFactory);

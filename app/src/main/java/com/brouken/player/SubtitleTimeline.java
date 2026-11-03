@@ -95,7 +95,8 @@ final class SubtitleTimeline {
         }
         try {
             final Format format = new Format.Builder().setSampleMimeType(mimeType).build();
-            final SubtitleParser.Factory factory = new DefaultSubtitleParserFactory();
+            // The same reading of the bytes as the player's own, so the timeline shows the same lines.
+            final SubtitleParser.Factory factory = new SubtitleCharset.ParserFactory(new DefaultSubtitleParserFactory());
             if (!factory.supportsFormat(format)) {
                 return null;
             }
