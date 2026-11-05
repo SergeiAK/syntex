@@ -59,6 +59,70 @@ class BoostAudioProcessor extends BaseAudioProcessor {
     // invisible in a screenshot, and clipped dialogue is exactly what this setting can cause.
     private boolean clipReported;
 
+    /**
+     * How much of the speech band of the middle is added back to a stereo or mono track: 1 is the band
+     * doubled, six decibels at its centre. Twice the three a discrete centre gets, because here the band
+     * is all that is lifted - the music in the middle below 300 Hz and above 4 kHz, and everything at the
+     * sides, stays where it was. A starting value, to be set by ear on the boxes.
+     */
+    static final float SPEECH_LIFT = 1f;
+    /** The band dialogue lives in: under it the bass of the score, over it sibilance and cymbals. */
+    static final float SPEECH_LOW_HZ = 300f;
+    static final float SPEECH_HIGH_HZ = 4000f;
+
+    // What this configuration earns on stereo and mono, where there is no centre channel to lift and the
+    // speech is lifted out of the middle instead. Written by onConfigure.
+    private volatile boolean speechArmed;
+    // The same, in force: armed and asked for.
+    private volatile boolean speechOn;
+    // The band, as a high-pass at its bottom and a low-pass at its top. Built for the sample rate in
+    // onConfigure; their state is the playback thread's alone.
+    private Biquad speechHigh;
+    private Biquad speechLow;
+
+    /**
+     * One second-order section (the RBJ cookbook's), transposed direct form II: two floats of state,
+     * five multiplies a sample.
+     */
+    static final class Biquad {
+        private final float b0, b1, b2, a1, a2;
+        private float z1, z2;
+
+        private Biquad(double b0, double b1, double b2, double a0, double a1, double a2) {
+            this.b0 = (float) (b0 / a0);
+            this.b1 = (float) (b1 / a0);
+            this.b2 = (float) (b2 / a0);
+            this.a1 = (float) (a1 / a0);
+            this.a2 = (float) (a2 / a0);
+        }
+
+        /** Butterworth (Q = 1/sqrt 2) high- or low-pass at {@code hz}, held under Nyquist. */
+        static Biquad pass(boolean high, double hz, int sampleRate) {
+            final double w0 = 2 * Math.PI * Math.min(hz, sampleRate * 0.45) / sampleRate;
+            final double cos = Math.cos(w0);
+            final double alpha = Math.sin(w0) / (2 * Math.sqrt(0.5));
+            final double edge = high ? (1 + cos) / 2 : (1 - cos) / 2;
+            return new Biquad(edge, high ? -(1 + cos) : 1 - cos, edge, 1 + alpha, -2 * cos, 1 - alpha);
+        }
+
+        float process(float x) {
+            final float y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
+            return y;
+        }
+
+        void reset() {
+            z1 = 0;
+            z2 = 0;
+        }
+    }
+
+    /** The speech band of one sample of the middle. */
+    private float speechBand(float middle) {
+        return speechLow.process(speechHigh.process(middle));
+    }
+
     void setGain(float gain) {
         this.gain = gain;
     }
@@ -71,6 +135,7 @@ class BoostAudioProcessor extends BaseAudioProcessor {
         this.centreBoost = on;
         this.routeChannelCount = routeChannelCount;
         centreGain = on ? armedGain : 1f;
+        speechOn = on && speechArmed;
     }
 
     /** The same, on the route already known: the session's switch, flipped while the film plays. */
@@ -108,11 +173,24 @@ class BoostAudioProcessor extends BaseAudioProcessor {
         final float armed = centreGainFor(inputAudioFormat.channelCount, routeChannelCount);
         armedGain = armed;
         centreGain = centreBoost ? armed : 1f;
+        // Stereo and mono have no centre channel: their speech sits in the middle of the image, and it
+        // is the middle's speech band that is lifted (see queueInput). Quad has neither - no centre,
+        // and a middle that is two pairs - and is left alone.
+        final boolean speech = inputAudioFormat.channelCount <= 2 && inputAudioFormat.sampleRate > 0;
+        if (speech) {
+            speechHigh = Biquad.pass(true, SPEECH_LOW_HZ, inputAudioFormat.sampleRate);
+            speechLow = Biquad.pass(false, SPEECH_HIGH_HZ, inputAudioFormat.sampleRate);
+        }
+        speechArmed = speech;
+        speechOn = centreBoost && speech;
         clipReported = false;
         if (centreBoost) {
             Utils.log("centre boost: " + inputAudioFormat.channelCount + " channels, route "
                     + (routeChannelCount > 0 ? String.valueOf(routeChannelCount) : "unknown ")
-                    + (armed == 1f ? ", no centre to lift"
+                    + (speech ? ", lifting the middle " + Math.round(SPEECH_LOW_HZ) + "-"
+                            + Math.round(SPEECH_HIGH_HZ) + " Hz by "
+                            + Math.round(20 * Math.log10(1 + SPEECH_LIFT)) + " dB"
+                            : armed == 1f ? ", no centre to lift"
                             : ", lifting by " + Math.round(20 * Math.log10(armed)) + " dB"));
         }
         // NOT_SET keeps this processor out of the chain: passthrough bitstreams and any other encoding
@@ -148,7 +226,11 @@ class BoostAudioProcessor extends BaseAudioProcessor {
         final float centreGain = this.centreGain;
         final int centre = centreGain != 1f ? centreChannelIndex(channelCount) : -1;
         final ByteBuffer outputBuffer = replaceOutputBuffer(inputBuffer.remaining());
-        if (gain == 1f && centre < 0) {
+        // On the format in force, not only the flag: onConfigure arms for the next format while buffers
+        // of the one before may still be coming through.
+        if (speechOn && channelCount <= 2 && speechHigh != null) {
+            liftSpeech(inputBuffer, outputBuffer, gain, channelCount);
+        } else if (gain == 1f && centre < 0) {
             outputBuffer.put(inputBuffer);
         } else if (gain == 1f && inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) {
             // The usual case with the lift on: the volume is where the viewer left it and five channels
@@ -186,5 +268,62 @@ class BoostAudioProcessor extends BaseAudioProcessor {
             }
         }
         outputBuffer.flip();
+    }
+
+    /**
+     * Stereo and mono: the middle, M = (L + R) / 2, through the speech band and added back to both
+     * sides. What is only on one side, L - R, is untouched - so a score spread wide and effects panned
+     * off the centre keep their level, and the voice, which a stereo mix puts in the middle, comes up.
+     * Mono is all middle, and gets the band lift on its one channel.
+     */
+    private void liftSpeech(ByteBuffer in, ByteBuffer out, float gain, int channelCount) {
+        final float lift = SPEECH_LIFT;
+        if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) {
+            if (channelCount == 2) {
+                while (in.hasRemaining()) {
+                    final float left = in.getShort();
+                    final float right = in.getShort();
+                    final float band = lift * speechBand((left + right) * 0.5f);
+                    out.putShort(clip((left + band) * gain));
+                    out.putShort(clip((right + band) * gain));
+                }
+            } else {
+                while (in.hasRemaining()) {
+                    final float x = in.getShort();
+                    out.putShort(clip((x + lift * speechBand(x)) * gain));
+                }
+            }
+        } else if (channelCount == 2) {
+            while (in.hasRemaining()) {
+                final float left = in.getFloat();
+                final float right = in.getFloat();
+                final float band = lift * speechBand((left + right) * 0.5f);
+                out.putFloat(Math.max(-1f, Math.min(1f, (left + band) * gain)));
+                out.putFloat(Math.max(-1f, Math.min(1f, (right + band) * gain)));
+            }
+        } else {
+            while (in.hasRemaining()) {
+                final float x = in.getFloat();
+                out.putFloat(Math.max(-1f, Math.min(1f, (x + lift * speechBand(x)) * gain)));
+            }
+        }
+    }
+
+    @Override
+    protected void onFlush() {
+        // A seek lands somewhere else: the filters' memory of the last place would ring into the first
+        // milliseconds of the new one.
+        if (speechHigh != null) {
+            speechHigh.reset();
+            speechLow.reset();
+        }
+    }
+
+    @Override
+    protected void onReset() {
+        speechHigh = null;
+        speechLow = null;
+        speechArmed = false;
+        speechOn = false;
     }
 }
