@@ -99,14 +99,15 @@ public final class Updater {
                 if (remoteCode <= BuildConfig.VERSION_CODE) {
                     continue;
                 }
-                final JSONObject apk = firstApkAsset(release.optJSONArray("assets"));
+                final String versionName = tag.startsWith("v") ? tag.substring(1) : tag;
+                final JSONObject apk = releaseApkAsset(release.optJSONArray("assets"), versionName);
                 if (apk == null) {
                     continue;
                 }
                 return new UpdateInfo(
                         remoteCode,
                         tag,
-                        tag.startsWith("v") ? tag.substring(1) : tag,
+                        versionName,
                         release.optString("body", ""),
                         apk.optString("browser_download_url", ""),
                         apk.optLong("size", 0),
@@ -118,10 +119,16 @@ public final class Updater {
         return null;
     }
 
-    private static JSONObject firstApkAsset(JSONArray assets) {
+    /**
+     * The APK a release ships for this build, picked by its exact name ({@code Syntex.v3.1.1.apk}) rather
+     * than by being the first {@code .apk}: GitHub does not promise an asset order, and a second APK in the
+     * same release (another flavor, a test build) must not be handed to everyone.
+     */
+    static JSONObject releaseApkAsset(JSONArray assets, String versionName) {
         if (assets == null) {
             return null;
         }
+        final String wanted = ("syntex.v" + versionName + ".apk").toLowerCase(Locale.ROOT);
         for (int i = 0; i < assets.length(); i++) {
             final JSONObject asset = assets.optJSONObject(i);
             if (asset == null) {
@@ -129,7 +136,7 @@ public final class Updater {
             }
             final String name = asset.optString("name", "").toLowerCase(Locale.ROOT);
             final String url = asset.optString("browser_download_url", "");
-            if (name.endsWith(".apk") && !url.isEmpty()) {
+            if (name.equals(wanted) && !url.isEmpty()) {
                 return asset;
             }
         }
@@ -207,6 +214,12 @@ public final class Updater {
                     }
                 }
                 out.flush();
+                // A cut connection ends the stream like a finished one; a short file would only fail
+                // later in the installer as "problem parsing the package".
+                if (info.size > 0 && downloaded != info.size) {
+                    file.delete();
+                    return null;
+                }
             }
             return file;
         } catch (Exception e) {

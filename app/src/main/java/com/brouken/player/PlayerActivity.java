@@ -5041,7 +5041,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     }
                 }
             };
-            ContextCompat.registerReceiver(this, mReceiver, new IntentFilter(ACTION_MEDIA_CONTROL), ContextCompat.RECEIVER_EXPORTED);
+            ContextCompat.registerReceiver(this, mReceiver, new IntentFilter(ACTION_MEDIA_CONTROL), ContextCompat.RECEIVER_NOT_EXPORTED);
         } else {
             updateSubtitleLayout();
             // Back to the full window: the clock returns if the preference wants it, and the skip pill
@@ -19459,7 +19459,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         try {
             final ArrayList<RemoteAction> actions = new ArrayList<>();
             final PendingIntent intent = PendingIntent.getBroadcast(PlayerActivity.this, requestCode,
-                    new Intent(ACTION_MEDIA_CONTROL).putExtra(EXTRA_CONTROL_TYPE, controlType), PendingIntent.FLAG_IMMUTABLE);
+                    new Intent(ACTION_MEDIA_CONTROL).setPackage(getPackageName()).putExtra(EXTRA_CONTROL_TYPE, controlType), PendingIntent.FLAG_IMMUTABLE);
             final Icon icon = Icon.createWithResource(PlayerActivity.this, iconId);
             final String title = getString(resTitle);
             actions.add(new RemoteAction(icon, title, title, intent));
