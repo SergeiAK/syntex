@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
+import android.util.Log;
 import android.view.accessibility.CaptioningManager;
 
 import com.brouken.player.together.AliasGenerator;
@@ -21,10 +22,7 @@ import androidx.media3.ui.CaptionStyleCompat;
 
 import com.brouken.player.update.UpdateInfo;
 
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -469,7 +467,7 @@ class Prefs {
     // only the "Reset learned audio workarounds" setting or a full app data reset clears it.
     public Set<String> revokedAudioMimes = Collections.emptySet();
 
-    private LinkedHashMap positions;
+    private LinkedHashMap<String, Long> positions;
 
     public boolean persistentMode = true;
     public long nonPersitentPosition = -1L;
@@ -1269,26 +1267,30 @@ class Prefs {
 
         // From disk first, not from the copy loaded with this object: an import, or the browser writing
         // a torrent server's timecode, may have changed the file since, and the whole map is written
-        // back below - the copy would put every one of those back as it was.
-        loadPositions();
+        // back below - the copy would put every one of those back as it was. Read to written under the
+        // one lock every writer of these files holds (see writeMap): a sync import or a listing
+        // writing between the two would otherwise be written over.
         final String key = SyncKey.of(uri.toString());
-        final Object had = positions.get(key);
-        // Nothing new is not written, and above all not given a new time: a file opened and left
-        // without playing would otherwise carry the newest stamp there is and win every merge, and
-        // its 0 - or the stale position it opened at - would wipe what another box had just watched
-        // to (Shield and Dune, 30.10.2026: a film opened on the Dune before it had synced came up at
-        // 00:00, and leaving it would have sent 0 over the Shield's 51 s).
-        if (had == null ? position == 0 : ((Long) had) == position) {
-            return;
-        }
-        // Re-put at the tail, so the oldest-first trim below drops what was played longest ago.
-        positions.remove(key);
-        while (positions.size() > MAX_REMEMBERED)
-            positions.remove(positions.keySet().toArray()[0]);
+        synchronized (Prefs.class) {
+            loadPositions();
+            final Object had = positions.get(key);
+            // Nothing new is not written, and above all not given a new time: a file opened and left
+            // without playing would otherwise carry the newest stamp there is and win every merge, and
+            // its 0 - or the stale position it opened at - would wipe what another box had just watched
+            // to (Shield and Dune, 30.10.2026: a film opened on the Dune before it had synced came up at
+            // 00:00, and leaving it would have sent 0 over the Shield's 51 s).
+            if (had == null ? position == 0 : ((Long) had) == position) {
+                return;
+            }
+            // Re-put at the tail, so the oldest-first trim below drops what was played longest ago.
+            positions.remove(key);
+            while (positions.size() > MAX_REMEMBERED)
+                positions.remove(positions.keySet().toArray()[0]);
 
-        positions.put(key, position);
-        savePositions();
-        stamp(mContext, key);
+            positions.put(key, position);
+            savePositions();
+            stamp(mContext, key);
+        }
         // A torrent server keeps the timecode for everything that plays off it, which is what lets a
         // film started in one player be continued in another. Told on the way out rather than as it
         // plays: this is called when a file is left or an episode changes, not per second.
@@ -1430,15 +1432,7 @@ class Prefs {
     }
 
     private void savePositions() {
-        try {
-            FileOutputStream fos = mContext.openFileOutput("positions", Context.MODE_PRIVATE);
-            ObjectOutputStream os = new ObjectOutputStream(fos);
-            os.writeObject(positions);
-            os.close();
-            fos.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        writeMap(mContext, "positions", positions);
     }
 
     /**
@@ -1571,7 +1565,7 @@ class Prefs {
      * whole address before. Two boxes' worth of one share under two host names becomes one entry,
      * the later of the two winning by being later in the map.
      */
-    static void migrateToSyncKeys(final Context context) {
+    static synchronized void migrateToSyncKeys(final Context context) {
         for (final String name : new String[] {"positions", "lengths"}) {
             final Map<String, Long> known = readMap(context, name);
             final LinkedHashMap<String, Long> keyed = new LinkedHashMap<>();
@@ -1588,27 +1582,28 @@ class Prefs {
         }
     }
 
-    private static void writeMap(final Context context, final String name,
-                                 final LinkedHashMap<String, Long> map) {
-        try (FileOutputStream fos = context.openFileOutput(name, Context.MODE_PRIVATE);
-             ObjectOutputStream os = new ObjectOutputStream(fos)) {
-            os.writeObject(map);
-        } catch (Exception e) {
-            e.printStackTrace();
+    /**
+     * Writes one of the remembered maps whole or not at all (see {@link MapFile}).
+     *
+     * <p>Every read-modify-write of these files - here, in the browser's listing threads, in a sync
+     * import - holds {@code Prefs.class} from the read to the write: the static ones are
+     * {@code static synchronized}, {@link #updatePosition} takes it by hand. Without it the player
+     * leaving a film and a sync landing at once each wrote back the map they had read, and one of the
+     * two was lost.
+     */
+    private static void writeMap(final Context context, final String name, final Map<String, Long> map) {
+        if (!MapFile.write(new File(context.getFilesDir(), name), map)) {
+            Log.w(TAG_FILES, "Could not write " + name);
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static Map<String, Long> readMap(final Context context, final String name) {
-        try (FileInputStream fis = context.openFileInput(name);
-             ObjectInputStream is = new ObjectInputStream(fis)) {
-            return (LinkedHashMap<String, Long>) is.readObject();
-        } catch (Exception e) {
-            // No file yet, or one written by a version that stored something else. Neither is worth a
-            // log line on a screen that only wants to know whether to draw a 4dp run.
-            return Collections.emptyMap();
-        }
+        // No file yet, or a torn one from before writes were atomic - which MapFile moves aside rather
+        // than let the next write cover. Not worth a log line per browse row.
+        return MapFile.read(new File(context.getFilesDir(), name));
     }
+
+    private static final String TAG_FILES = "Prefs";
 
     /**
      * Writes a position for a file this app has not played — the timecode another player left on a
@@ -1625,19 +1620,12 @@ class Prefs {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static synchronized void remember(final Context context, final String name, final Uri uri,
                                  final long position) {
         if (uri == null) {
             return;
         }
-        LinkedHashMap<String, Long> known;
-        try (FileInputStream fis = context.openFileInput(name);
-             ObjectInputStream is = new ObjectInputStream(fis)) {
-            known = (LinkedHashMap<String, Long>) is.readObject();
-        } catch (Exception e) {
-            known = new LinkedHashMap<>(10);
-        }
+        final LinkedHashMap<String, Long> known = new LinkedHashMap<>(readMap(context, name));
         final String key = SyncKey.of(uri.toString());
         final Long had = known.get(key);
         if (had != null && had == position) {
@@ -1649,12 +1637,7 @@ class Prefs {
             known.remove(known.keySet().toArray()[0]);
         }
         known.put(key, position);
-        try (FileOutputStream fos = context.openFileOutput(name, Context.MODE_PRIVATE);
-             ObjectOutputStream os = new ObjectOutputStream(fos)) {
-            os.writeObject(known);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        writeMap(context, name, known);
     }
 
     /**
@@ -1673,16 +1656,8 @@ class Prefs {
     }
 
     private void loadPositions() {
-        try {
-            FileInputStream fis = mContext.openFileInput("positions");
-            ObjectInputStream is = new ObjectInputStream(fis);
-            positions = (LinkedHashMap) is.readObject();
-            is.close();
-            fis.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-            positions = new LinkedHashMap(10);
-        }
+        // A copy: what MapFile hands back for no file is the shared empty map, and this one is put to.
+        positions = new LinkedHashMap<>(readMap(mContext, "positions"));
     }
 
     public long getPosition() {
