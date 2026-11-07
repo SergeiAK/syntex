@@ -199,6 +199,9 @@ final class ExtractorHarness {
         int timeJumpsBack;
         long firstTimeUs = C.TIME_UNSET;
         long lastTimeUs = C.TIME_UNSET;
+        /** The first {@link #BYTES_KEPT} bytes of sample data, in the order they came out. */
+        final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        static final int BYTES_KEPT = 1 << 20;
         /** The first 2000 sample times, in the order they came out. */
         final List<Long> timesUs = new ArrayList<>();
 
@@ -209,6 +212,7 @@ final class ExtractorHarness {
         void clear() {
             samples = 0;
             timeJumpsBack = 0;
+            bytes.reset();
             firstTimeUs = C.TIME_UNSET;
             lastTimeUs = C.TIME_UNSET;
             timesUs.clear();
@@ -233,12 +237,19 @@ final class ExtractorHarness {
                 }
                 read += n;
             }
+            keep(b, 0, length);
             return length;
         }
 
         @Override
         public void sampleData(ParsableByteArray data, int length, int sampleDataPart) {
+            keep(data.getData(), data.getPosition(), length);
             data.skipBytes(length);
+        }
+
+        private void keep(byte[] data, int offset, int length) {
+            final int n = Math.min(length, BYTES_KEPT - bytes.size());
+            if (n > 0) bytes.write(data, offset, n);
         }
 
         @Override

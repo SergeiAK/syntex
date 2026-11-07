@@ -92,14 +92,69 @@ public class M2tsExtractorTest {
         assertAbout(72, audio.samples);
     }
 
-    /** 0x80 is Blu-ray LPCM, not a video stream that never gets a format. */
+    /**
+     * 0x80 is Blu-ray LPCM, not a video stream that never gets a format: two 24-bit stereo tracks of
+     * PCM, the bytes of the first those of ffmpeg's decode of the same head ({@code lpcm-a0.s24le},
+     * {@code -map 0:a:0 -c:a pcm_s24le -f s24le}).
+     */
     @Test
-    public void lpcmIsLeftOut() throws IOException {
-        final ExtractorHarness.Result result = ExtractorHarness.readTracks(
-                create(), ExtractorHarness.testFile("lpcm.m2ts"));
+    public void lpcmPlaysAsPcm() throws IOException {
+        final ExtractorHarness.Result result = ExtractorHarness.readSamples(
+                create(), ExtractorHarness.testFile("lpcm.m2ts"), Integer.MAX_VALUE);
         assertTrue("formats known", result.allFormatsKnown());
-        assertEquals(1, result.tracks.size());
         assertEquals(MimeTypes.VIDEO_MPEG2, result.mime(C.TRACK_TYPE_VIDEO));
+        assertEquals(2, count(result, C.TRACK_TYPE_AUDIO));
+        final ExtractorHarness.Track audio = result.track(C.TRACK_TYPE_AUDIO);
+        assertEquals(MimeTypes.AUDIO_RAW, audio.format.sampleMimeType);
+        assertEquals(2, audio.format.channelCount);
+        assertEquals(48_000, audio.format.sampleRate);
+        assertEquals(C.ENCODING_PCM_24BIT, audio.format.pcmEncoding);
+        assertEquals("formats", 1, audio.formats);
+        assertTrue("samples " + audio.samples, audio.samples > 100);
+
+        final byte[] ours = audio.bytes.toByteArray();
+        final byte[] ffmpeg = java.nio.file.Files.readAllBytes(
+                ExtractorHarness.testFile("lpcm-a0.s24le").toPath());
+        final int n = Math.min(ours.length, ffmpeg.length);
+        assertTrue("compared " + n, n > 48_000 * 6 / 10); // a tenth of a second at least
+        for (int i = 0; i < n; i++) {
+            if (ours[i] != ffmpeg[i]) {
+                throw new AssertionError("byte " + i + ": " + ours[i] + " != ffmpeg " + ffmpeg[i]);
+            }
+        }
+    }
+
+    /** 16-bit 3/2+lfe: L R C LS RS LFE on the disc, FL FR FC LFE BL BR out, little-endian. */
+    @Test
+    public void lpcm51IsReordered() {
+        final byte[] in = new byte[12];
+        for (int ch = 0; ch < 6; ch++) {
+            in[ch * 2] = (byte) (ch + 1);       // high byte: channel number
+            in[ch * 2 + 1] = (byte) 0x10;       // low byte
+        }
+        final byte[] out = new byte[12];
+        M2tsExtractor.LpcmReader.convert(in, 0, 1, 6, 2, new int[]{0, 1, 2, 5, 3, 4}, out);
+        final int[] expected = {1, 2, 3, 6, 4, 5};
+        for (int ch = 0; ch < 6; ch++) {
+            assertEquals("low " + ch, 0x10, out[ch * 2]);
+            assertEquals("high " + ch, expected[ch], out[ch * 2 + 1]);
+        }
+    }
+
+    /** Mono carries an empty second channel; 24-bit sign kept; −3 dB on a mapped mono surround. */
+    @Test
+    public void lpcmPaddingSignAndHalf() {
+        final byte[] in = {(byte) 0x80, 0x00, 0x01, 0x7F, 0x7F, 0x7F}; // -8388607, then the empty one
+        final byte[] out = new byte[3];
+        M2tsExtractor.LpcmReader.convert(in, 0, 1, 2, 3, new int[]{0}, out);
+        assertEquals(-8388607, (out[2] << 16) | ((out[1] & 0xFF) << 8) | (out[0] & 0xFF));
+
+        final byte[] in16 = {0x40, 0x00, 0, 0, 0x40, 0x00, 0, 0}; // L R S pad: 16384, 0, 16384
+        final byte[] out16 = new byte[12];
+        M2tsExtractor.LpcmReader.convert(in16, 0, 1, 4, 2, new int[]{0, 1, -1, -1, ~2, ~2}, out16);
+        final int back = (short) ((out16[9] << 8) | (out16[8] & 0xFF));
+        assertEquals(11585, back); // 16384 / √2
+        assertEquals(0, out16[4]);
     }
 
     @Test

@@ -51,8 +51,8 @@ import java.util.Map;
  * be dropped. On the same PID the disc also carries the AC-3 core every player must be able to fall
  * back to, each frame in a PES packet of its own (the TrueHD access units in the others). Type 0x83
  * therefore gets the AC-3 reader behind a filter that passes only the PES packets that begin with an
- * AC-3 sync word — sound in 5.1 rather than none. Blu-ray LPCM (0x80) is left out: Media3 has no
- * reader for it either, and takes the number for a video stream.
+ * AC-3 sync word — sound in 5.1 rather than none. Blu-ray LPCM (0x80), which Media3 has no reader
+ * for either and takes for a video stream, goes to {@link LpcmReader}: plain PCM out of it.
  *
  * <p>The disc's other audio numbers are its own too, and Media3 knows none of them: Dolby Digital Plus
  * 0x84 and DTS-HD 0x85 (High Resolution) / 0x86 (Master Audio; to Media3 an SCTE-35 cue stream) — the
@@ -359,8 +359,8 @@ final class M2tsExtractor implements Extractor {
             if (streamType == TS_STREAM_TYPE_HDMV_LPCM) {
                 // Read as DigiCipher II H.262 the stream never yields a format, and the player, waiting
                 // for every track to have one, loaded the whole file first - 50 s for "00019.m2ts"
-                // (measured on Dune, 0041). No reader: the track is left out, the picture plays silent.
-                return null;
+                // (measured on Dune, 0041). Its own reader turns it into plain PCM.
+                return new PesReader(new LpcmReader(esInfo.language, esInfo.getRoleFlags()));
             }
             if (streamType == TS_STREAM_TYPE_HDMV_TRUEHD || streamType == TS_STREAM_TYPE_HDMV_EAC3) {
                 return new PesReader(new Ac3CoreReader(
@@ -473,6 +473,178 @@ final class M2tsExtractor implements Extractor {
         public void endOfInputReached() {
             packetFinished();
             ac3.endOfInputReached();
+        }
+    }
+
+    /**
+     * Blu-ray LPCM to {@code audio/raw}. Each PES packet is a 4-byte header and big-endian samples:
+     * bytes 0–1 the payload size; byte 2 the channel assignment (high nibble) and sample rate (low:
+     * 1 = 48, 4 = 96, 5 = 192 kHz); byte 3 the depth in its top two bits (1 = 16, 2 = 20, 3 = 24;
+     * 20 is stored left-justified in 24). The channel count on the disc is always even: an odd layout
+     * carries an empty channel after the last. Channel order per layout is that of ffmpeg's
+     * {@code pcm-bluray.c}, from the Blu-ray spec (part 3).
+     *
+     * <p>Out comes little-endian 16 or packed 24-bit PCM in Android's order (FL FR FC LFE BL BR SL SR).
+     * Layouts that order has a mask for keep their count; the mono surround of 2/1 and 3/1 goes to both
+     * back channels at −3 dB in 5.1; 3/4 without LFE plays as 7.1 with a silent LFE, since Android's
+     * seven channels are 5.1 and a back centre.
+     */
+    static final class LpcmReader implements ElementaryStreamReader {
+
+        private static final int HALF_Q15 = 23170; // 1/√2 in Q15
+        /** Per channel assignment: output channel → disc channel, -1 silent, ~n disc channel n at −3 dB. */
+        private static final int[][] MAPS = new int[16][];
+
+        static {
+            MAPS[1] = new int[]{0};                         // mono
+            MAPS[3] = new int[]{0, 1};                      // L R
+            MAPS[4] = new int[]{0, 1, 2};                   // 3/0: L R C
+            MAPS[5] = new int[]{0, 1, -1, -1, ~2, ~2};      // 2/1: L R S
+            MAPS[6] = new int[]{0, 1, 2, -1, ~3, ~3};       // 3/1: L R C S
+            MAPS[7] = new int[]{0, 1, 2, 3};                // 2/2: L R LS RS
+            MAPS[8] = new int[]{0, 1, 2, 3, 4};             // 3/2: L R C LS RS
+            MAPS[9] = new int[]{0, 1, 2, 5, 3, 4};          // 3/2+lfe: L R C LS RS LFE
+            MAPS[10] = new int[]{0, 1, 2, -1, 4, 5, 3, 6};  // 3/4: L R C LS Rls Rrs RS
+            MAPS[11] = new int[]{0, 1, 2, 7, 4, 5, 3, 6};   // 3/4+lfe
+        }
+
+        /** Disc channels per assignment, the empty one included. */
+        private static final int[] DISC_CHANNELS = {0, 2, 0, 2, 4, 4, 4, 4, 6, 6, 8, 8, 0, 0, 0, 0};
+
+        @Nullable
+        private final String language;
+        private final int roleFlags;
+        @Nullable
+        private androidx.media3.extractor.TrackOutput output;
+        @Nullable
+        private String formatId;
+        private byte[] packet = new byte[8192];
+        private byte[] out = new byte[0];
+        private int size;
+        private long timeUs;
+        private boolean started;
+        /** Bytes 2–3 of the header the current format was made from; -1 before the first. */
+        private int header = -1;
+        private int warnedHeader = -1;
+        private long nextTimeUs = C.TIME_UNSET;
+
+        LpcmReader(@Nullable String language, int roleFlags) {
+            this.language = language;
+            this.roleFlags = roleFlags;
+        }
+
+        @Override
+        public void seek() {
+            started = false;
+            size = 0;
+            nextTimeUs = C.TIME_UNSET;
+        }
+
+        @Override
+        public void createTracks(ExtractorOutput extractorOutput, PesReader.TrackIdGenerator idGenerator) {
+            idGenerator.generateNewId();
+            formatId = idGenerator.getFormatId();
+            output = extractorOutput.track(idGenerator.getTrackId(), C.TRACK_TYPE_AUDIO);
+        }
+
+        @Override
+        public void packetStarted(long pesTimeUs, int flags) {
+            timeUs = pesTimeUs;
+            size = 0;
+            started = true;
+        }
+
+        @Override
+        public void consume(ParsableByteArray data) {
+            if (!started) {
+                data.skipBytes(data.bytesLeft());
+                return;
+            }
+            final int length = data.bytesLeft();
+            if (size + length > packet.length) {
+                packet = Arrays.copyOf(packet, Math.max(packet.length * 2, size + length));
+            }
+            data.readBytes(packet, size, length);
+            size += length;
+        }
+
+        @Override
+        public void packetFinished() {
+            if (!started) return;
+            started = false;
+            if (size < 4 || output == null) return;
+            final int h = ((packet[2] & 0xFF) << 8) | (packet[3] & 0xFF);
+            final int assignment = (h >> 12) & 0x0F;
+            final int rate = sampleRate((h >> 8) & 0x0F);
+            final int depth = (h >> 6) & 0x03;
+            if (MAPS[assignment] == null || rate == 0 || depth == 0) {
+                if (h != warnedHeader) {
+                    warnedHeader = h;
+                    Utils.log("m2ts: LPCM header " + Integer.toHexString(h) + " not supported, packet skipped");
+                }
+                return;
+            }
+            final int[] map = MAPS[assignment];
+            final int bytes = depth == 1 ? 2 : 3;
+            if (h != header) {
+                header = h;
+                output.format(new androidx.media3.common.Format.Builder()
+                        .setId(formatId)
+                        .setContainerMimeType(MimeTypes.VIDEO_MP2T)
+                        .setSampleMimeType(MimeTypes.AUDIO_RAW)
+                        .setChannelCount(map.length)
+                        .setSampleRate(rate)
+                        .setPcmEncoding(bytes == 2 ? C.ENCODING_PCM_16BIT : C.ENCODING_PCM_24BIT)
+                        .setLanguage(language)
+                        .setRoleFlags(roleFlags)
+                        .build());
+            }
+            final int declared = ((packet[0] & 0xFF) << 8) | (packet[1] & 0xFF);
+            final int payload = Math.min(size - 4, declared);
+            final int frames = payload / (DISC_CHANNELS[assignment] * bytes);
+            final long sampleTimeUs = timeUs != C.TIME_UNSET ? timeUs : nextTimeUs;
+            if (frames == 0 || sampleTimeUs == C.TIME_UNSET) return;
+            final int length = frames * map.length * bytes;
+            if (out.length < length) out = new byte[length];
+            convert(packet, 4, frames, DISC_CHANNELS[assignment], bytes, map, out);
+            output.sampleData(new ParsableByteArray(out, length), length);
+            output.sampleMetadata(sampleTimeUs, C.BUFFER_FLAG_KEY_FRAME, length, 0, null);
+            nextTimeUs = sampleTimeUs + frames * C.MICROS_PER_SECOND / rate;
+        }
+
+        static int sampleRate(int code) {
+            return code == 1 ? 48_000 : code == 4 ? 96_000 : code == 5 ? 192_000 : 0;
+        }
+
+        /**
+         * Big-endian disc frames of {@code discChannels} samples of {@code bytes} each, from
+         * {@code offset}, to little-endian frames laid out by {@code map}.
+         */
+        static void convert(byte[] in, int offset, int frames, int discChannels, int bytes, int[] map,
+                            byte[] out) {
+            int o = 0;
+            for (int f = 0; f < frames; f++) {
+                final int frame = offset + f * discChannels * bytes;
+                for (int m : map) {
+                    int value = 0;
+                    if (m != -1) {
+                        final int at = frame + (m < 0 ? ~m : m) * bytes;
+                        value = bytes == 2
+                                ? (short) (((in[at] & 0xFF) << 8) | (in[at + 1] & 0xFF))
+                                : (((in[at] << 24) | ((in[at + 1] & 0xFF) << 16)
+                                        | ((in[at + 2] & 0xFF) << 8)) >> 8);
+                        if (m < 0) value = (int) (((long) value * HALF_Q15) >> 15);
+                    }
+                    out[o++] = (byte) value;
+                    out[o++] = (byte) (value >> 8);
+                    if (bytes == 3) out[o++] = (byte) (value >> 16);
+                }
+            }
+        }
+
+        @Override
+        public void endOfInputReached() {
+            packetFinished();
         }
     }
 
