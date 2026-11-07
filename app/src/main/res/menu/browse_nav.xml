@@ -19,6 +19,13 @@
         android:icon="@drawable/ic_dns_24dp"
         android:title="@string/nav_network" />
 
+    <!-- Shown by BrowserActivity.showRecentDest while its setting is on. -->
+    <item
+        android:id="@+id/dest_recent"
+        android:icon="@drawable/ic_history_24dp"
+        android:title="@string/nav_recent"
+        android:visible="false" />
+
     <!-- Hidden while it is being built: the page behind it says only "in development", and a
          destination that leads nowhere is not one. The item stays so the id and the code paths do,
          and showing it again is this one line. -->

@@ -33,6 +33,12 @@
     <string name="browse_internal">Internal storage</string>
     <string name="nav_favorites">Favorites</string>
     <string name="nav_network">Network</string>
+    <string name="nav_recent">Recent</string>
+    <string name="home_recent_caption">Files opened lately</string>
+    <string name="browse_no_recent">Nothing yet. The files you open will appear here.</string>
+    <string name="pref_browse_recent">Recent files</string>
+    <string name="pref_browse_recent_on">A Recent tab lists the last 20 files you opened</string>
+    <string name="pref_browse_recent_off">No Recent tab; nothing is recorded</string>
     <string name="nav_iptv" translatable="false">IPTV</string>
     <string name="home_favorites_caption">Put aside</string>
     <string name="home_files_caption">On this device</string>
@@ -492,7 +498,17 @@
     <string name="pref_seek_preview_on">A long seek shows where it will land, with a trickplay frame where the file has them beside it; the film plays on and jumps once at the end</string>
     <string name="pref_seek_preview_off">Every seek moves the picture itself</string>
     <string name="pref_keep_awake_on_pause">Keep the screen on while paused</string>
-    <string name="pref_keep_awake_on_pause_on">The screensaver stays away, for up to two hours</string>
+    <string name="pref_keep_awake_on_pause_on">The screensaver stays away for the time below</string>
+    <string name="pref_keep_awake_max">How long to keep it on</string>
+    <string name="pref_keep_awake_max_15">15 minutes</string>
+    <string name="pref_keep_awake_max_30">30 minutes</string>
+    <string name="pref_keep_awake_max_60">1 hour</string>
+    <string name="pref_keep_awake_max_120">2 hours</string>
+    <string name="pref_pause_dim">Dim the picture while paused</string>
+    <string name="pref_pause_dim_off">Never</string>
+    <string name="pref_pause_dim_30">After 30 seconds</string>
+    <string name="pref_pause_dim_60">After 1 minute</string>
+    <string name="pref_pause_dim_300">After 5 minutes</string>
     <string name="pref_keep_awake_on_pause_off">The screensaver comes on the way it usually does</string>
     <string name="volume_high_warning">High volume may damage your hearing</string>
     <string name="mediastore_empty">No video files found</string>

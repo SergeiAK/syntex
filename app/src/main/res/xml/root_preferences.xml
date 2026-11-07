@@ -84,6 +84,13 @@
                 app:title="@string/pref_all_files_access" />
 
             <SwitchPreferenceCompat
+                app:key="browseRecent"
+                app:defaultValue="false"
+                app:summaryOn="@string/pref_browse_recent_on"
+                app:summaryOff="@string/pref_browse_recent_off"
+                app:title="@string/pref_browse_recent" />
+
+            <SwitchPreferenceCompat
                 app:key="showHiddenFiles"
                 app:defaultValue="false"
                 app:summaryOn="@string/pref_show_hidden_on"
@@ -282,6 +289,24 @@
                 app:summaryOn="@string/pref_keep_awake_on_pause_on"
                 app:summaryOff="@string/pref_keep_awake_on_pause_off"
                 app:title="@string/pref_keep_awake_on_pause" />
+
+            <ListPreference
+                app:key="keepAwakeMaxMin"
+                app:dependency="keepAwakeOnPause"
+                app:defaultValue="120"
+                app:entries="@array/keep_awake_max_entries"
+                app:entryValues="@array/keep_awake_max_values"
+                app:title="@string/pref_keep_awake_max"
+                app:useSimpleSummaryProvider="true" />
+
+            <ListPreference
+                app:key="pauseDimDelaySec"
+                app:dependency="keepAwakeOnPause"
+                app:defaultValue="60"
+                app:entries="@array/pause_dim_entries"
+                app:entryValues="@array/pause_dim_values"
+                app:title="@string/pref_pause_dim"
+                app:useSimpleSummaryProvider="true" />
 
         </PreferenceScreen>
 

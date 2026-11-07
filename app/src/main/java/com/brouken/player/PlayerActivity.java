@@ -959,8 +959,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // the controller timeout to -1) burnt into a panel for as long as the pause lasts. So the hold comes
     // with a black sheet faded over everything once the pause has stood a minute, and is given up
     // altogether once it has stood two hours: whoever fell asleep does not need the television on.
-    private static final long DIM_DELAY_MS = 60_000L;
-    private static final long KEEP_AWAKE_MAX_MS = 2 * 60 * 60 * 1000L;
+    // The dim delay and the hold's length are settings now (Prefs.pauseDimDelaySec, keepAwakeMaxMin).
     private static final float DIM_ALPHA = 0.85f;
     private static final int DIM_IN_MS = 800;
     private static final int DIM_OUT_MS = 300;
@@ -2639,6 +2638,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // progress tick — updateTimeline() ends with updateProgress(), so its own value never lingers.
         final TextView positionView = playerView.findViewById(R.id.exo_position);
         durationView = playerView.findViewById(R.id.exo_duration);
+        // Fixed-width digits, as on the speed and offset panels: the times no longer shift sideways as
+        // they count, nor jump at 1:00:00.
+        positionView.setFontFeatureSettings("tnum");
+        durationView.setFontFeatureSettings("tnum");
         if (isTvBox) {
             // TV: the times on the bar the size of "ends at" in the header, bold as media3 has them - at its
             // 14sp they were the one figure on screen a step off the others (23.10.2026).
@@ -3940,6 +3943,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // activity, and its extras have to replace the previous ones instead of being ignored.
     void handleViewIntent(Intent intent) {
         resetApiAccess();
+        // Before anything reads the extras: a position sent as a Long, or as startfrom / resume_position,
+        // becomes the int "position" every check below already knows.
+        final String startName = StartPosition.normalize(intent);
+        if (startName != null) {
+            Utils.log("start position from \"" + startName + "\"");
+        }
         final Uri uri = intent.getData();
         final String type = intent.getType();
         final Bundle extras = intent.getExtras();
@@ -7472,8 +7481,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * @return the headline, and the supporting line or null when there is nothing to support it with
      */
     private String[] trackRowText(final Format format, final int number) {
-        final String name = trackName(format);
-        final String language = numberedLanguage(format, languageDisplayName(format.language));
+        final String name = shownTrackName(format);
+        final String language = numberedLanguage(format, languageDisplayName(shownLanguage(format)));
         final String headline = name != null && !name.isEmpty() ? name
                 : language != null && !language.isEmpty() ? language
                 : getString(R.string.audio_track_number, number);
@@ -7493,9 +7502,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             return null;
         }
         // Same shape as the track list: <label or container name or language> [<codec> <channels> <bitrate>k] (<lang>)
-        final String language = languageDisplayName(audio.language);
+        final String language = languageDisplayName(shownLanguage(audio));
         // Rich release label: Media3's Format.label first, then the name read from the container.
-        final String metaName = trackName(audio);
+        final String metaName = shownTrackName(audio);
         final String title = (metaName != null && !metaName.isEmpty()) ? metaName : language;
         final StringBuilder b = new StringBuilder();
         if (title != null && !title.isEmpty()) {
@@ -11791,6 +11800,21 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return format.id != null ? resolvedTrackNames.get(format.id) : null;
     }
 
+    /** The name as a menu row shows it: none when it is only a language code (see LanguageCode). */
+    private String shownTrackName(final Format format) {
+        final String name = trackName(format);
+        return LanguageCode.bare(name) != null ? null : name;
+    }
+
+    /** The track's language, or the one its name spells out when it declares none. */
+    private String shownLanguage(final Format format) {
+        if (format.language != null && !format.language.isEmpty() && !"und".equals(format.language)) {
+            return format.language;
+        }
+        final String code = LanguageCode.bare(trackName(format));
+        return code != null ? code : format.language;
+    }
+
     /**
      * "English 2" for the track made from {@code Film.eng2.srt}: three files in one language would be
      * three rows reading "English". The id of a sideloaded track is its file's uri (buildSubtitle), and
@@ -11805,8 +11829,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     private String buildSubtitleInfo(Format text) {
-        final String language = numberedLanguage(text, languageDisplayName(text.language));
-        final String name = trackName(text);
+        final String language = numberedLanguage(text, languageDisplayName(shownLanguage(text)));
+        final String name = shownTrackName(text);
         final StringBuilder b = new StringBuilder();
         final String title = (name != null && !name.isEmpty()) ? name : language;
         if (title != null && !title.isEmpty()) {
@@ -19884,7 +19908,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final boolean holding = keepAwakeOnPause();
         holdScreen(playing || holding);
         if (holding && !playing) {
-            playerView.postDelayed(keepAwakeGiveUpRunnable, KEEP_AWAKE_MAX_MS);
+            playerView.postDelayed(keepAwakeGiveUpRunnable, mPrefs.keepAwakeMaxMin * 60_000L);
         }
 
         if (dimOverlay == null) {
@@ -19896,8 +19920,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             dimOverlay.animate().alpha(0f).setDuration(DIM_OUT_MS)
                     .withEndAction(() -> dimOverlay.setVisibility(View.GONE));
         }
-        if (holding && !playing) {
-            playerView.postDelayed(dimRunnable, DIM_DELAY_MS);
+        if (holding && !playing && mPrefs.pauseDimDelaySec > 0) {
+            playerView.postDelayed(dimRunnable, mPrefs.pauseDimDelaySec * 1000L);
         }
         return wasDim;
     }

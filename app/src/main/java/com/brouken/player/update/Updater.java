@@ -111,7 +111,8 @@ public final class Updater {
                         release.optString("body", ""),
                         apk.optString("browser_download_url", ""),
                         apk.optLong("size", 0),
-                        release.optString("published_at", ""));
+                        release.optString("published_at", ""),
+                        sha256Of(apk.optString("digest", "")));
             }
         } catch (Exception e) {
             return null;
@@ -144,6 +145,26 @@ public final class Updater {
     }
 
     /** Parses {@code major*1_000_000 + minor*1_000 + patch} out of a tag like {@code v1.2.3}. Returns 0 if unparseable. */
+    /**
+     * The hex of a GitHub asset {@code digest} ("sha256:<64 hex>"), lowercase; empty for anything else -
+     * an older release has no digest, and a check that cannot be made is not a failed one.
+     */
+    static String sha256Of(String digest) {
+        if (digest == null || !digest.regionMatches(true, 0, "sha256:", 0, 7)) {
+            return "";
+        }
+        final String hex = digest.substring(7).trim().toLowerCase(Locale.ROOT);
+        return hex.matches("[0-9a-f]{64}") ? hex : "";
+    }
+
+    static String hex(byte[] bytes) {
+        final StringBuilder out = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            out.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+        }
+        return out.toString();
+    }
+
     static int parseVersionCode(String tag) {
         if (tag == null) {
             return 0;
@@ -193,6 +214,7 @@ public final class Updater {
                 return null;
             }
             final long total = responseBody.contentLength();
+            final java.security.MessageDigest sha = java.security.MessageDigest.getInstance("SHA-256");
             try (InputStream in = responseBody.byteStream();
                  FileOutputStream out = new FileOutputStream(file)) {
                 final byte[] buffer = new byte[64 * 1024];
@@ -204,6 +226,7 @@ public final class Updater {
                         return null;
                     }
                     out.write(buffer, 0, read);
+                    sha.update(buffer, 0, read);
                     downloaded += read;
                     if (listener != null && total > 0) {
                         final int percent = (int) (downloaded * 100 / total);
@@ -217,6 +240,12 @@ public final class Updater {
                 // A cut connection ends the stream like a finished one; a short file would only fail
                 // later in the installer as "problem parsing the package".
                 if (info.size > 0 && downloaded != info.size) {
+                    file.delete();
+                    return null;
+                }
+                // The bytes GitHub says it holds, not only as many of them: a proxy or a captive portal
+                // can hand back the right length of the wrong thing.
+                if (!info.sha256.isEmpty() && !info.sha256.equals(hex(sha.digest()))) {
                     file.delete();
                     return null;
                 }

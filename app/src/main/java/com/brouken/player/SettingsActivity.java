@@ -712,6 +712,10 @@ public class SettingsActivity extends AppCompatActivity
                 // Holding a phone awake through a pause drains it for no one's benefit: the complaint is
                 // the TV's screensaver, which takes the audio output and the process down with it.
                 preferenceKeepAwake.setVisible(false);
+                for (String key : new String[]{"keepAwakeMaxMin", "pauseDimDelaySec"}) {
+                    final Preference p = findPreference(key);
+                    if (p != null) p.setVisible(false);
+                }
             }
             Preference preferenceOsdStyle = findPreference("osdStyle");
             if (preferenceOsdStyle != null && !Utils.isTvBox(getContext())) {

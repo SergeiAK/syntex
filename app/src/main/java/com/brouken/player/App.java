@@ -20,8 +20,8 @@ public class App extends Application {
 
     /**
      * Process start, captured when this class is loaded — the first app code to run. Used by the error
-     * report's uptime line; a static beats Process.getStartElapsedRealtime() only in that it needs no
-     * API-level branch (that call arrived in API 24, this app supports 23).
+     * report's uptime line. Written when there was still an API 23 build to serve, before minSdk 24
+     * made Process.getStartElapsedRealtime() available everywhere; kept because it answers the same.
      */
     static final long START_ELAPSED = SystemClock.elapsedRealtime();
 

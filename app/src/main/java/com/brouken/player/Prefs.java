@@ -300,6 +300,10 @@ class Prefs {
     public boolean playlistGrid = true;
     public boolean tvSingleBack = false;
     public boolean keepAwakeOnPause = true;
+    /** How long a pause holds the screen, in minutes. */
+    public int keepAwakeMaxMin = 120;
+    /** When a held pause dims the picture, in seconds; 0 never (an LCD has no burn-in to spare). */
+    public int pauseDimDelaySec = 60;
     /** How long the controls stay up after the last press, in ms. 3500 is what the app always had. */
     public int controllerTimeout = 3500;
     /** Whether paused controls stay until Back rather than fading like they do during playback. */
@@ -570,6 +574,14 @@ class Prefs {
         playlistGrid = mSharedPreferences.getBoolean(PREF_KEY_PLAYLIST_GRID, playlistGrid);
         tvSingleBack = mSharedPreferences.getBoolean(PREF_KEY_TV_SINGLE_BACK, tvSingleBack);
         keepAwakeOnPause = mSharedPreferences.getBoolean(PREF_KEY_KEEP_AWAKE_ON_PAUSE, keepAwakeOnPause);
+        try {
+            keepAwakeMaxMin = Integer.parseInt(mSharedPreferences.getString("keepAwakeMaxMin",
+                    String.valueOf(keepAwakeMaxMin)));
+            pauseDimDelaySec = Integer.parseInt(mSharedPreferences.getString("pauseDimDelaySec",
+                    String.valueOf(pauseDimDelaySec)));
+        } catch (final NumberFormatException ignored) {
+            // A value from a build that stored something else: the defaults stand.
+        }
         try {
             controllerTimeout = Integer.parseInt(mSharedPreferences.getString("controllerTimeout",
                     String.valueOf(controllerTimeout)));

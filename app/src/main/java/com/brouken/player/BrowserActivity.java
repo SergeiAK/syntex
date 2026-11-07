@@ -127,7 +127,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
      * the default: {@link Prefs#getBrowseDest} restores whatever was last open, which on a first run
      * is Files - so an empty list is never the first thing anyone sees.
      */
-    private enum Dest { FAVORITES, FILES, NETWORK, IPTV }
+    private enum Dest { FAVORITES, FILES, NETWORK, RECENT, IPTV }
 
     private static final int REQUEST_STORAGE = 2;
     private static final int SEARCH_LIMIT = 500;
@@ -662,7 +662,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             // inside a resource. It would also have run over the whole device from there - matches()
             // with no folder above it is every video the index knows.
             final boolean listOfPlaces = trail.isEmpty()
-                    && (dest == Dest.FAVORITES || dest == Dest.NETWORK);
+                    && (dest == Dest.FAVORITES || dest == Dest.NETWORK || dest == Dest.RECENT);
             search.setVisible(dest != Dest.IPTV && !listOfPlaces);
         }
         // Only where network folders are listed, which is the one level that has anything to add to:
@@ -831,6 +831,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             recreate();
             return;
         }
+        // The Recent destination is a setting, and Settings hands back no result either.
+        showRecentDest();
         // Read on every arrival and not only on create: the all-files switch lives in Settings, which
         // is another app and hands back no result. Coming home from it is the only signal there is.
         // show() is what re-reads what the index was built under - see its head.
@@ -1064,6 +1066,18 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
      * <p>A local address that has gone drops out of the list and stays in the store. An unmounted
      * card comes back, and a favorite that quietly deleted itself when it was pulled out would not.
      */
+    /** The files last opened here, newest first; one whose address no longer resolves is left out. */
+    private List<Item> recents() {
+        final List<Item> found = new ArrayList<>();
+        for (final Recents.Recent recent : Recents.all(this)) {
+            final Item row = itemFor(recent.name, Uri.parse(recent.uri), false, false);
+            if (row != null) {
+                found.add(row);
+            }
+        }
+        return found;
+    }
+
     private List<Item> favorites() {
         final List<Item> found = new ArrayList<>();
         for (final Favorites.Favorite favorite : Favorites.all(this)) {
@@ -1102,6 +1116,9 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         }
         if (dest == Dest.NETWORK) {
             return places();
+        }
+        if (dest == Dest.RECENT) {
+            return recents();
         }
         final List<Item> found = volumes();
         if (picker) {
@@ -1689,6 +1706,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         home.findViewById(R.id.home_card_favorites).setOnClickListener(v -> choose(Dest.FAVORITES));
         home.findViewById(R.id.home_card_files).setOnClickListener(v -> choose(Dest.FILES));
         home.findViewById(R.id.home_card_network).setOnClickListener(v -> choose(Dest.NETWORK));
+        home.findViewById(R.id.home_card_recent).setOnClickListener(v -> choose(Dest.RECENT));
         home.findViewById(R.id.home_card_iptv).setOnClickListener(v -> choose(Dest.IPTV));
         home.findViewById(R.id.home_settings).setOnClickListener(v ->
                 startActivity(new Intent(this, SettingsActivity.class)));
@@ -1713,7 +1731,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         final int surface = MaterialColors.getColor(this, R.attr.colorSurfaceContainer, Color.DKGRAY);
         final int ring = getResources().getDimensionPixelSize(R.dimen.focus_ring_width_card);
         for (final int id : new int[]{R.id.home_card_favorites, R.id.home_card_files,
-                R.id.home_card_network, R.id.home_card_iptv}) {
+                R.id.home_card_network, R.id.home_card_recent, R.id.home_card_iptv}) {
             home.findViewById(id).setBackground(
                     Dialogs.pickerRow(this, surface, false, Utils.dpToPx(16), ring));
         }
@@ -1740,6 +1758,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         }
         nav = wanted;
         nav.setVisibility(View.VISIBLE);
+        showRecentDest();
         nav.setSelectedItemId(navId(dest));
         nav.setOnItemSelectedListener(item -> {
             // Only when it is a move. choose() marks the surface itself - the empty Favorites page
@@ -1753,6 +1772,25 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         });
     }
 
+    /**
+     * The Recent destination on the bar, the rail and the start page, only while its setting is on;
+     * switched off while it is the one open, the browser goes back to Files.
+     */
+    private void showRecentDest() {
+        final boolean on = !picker && Recents.enabled(this);
+        if (!on && dest == Dest.RECENT) {
+            dest = Dest.FILES;
+            trail.clear();
+        }
+        if (home != null) {
+            home.findViewById(R.id.home_card_recent).setVisibility(on ? View.VISIBLE : View.GONE);
+        }
+        if (nav != null) {
+            nav.getMenu().findItem(R.id.dest_recent).setVisible(on);
+            nav.setSelectedItemId(navId(dest));
+        }
+    }
+
     /** Which destination an item of {@code browse_nav.xml} is. */
     private static Dest destFor(final int id) {
         if (id == R.id.dest_favorites) {
@@ -1760,6 +1798,9 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         }
         if (id == R.id.dest_network) {
             return Dest.NETWORK;
+        }
+        if (id == R.id.dest_recent) {
+            return Dest.RECENT;
         }
         return id == R.id.dest_iptv ? Dest.IPTV : Dest.FILES;
     }
@@ -1771,6 +1812,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 return R.id.dest_favorites;
             case NETWORK:
                 return R.id.dest_network;
+            case RECENT:
+                return R.id.dest_recent;
             case IPTV:
                 return R.id.dest_iptv;
             default:
@@ -1942,6 +1985,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 return R.string.nav_favorites;
             case NETWORK:
                 return R.string.nav_network;
+            case RECENT:
+                return R.string.nav_recent;
             case IPTV:
                 return R.string.nav_iptv;
             default:
@@ -3305,6 +3350,10 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                         () -> choose(Dest.FILES));
                 return;
             }
+            if (dest == Dest.RECENT && trail.isEmpty() && query == null) {
+                showBlank(R.string.browse_no_recent, R.string.browse_title, () -> choose(Dest.FILES));
+                return;
+            }
             if (dest == Dest.NETWORK && trail.isEmpty() && query == null) {
                 // Not "no videos in this folder": there is no folder yet, and adding one is the whole
                 // content of this destination until there is.
@@ -3491,6 +3540,7 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
             finish();
             return;
         }
+        Recents.record(this, file.getName(), file.getUri());
         startActivity(new Intent(Intent.ACTION_VIEW, file.getUri())
                 .setClass(this, PlayerActivity.class));
     }
@@ -4215,6 +4265,13 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
                 lengths.put(key, stated);
                 durations.put(key, Utils.formatMilis(stated));
             }
+        }
+        // The retriever opens files and content:// only. Handed smb://, http or WebDAV it failed on every
+        // row ("could not access", 23.10) - a thread and a log line spent on each network file for an
+        // answer that never comes. Written down as asked-and-answered, so the row is not asked again.
+        final String scheme = item.file.getUri().getScheme();
+        if (!durations.containsKey(key) && !"content".equals(scheme) && !"file".equals(scheme)) {
+            durations.put(key, "");
         }
         final String known = durations.get(key);
         if (known != null) {

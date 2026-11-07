@@ -102,6 +102,30 @@
     <item>120</item>
     <item>300</item>
   </string-array>
+  <string-array name="keep_awake_max_entries">
+    <item>@string/pref_keep_awake_max_15</item>
+    <item>@string/pref_keep_awake_max_30</item>
+    <item>@string/pref_keep_awake_max_60</item>
+    <item>@string/pref_keep_awake_max_120</item>
+  </string-array>
+  <string-array name="keep_awake_max_values" translatable="false">
+    <item>15</item>
+    <item>30</item>
+    <item>60</item>
+    <item>120</item>
+  </string-array>
+  <string-array name="pause_dim_entries">
+    <item>@string/pref_pause_dim_off</item>
+    <item>@string/pref_pause_dim_30</item>
+    <item>@string/pref_pause_dim_60</item>
+    <item>@string/pref_pause_dim_300</item>
+  </string-array>
+  <string-array name="pause_dim_values" translatable="false">
+    <item>0</item>
+    <item>30</item>
+    <item>60</item>
+    <item>300</item>
+  </string-array>
   <string-array name="controller_timeout_entries">
     <item>@string/pref_controller_timeout_3</item>
     <item>@string/pref_controller_timeout_5</item>
