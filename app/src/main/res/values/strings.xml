@@ -3,6 +3,7 @@
     <string name="app_name" translatable="false">Syntex</string>
     <string name="video_resize_fit">Fit</string>
     <string name="video_resize_crop">Crop</string>
+    <string name="video_resize_frame">Frame ×1.33</string>
     <string name="video_resize_fill">Fill</string>
     <string name="video_orientation_video">Video orientation</string>
     <string name="video_orientation_sensor">Auto-rotate</string>

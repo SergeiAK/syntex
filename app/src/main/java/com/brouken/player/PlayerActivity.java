@@ -17032,8 +17032,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // reason to stop remembering, never to restyle the frame. Nor mid-pinch, where the frame
             // is being set by hand this very moment.
             final int aspectClass = Prefs.aspectClassOf(displayAspectRatio(videoSize));
-            if (aspectClass != mPrefs.aspectClass && playerView != null && !isScaling) {
-                mPrefs.loadFrameMode(aspectClass);
+            // And on a change of series under the same shape: the next item of a playlist may be
+            // another show, with a frame of its own.
+            final String frameSeries = currentSeriesKey();
+            if ((aspectClass != mPrefs.aspectClass || !Objects.equals(frameSeries, mPrefs.frameSeriesKey))
+                    && playerView != null && !isScaling) {
+                mPrefs.loadFrameMode(aspectClass, frameSeries);
                 Utils.log("frame shape " + aspectClass + " resize " + mPrefs.resizeMode
                         + " ratio " + mPrefs.aspectRatio + " scale " + mPrefs.scale);
                 if (aspectClass >= 0) {
@@ -17186,6 +17190,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // apiPlaylistStartIndex still names the item being left; an auto-advance means it played out.
             if (apiPlaylistReport != null && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                 apiPlaylistReport.ended(apiPlaylistStartIndex, System.currentTimeMillis() / 1000);
+            }
+            // The next item may be another series at the same size, which onVideoSizeChanged never
+            // reports: its frame is brought back here.
+            final String frameSeries = currentSeriesKey();
+            if (mPrefs.aspectClass >= 0 && playerView != null && !isScaling
+                    && !Objects.equals(frameSeries, mPrefs.frameSeriesKey)) {
+                mPrefs.loadFrameMode(mPrefs.aspectClass, frameSeries);
+                applyStoredFrameMode();
             }
             // The link rides the trace so the app log names the file too, masked as the setting says.
             Utils.log("item transition reason=" + reason
@@ -21281,12 +21293,27 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final int resizeMode;
         final float ratio;
         final String label;
+        /** A zoom on top of the mode; 1 for none. */
+        final float scale;
         AspectMode(int resizeMode, float ratio, String label) {
+            this(resizeMode, ratio, label, 1f);
+        }
+        AspectMode(int resizeMode, float ratio, String label, float scale) {
             this.resizeMode = resizeMode;
             this.ratio = ratio;
             this.label = label;
+            this.scale = scale;
         }
     }
+
+    /**
+     * "Frame": the picture boxed on all four sides — a 4:3 broadcast pillarboxed into 16:9 after it was
+     * letterboxed, an old non-anamorphic rip — fills the screen again. Its own content is three quarters
+     * of the coded width and height, so a third more on Crop takes the frame off and nothing of the
+     * picture. Kept per series with the rest of the frame (see Prefs.loadFrameMode), because it is the
+     * series' file that is boxed, not every file of that shape.
+     */
+    private static final float FRAME_SCALE = 4f / 3f;
 
     private List<AspectMode> getAspectModes() {
         if (aspectModes == null) {
@@ -21301,6 +21328,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             aspectModes.add(new AspectMode(AspectRatioFrameLayout.RESIZE_MODE_FIT, 2.35f, "2.35:1"));
             aspectModes.add(new AspectMode(AspectRatioFrameLayout.RESIZE_MODE_FIT, 2.39f, "2.39:1"));
             aspectModes.add(new AspectMode(AspectRatioFrameLayout.RESIZE_MODE_FIT, 5f / 4f, "5:4"));
+            aspectModes.add(new AspectMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, 0f,
+                    getString(R.string.video_resize_frame), FRAME_SCALE));
         }
         return aspectModes;
     }
@@ -21347,6 +21376,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final AspectMode mode = getAspectModes().get(index);
         currentAspectRatio = mode.ratio;
         playerView.applyAspectMode(mode.resizeMode, mode.ratio);
+        if (mode.scale != 1f) {
+            playerView.setScale(mode.scale);
+        }
         Dialogs.showText(playerView, mode.label, R.drawable.ic_aspect_ratio_24dp);
         updatebuttonAspectRatioIcon();
         rememberFrameMode();
@@ -21383,7 +21415,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     private boolean isCurrentAspectMode(AspectMode mode) {
         if (mode.ratio > 0)
             return Math.abs(mode.ratio - currentAspectRatio) < 0.001f;
-        return currentAspectRatio == 0 && playerView.getResizeMode() == mode.resizeMode;
+        if (currentAspectRatio != 0 || playerView.getResizeMode() != mode.resizeMode)
+            return false;
+        // Crop and Frame are one resize mode apart only by their zoom; a pinch to some other zoom is
+        // neither.
+        return mode.resizeMode != AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                || Math.abs(playerView.getVideoSurfaceView().getScaleX() - mode.scale) < 0.01f;
     }
 
     // The arrows sit on the side the picture is travelling: after the rate going forward, before it

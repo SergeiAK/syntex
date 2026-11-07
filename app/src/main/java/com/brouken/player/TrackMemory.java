@@ -56,6 +56,13 @@ final class TrackMemory {
         if (uri == null) {
             return null;
         }
+        // A torrent is the series: every file of every torrent on a TorrServer sits under one /stream
+        // "folder", which would make the whole server a single series.
+        final String torrent = SyncKey.of(uri);
+        if (torrent != null && torrent.startsWith("torr:///")) {
+            final int slash = torrent.indexOf('/', "torr:///".length());
+            return "torr:" + torrent.substring("torr:///".length(), slash);
+        }
         // The query of a link is the link's, not the folder's: a token there would make every episode
         // a series of its own.
         String path = uri;

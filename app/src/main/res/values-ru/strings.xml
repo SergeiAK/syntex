@@ -70,6 +70,7 @@
     <string name="video_orientation_sensor">Автоповорот</string>
     <string name="video_orientation_video">Ориентация видео</string>
     <string name="video_resize_crop">Обрезать</string>
+    <string name="video_resize_frame">Рамка ×1,33</string>
     <string name="video_resize_fit">Подогнать</string>
     <string name="video_resize_fill">Заполнить</string>
     <string name="delete_confirmation">Удалить</string>

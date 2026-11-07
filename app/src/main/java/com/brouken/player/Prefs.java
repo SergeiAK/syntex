@@ -14,6 +14,7 @@ import android.preference.PreferenceManager;
 import android.provider.DocumentsContract;
 import android.text.TextUtils;
 
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
@@ -1726,9 +1727,39 @@ class Prefs {
      * known and whenever it changes; an unusable size (-1) leaves the fit the media was opened with.
      */
     public void loadFrameMode(final int aspectClass) {
+        loadFrameMode(aspectClass, frameSeriesKey);
+    }
+
+    /**
+     * The series the frame is remembered for (see {@link TrackMemory#seriesKey}), or null for none.
+     * Kept with the shape: what one series' boxed files need is not what every file of that shape
+     * needs, and a Frame zoom chosen for a 4:3-in-16:9 show must not zoom the next 16:9 film.
+     */
+    @Nullable
+    public String frameSeriesKey;
+
+    private static final String FRAME_MEMORY_PREFS = "frame_memory";
+
+    /**
+     * The same, with the series it is for: the series' own choice for this shape when it has one,
+     * else the shape's. A choice is written to the series whenever the series is known
+     * ({@link #updateFrameMode}), so the shape's value is what files of no known series chose.
+     */
+    public void loadFrameMode(final int aspectClass, @Nullable final String seriesKey) {
+        this.frameSeriesKey = seriesKey;
         this.aspectClass = aspectClass;
         if (aspectClass < 0)
             return;
+        if (seriesKey != null) {
+            final FrameChoice choice = FrameChoice.decode(mContext.getSharedPreferences(
+                    FRAME_MEMORY_PREFS, Context.MODE_PRIVATE).getString(seriesKey + "|" + aspectClass, null));
+            if (choice != null) {
+                resizeMode = choice.resizeMode;
+                scale = choice.scale;
+                aspectRatio = choice.aspectRatio;
+                return;
+            }
+        }
         resizeMode = mSharedPreferences.getInt(PREF_KEY_RESIZE_MODE + "_" + aspectClass,
                 AspectRatioFrameLayout.RESIZE_MODE_FIT);
         scale = mSharedPreferences.getFloat(PREF_KEY_SCALE + "_" + aspectClass, 1.f);
@@ -1754,6 +1785,13 @@ class Prefs {
         this.aspectRatio = aspectRatio;
         if (aspectClass < 0)
             return;
+        if (frameSeriesKey != null) {
+            mContext.getSharedPreferences(FRAME_MEMORY_PREFS, Context.MODE_PRIVATE).edit()
+                    .putString(frameSeriesKey + "|" + aspectClass,
+                            new FrameChoice(resizeMode, scale, aspectRatio).encode())
+                    .apply();
+            return;
+        }
         mSharedPreferences.edit()
                 .putInt(PREF_KEY_RESIZE_MODE + "_" + aspectClass, resizeMode)
                 .putFloat(PREF_KEY_SCALE + "_" + aspectClass, scale)
