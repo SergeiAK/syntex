@@ -2341,6 +2341,10 @@ public class Utils {
                 }
             }
             frameRate = frameRateFromSampleTimes(timestamps, ignoreSamples);
+            if (frameRate == Format.NO_VALUE && timestamps.size() > ignoreSamples + 30) {
+                log("frame rate: " + timestamps.size() + " frame times follow no one rate (VFR),"
+                        + " the display is left as it is");
+            }
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
@@ -2403,7 +2407,52 @@ public class Utils {
                 counted++;
             }
         }
-        float frameRate = 1_000_000f * counted / total;
+        if (counted < steps.size() * COMMONEST_SHARE) {
+            // No step is the rule: a pulldown cadence (2:3 is 33 and 50 ms in turn, half each), or a
+            // rate that really varies. The commonest step would be one half of the cadence - 30 or 20
+            // for a film at 23.976 - so the run is read by its average instead, if the average holds.
+            return snapFrameRate(cadenceRate(steps));
+        }
+        return snapFrameRate(1_000_000f * counted / total);
+    }
+
+    /** At or above this share of steps the commonest step is the frame (dropped fields aside). */
+    private static final float COMMONEST_SHARE = 0.6f;
+    /** Steps per window of the cadence test: whole periods of 2:3, 2:2:2:3 and their like. */
+    private static final int CADENCE_WINDOW = 10;
+
+    /**
+     * The rate of a run whose steps repeat a pattern: the average step, provided every window of
+     * {@link #CADENCE_WINDOW} steps averages within 1.5 % of it. Otherwise the rate varies (VFR - a
+     * phone recording, an edit of 24 and 30 fps material) and there is no one rate to set the display
+     * to: Format.NO_VALUE, and the display is left as it is.
+     */
+    static float cadenceRate(final List<Long> steps) {
+        if (steps.size() < CADENCE_WINDOW * 3) {
+            return Format.NO_VALUE;
+        }
+        long all = 0;
+        for (final long step : steps) {
+            all += step;
+        }
+        final double mean = (double) all / steps.size();
+        for (int from = 0; from + CADENCE_WINDOW <= steps.size(); from += CADENCE_WINDOW) {
+            long window = 0;
+            for (int i = from; i < from + CADENCE_WINDOW; i++) {
+                window += steps.get(i);
+            }
+            if (Math.abs(window / (double) CADENCE_WINDOW - mean) > mean * 0.015) {
+                return Format.NO_VALUE;
+            }
+        }
+        return (float) (1_000_000d / mean);
+    }
+
+    /** A measured rate pulled onto the standard one it is within reach of; NO_VALUE passes through. */
+    private static float snapFrameRate(float frameRate) {
+        if (frameRate <= 0) {
+            return Format.NO_VALUE;
+        }
         if (frameRate > 23.95f && frameRate < 23.988f) {
             frameRate = 24000f / 1001f;
         } else if (frameRate > 23.988 && frameRate < 24.1) {
