@@ -1198,6 +1198,22 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // and read by holdForModeSwitch. Not cleared per file: a mode asked for a second ago is still
     // changing under whatever plays next, and an old stamp simply has nothing left to wait out.
     long modeSwitchRequestedAt;
+    // The display re-matched after a change of its own (a TV switched off and on, a cable re-seated):
+    // HDMI hot-plug resets the mode to the sink's default, and on some boxes numbers the modes afresh,
+    // so the id the window asked for names nothing any more and the system falls back. Asked again,
+    // the search finds the new id - or the same mode, and stays put.
+    private final Handler displayChangeHandler = new Handler(Looper.getMainLooper());
+    @Nullable
+    private android.hardware.display.DisplayManager.DisplayListener displayChangeListener;
+    /** A change within this long of our own request is that request landing, not a re-plug. */
+    private static final long OWN_SWITCH_MS = 6000;
+    /** Changes come in bursts while HDMI renegotiates; the mode is asked for once it is quiet. */
+    private static final long DISPLAY_QUIET_MS = 2000;
+    private final Runnable rematchDisplayMode = this::rematchDisplayModeAfterChange;
+    // A sink that will not keep the mode would bounce it back after every request, and each request is
+    // a blank screen: two re-matches a minute, then the display is left as it is.
+    private static final int REMATCHES_PER_MINUTE = 2;
+    private final long[] rematchTimes = new long[REMATCHES_PER_MINUTE];
 
     public static boolean restoreControllerTimeout = false;
     public static boolean shortControllerTimeout = false;
@@ -3358,6 +3374,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     public void onStart() {
         super.onStart();
         alive = true;
+        watchDisplayChanges(true);
         // Before anything here can build a player: the browser's stills must not take a decoder now.
         NetworkThumbs.playerVisible(true);
         Utils.log("onStart" + (player == null ? ", no player" : player.getPlayerError() != null
@@ -3453,6 +3470,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     public void onStop() {
         super.onStop();
         alive = false;
+        watchDisplayChanges(false);
         NetworkThumbs.playerVisible(false);
         Utils.log("onStop" + (isFinishing() ? ", finishing" : ""));
         if (Build.VERSION.SDK_INT >= 31) {
@@ -8678,6 +8696,95 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * rung and climbs, while the display is set once and never asked again — so setting it for the
      * opening rung would either leave a 4K stream at 1080p or, worse, drag a 4K television down to it.
      */
+    /**
+     * The player as the media session sees it. "Stop" from outside — the "Now playing" card, the
+     * assistant, a phone's remote — left the last frame frozen on screen with nothing to say why; it
+     * leaves the player now, the way the last Back does, so the position is saved and the app that
+     * started it gets its result. The player is not stopped first: leaving saves the place it is at.
+     */
+    private androidx.media3.common.Player sessionPlayer(final ExoPlayer exo) {
+        return new androidx.media3.common.ForwardingPlayer(exo) {
+            @Override
+            public void stop() {
+                runOnUiThread(() -> {
+                    if (isFinishing()) {
+                        return;
+                    }
+                    Utils.log("session stop: leaving the player");
+                    restorePlayStateAllowed = false;
+                    finish();
+                });
+            }
+        };
+    }
+
+    private void watchDisplayChanges(final boolean on) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return;
+        }
+        final android.hardware.display.DisplayManager manager =
+                (android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE);
+        if (manager == null) {
+            return;
+        }
+        if (on && displayChangeListener == null) {
+            displayChangeListener = new android.hardware.display.DisplayManager.DisplayListener() {
+                @Override
+                public void onDisplayAdded(int displayId) {
+                }
+
+                @Override
+                public void onDisplayRemoved(int displayId) {
+                }
+
+                @Override
+                public void onDisplayChanged(int displayId) {
+                    final android.view.Display display = getWindow().getDecorView().getDisplay();
+                    if (display == null || display.getDisplayId() != displayId) {
+                        return;
+                    }
+                    displayChangeHandler.removeCallbacks(rematchDisplayMode);
+                    displayChangeHandler.postDelayed(rematchDisplayMode, DISPLAY_QUIET_MS);
+                }
+            };
+            manager.registerDisplayListener(displayChangeListener, displayChangeHandler);
+        } else if (!on && displayChangeListener != null) {
+            manager.unregisterDisplayListener(displayChangeListener);
+            displayChangeListener = null;
+            displayChangeHandler.removeCallbacks(rematchDisplayMode);
+        }
+    }
+
+    /**
+     * After the display changed by itself: the mode this video wants, asked for again without holding
+     * playback — the picture is already moving, and a hold would stop it for a switch that may not come.
+     * Not while loading (that path matches on its own) nor right after our own request.
+     */
+    private void rematchDisplayModeAfterChange() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !alive || player == null || videoLoading
+                || !mPrefs.frameRateMatching) {
+            return;
+        }
+        if (modeSwitchRequestedAt != 0
+                && SystemClock.uptimeMillis() - modeSwitchRequestedAt < OWN_SWITCH_MS) {
+            return;
+        }
+        final float rate = videoFrameRate();
+        if (rate <= 0) {
+            return;
+        }
+        final long now = SystemClock.uptimeMillis();
+        if (rematchTimes[0] != 0 && now - rematchTimes[0] < 60_000) {
+            Utils.log("display changed by itself again, left as it is (re-matched "
+                    + REMATCHES_PER_MINUTE + " times this minute)");
+            return;
+        }
+        System.arraycopy(rematchTimes, 1, rematchTimes, 0, REMATCHES_PER_MINUTE - 1);
+        rematchTimes[REMATCHES_PER_MINUTE - 1] = now;
+        Utils.log("display changed by itself, matching the mode again");
+        Utils.requestFrameRateEarly(this, rate, videoDisplayWidth());
+    }
+
     private int videoDisplayWidth() {
         int width = 0;
         if (player != null) {
@@ -15962,7 +16069,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
         if (player.canAdvertiseSession()) {
             try {
-                mediaSession = new MediaSession.Builder(this, player).build();
+                mediaSession = new MediaSession.Builder(this, sessionPlayer(player)).build();
             } catch (IllegalStateException e) {
                 e.printStackTrace();
             }
@@ -18029,12 +18136,23 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                         : getString(R.string.error_stream_broken);
                 // A playlist keeps everything: the other episodes are still watchable and the user may
                 // want to step back to this one, so stay here and re-enable the arrows (gated while loading).
+                // Both with "Retry": a link that died for a moment, a server that came back, a torrent
+                // that has the piece now - pressing it is cheaper than finding the film again.
                 if (player != null && player.getMediaItemCount() > 1) {
-                    showSnack(message, null);
+                    showSnack(message, null, () -> {
+                        if (player != null) {
+                            Utils.log("retry after stream error");
+                            player.prepare();
+                        }
+                    });
                     setEpisodeNavLoading(false);
                     return;
                 }
-                stopWithMessage(message, null);
+                stopWithMessage(message, null, () -> {
+                    Utils.log("retry after stream error");
+                    clearReadout();
+                    initializePlayer();
+                });
                 return;
             }
             // Enrich via the per-capture ScopeCallback overload (not withScope) so the tags/extras land
@@ -19837,8 +19955,18 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // What stays usable is everything that never needed the player — the volume/brightness gestures, the
     // gear (and the settings screen behind it) and the playlist, if there is one to step through.
     private void stopWithMessage(final String text, final String details) {
+        stopWithMessage(text, details, null);
+    }
+
+    /** @param retry offered as "Retry" beside the message; null offers none */
+    private void stopWithMessage(final String text, final String details, @Nullable final Runnable retry) {
         notePlaylistFailure(text);
-        showSnack(text, details);
+        showSnack(text, details, retry);
+        // The place, before the player goes: a retry, or the next start, comes back where it stopped.
+        if (player != null && haveMedia && player.isCurrentMediaItemSeekable()
+                && player.getCurrentPosition() > 0) {
+            mPrefs.updatePosition(player.getCurrentPosition());
+        }
         releasePlayer(false);
         playerView.setPlayer(null);
         // Said twice on purpose, and the only call that does not take the line: the notice above carries
@@ -20335,24 +20463,47 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     AlertDialog showSnack(final String textPrimary, final String textSecondary) {
+        return showSnack(textPrimary, textSecondary, null);
+    }
+
+    /** @param retry offered as "Retry", the button the remote lands on; null offers none */
+    AlertDialog showSnack(final String textPrimary, final String textSecondary,
+                          @Nullable final Runnable retry) {
         final Context dialogContext = Dialogs.dialogContext(this);
         // On TV the Snackbar action button is not reachable with the D-pad, so the "Details" affordance
         // would be lost. Present the error as an AlertDialog instead — its buttons are D-pad focusable.
         if (isTvBox) {
             final AlertDialog.Builder builder = new MaterialAlertDialogBuilder(dialogContext);
             builder.setMessage(textPrimary);
-            builder.setPositiveButton(android.R.string.ok, (dialogInterface, i) -> dialogInterface.dismiss());
+            if (retry != null) {
+                builder.setPositiveButton(R.string.error_retry, (dialogInterface, i) -> {
+                    dialogInterface.dismiss();
+                    retry.run();
+                });
+                builder.setNegativeButton(android.R.string.ok, (dialogInterface, i) -> dialogInterface.dismiss());
+            } else {
+                builder.setPositiveButton(android.R.string.ok, (dialogInterface, i) -> dialogInterface.dismiss());
+            }
             if (textSecondary != null) {
                 builder.setNeutralButton(R.string.error_details, (dialogInterface, i) -> showErrorScreen(textSecondary, textSecondary));
             }
-            return builder.show();
+            final AlertDialog shown = builder.show();
+            final View first = shown.getButton(AlertDialog.BUTTON_POSITIVE);
+            if (retry != null && first != null) {
+                first.requestFocus();
+            }
+            return shown;
         }
         clearReadout();
         snackbar = Notice.make(this, textPrimary, true, R.drawable.ic_info_24dp);
         if (snackbar == null) {
             return null;
         }
-        if (textSecondary != null) {
+        if (retry != null) {
+            // One action fits a snackbar; a retry is what this message is for, the details can wait.
+            snackbar.setAction(R.string.error_retry, v -> retry.run());
+            snackbar.setActionTextColor(brandColor());
+        } else if (textSecondary != null) {
             snackbar.setAction(R.string.error_details, v -> showErrorScreen(textSecondary, textSecondary));
             // Said here rather than left to the theme. Notice paints the plate and its text itself —
             // but the action's colour travels through Material's own overlay (snackbarButtonStyle →

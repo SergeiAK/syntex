@@ -9,6 +9,7 @@
     <string name="error_stream_interrupted">Эфир постоянно прерывается, продолжить не удалось. Попробуйте позже.</string>
     <string name="error_software_video_too_slow">%1$s %2$s на этом устройстве декодируется программно, и процессор не успевает. Попробуйте копию с меньшим разрешением.</string>
     <string name="error_stream_broken">Поток видео повреждён или недоступен. Попробуйте ещё раз.</string>
+    <string name="error_retry">Повторить</string>
     <string name="error_stream_http_status">Ошибка сервера %1$d на %2$s</string>
     <string name="error_media_access_expired">Доступ к этому видео истёк. Откройте его снова из того приложения.</string>
     <string name="error_video_beyond_device">Это видео (%1$s) устройство не декодирует, а программного декодера для него в приложении нет.</string>

@@ -84,6 +84,7 @@
     <string name="error_stream_interrupted">The live stream keeps stopping and could not be resumed. Please try again later.</string>
     <string name="error_software_video_too_slow">%1$s %2$s is being decoded in software on this device and cannot keep up. Try a copy with a lower resolution.</string>
     <string name="error_stream_broken">The video stream is damaged or unavailable. Please try again.</string>
+    <string name="error_retry">Retry</string>
     <string name="error_stream_http_status">Server error %1$d at %2$s</string>
     <string name="error_media_access_expired">Access to this video has expired. Open it again from the app you shared it from.</string>
     <string name="error_video_beyond_device">This device cannot decode this video (%1$s), and the app has no software decoder for it.</string>
