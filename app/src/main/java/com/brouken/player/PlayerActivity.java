@@ -3837,6 +3837,81 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         super.finish();
     }
 
+    private static final String EXTRA_M3U_EXPANDED = "com.syntex.player.m3u_expanded";
+
+    /**
+     * A plain M3U of files (see {@link PlainM3u}) opens as a playlist of those files rather than as a
+     * live stream. Read here, before the player exists, so the launch carries on as an ordinary
+     * video_list one. The read blocks the main thread, capped at 2.5 s — the servers that hand these
+     * out (TorrServer above all) sit on the home network and answer in milliseconds, and the launch
+     * waits for its first response anyway. A launch without api extras of its own keeps positions
+     * on disk, as a file opened from the browser would.
+     *
+     * @return true when the intent was rewritten and handled
+     */
+    private boolean expandPlainM3u(final Intent intent) {
+        final Uri uri = intent.getData();
+        final Bundle extras = intent.getExtras();
+        if (uri == null || intent.getBooleanExtra(EXTRA_M3U_EXPANDED, false)
+                || (extras != null && (extras.containsKey(API_PLAYLIST) || extras.containsKey(API_VIDEO_LIST)))
+                || !PlainM3u.isCandidate(uri.toString())) {
+            return false;
+        }
+        final java.util.concurrent.atomic.AtomicReference<List<PlainM3u.Entry>> read =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        final Thread reader = new Thread(() -> {
+            final okhttp3.OkHttpClient client = MEDIA_HTTP_CLIENT.newBuilder()
+                    .callTimeout(2_500, java.util.concurrent.TimeUnit.MILLISECONDS).build();
+            try (okhttp3.Response response = client.newCall(
+                    new okhttp3.Request.Builder().url(uri.toString()).build()).execute()) {
+                final okhttp3.ResponseBody body = response.body();
+                if (response.isSuccessful() && body != null) {
+                    // Up to the cap, whether the body ends before it or not: a stream that turns out
+                    // to be video must not be read whole.
+                    final okio.BufferedSource source = body.source();
+                    source.request(PlainM3u.MAX_BYTES);
+                    final byte[] bytes = source.getBuffer().readByteArray(
+                            Math.min(source.getBuffer().size(), PlainM3u.MAX_BYTES));
+                    read.set(PlainM3u.parse(new String(bytes, java.nio.charset.StandardCharsets.UTF_8),
+                            response.request().url().toString()));
+                }
+            } catch (Exception e) {
+                Utils.log("m3u: not read, " + e.getClass().getSimpleName());
+            }
+        }, "plain-m3u");
+        reader.start();
+        try {
+            reader.join(2_700);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        final List<PlainM3u.Entry> entries = read.get();
+        if (entries == null) {
+            return false;
+        }
+        final String[] uris = new String[entries.size()];
+        final String[] names = new String[entries.size()];
+        for (int i = 0; i < uris.length; i++) {
+            uris[i] = entries.get(i).uri;
+            names[i] = entries.get(i).title;
+        }
+        Utils.log("m3u: plain list of " + uris.length + " files, played as a playlist");
+        final boolean ownApi = extras != null && (extras.containsKey(API_POSITION)
+                || extras.containsKey(API_RETURN_RESULT) || extras.containsKey(API_SUBS)
+                || extras.containsKey(API_SUBS_ENABLE) || extras.containsKey(API_QUALITY_LEVELS));
+        final Intent expanded = new Intent(intent);
+        expanded.setDataAndType(Uri.parse(uris[0]), null);
+        expanded.putExtra(API_VIDEO_LIST, uris);
+        expanded.putExtra(API_VIDEO_LIST_NAME, names);
+        expanded.putExtra(EXTRA_M3U_EXPANDED, true);
+        setIntent(expanded);
+        handleViewIntent(expanded);
+        if (!ownApi) {
+            mPrefs.setPersistent(true);
+        }
+        return true;
+    }
+
     // Media plus every api extra (title, playlist, subs, position, ...) of a VIEW intent. Shared by
     // onCreate and onNewIntent: with launchMode="singleTask" a second intent lands in the running
     // activity, and its extras have to replace the previous ones instead of being ignored.
@@ -3847,6 +3922,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final Bundle extras = intent.getExtras();
         // Names only: the values of a launcher's extras carry tokens and addresses.
         Utils.log("intent extras: " + (extras == null ? "none" : new java.util.TreeSet<>(extras.keySet())));
+        if (expandPlainM3u(intent)) {
+            return;
+        }
         if (extras != null && extras.containsKey(API_PLAYLIST)) {
             handlePlaylistIntent(extras, type);
             return;

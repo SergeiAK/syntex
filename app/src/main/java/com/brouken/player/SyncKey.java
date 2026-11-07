@@ -36,12 +36,69 @@ final class SyncKey {
             return uri;
         }
         final String scheme = uri.substring(0, colon).toLowerCase(Locale.ROOT);
+        final String torrent = torrentKey(scheme, uri);
+        if (torrent != null) {
+            return torrent;
+        }
         final boolean dav = DavFiles.SCHEME.equals(scheme) || DavFiles.SCHEME_SECURE.equals(scheme);
         if (!dav && !SmbSessions.SCHEME.equals(scheme)) {
             return uri;
         }
         final int path = uri.indexOf('/', colon + 3);
         return (dav ? DavFiles.SCHEME : scheme) + "://" + (path < 0 ? "" : uri.substring(path));
+    }
+
+    /**
+     * One file of a torrent on a TorrServer, by its infohash and index, whichever way the address was
+     * written: {@code /stream/Name.mkv?link=<hash>&index=2&play} as its own M3U lists it,
+     * {@code /play/<hash>/2}, or our {@code torr://…?h=<hash>&i=2}. The server, its port and a
+     * reverse proxy's prefix drop out, as they do for a share. Null when the address is not one of
+     * these or the link is a magnet rather than a bare hash.
+     */
+    @Nullable
+    static String torrentKey(final String scheme, final String uri) {
+        String hash;
+        String index;
+        if (TorrFiles.SCHEME.equals(scheme) || TorrFiles.SCHEME_SECURE.equals(scheme)) {
+            hash = query(uri, "h");
+            index = query(uri, "i");
+        } else if ("http".equals(scheme) || "https".equals(scheme)) {
+            final int q = uri.indexOf('?');
+            final String path = (q < 0 ? uri : uri.substring(0, q));
+            final int play = path.indexOf("/play/");
+            if (path.contains("/stream")) {
+                hash = query(uri, "link");
+                index = query(uri, "index");
+            } else if (play >= 0) {
+                final String[] parts = path.substring(play + 6).split("/");
+                hash = parts.length >= 2 ? parts[0] : null;
+                index = parts.length >= 2 ? parts[1] : null;
+            } else {
+                return null;
+            }
+        } else {
+            return null;
+        }
+        if (hash == null || index == null || !hash.matches("[0-9a-fA-F]{40}") || !index.matches("\\d+")) {
+            return null;
+        }
+        return "torr:///" + hash.toLowerCase(Locale.ROOT) + "/" + Integer.parseInt(index);
+    }
+
+    @Nullable
+    private static String query(final String uri, final String name) {
+        final int q = uri.indexOf('?');
+        if (q < 0) {
+            return null;
+        }
+        int end = uri.indexOf('#', q);
+        for (final String pair : uri.substring(q + 1, end < 0 ? uri.length() : end).split("&")) {
+            final int eq = pair.indexOf('=');
+            if ((eq < 0 ? pair : pair.substring(0, eq)).equals(name)) {
+                return eq < 0 ? "" : pair.substring(eq + 1);
+            }
+        }
+        return null;
     }
 
     /** Whether a key means anything on another device: a {@code content://} grant does not. */
