@@ -17701,6 +17701,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // path costs one prepare() and the sound comes back decoded.
             if ((error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
                     || error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED)
+                    && retryAudioAfterModeSwitch(audioFailureMime(error))) {
+                return;
+            }
+            if ((error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
+                    || error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED)
                     && recoverByRevokingAudioMime(audioFailureMime(error),
                             error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED)) {
                 return;
@@ -18423,6 +18428,36 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // rebuild, so it does not read as a restart. One-way for as long as the verdict lasts,
     // guarded by mPrefs.revokedAudioMimes itself, so a repeat failure on the same mime after the
     // switch falls through to the normal error screen instead of looping.
+    // The modeSwitchRequestedAt stamp a retry was spent on, so one display switch buys one retry.
+    private long audioRetriedForModeSwitchAt;
+
+    /**
+     * A bitstream AudioTrack that fails to open or dies just after the display changed mode is the
+     * HDMI link renegotiating, not a route that cannot carry the codec: the sink comes back a second
+     * later. Revoking there would cost Dolby for the rest of the run — or for good, an init failure
+     * being persisted — over a hiccup every frame-rate switch can cause. So inside the window after
+     * a switch the first failure only re-prepares, a second later; a failure that repeats goes on to
+     * the revocation as before. Just+ 2.7.1 fixed the same symptom ("Dolby switches to PCM for the
+     * rest of the track ... right after the display changes its refresh rate").
+     */
+    private boolean retryAudioAfterModeSwitch(String mime) {
+        final long switchedAt = modeSwitchRequestedAt;
+        if (mime == null || MimeTypes.AUDIO_RAW.equals(mime) || player == null || switchedAt == 0
+                || switchedAt == audioRetriedForModeSwitchAt
+                || SystemClock.uptimeMillis() - switchedAt > mPrefs.modeSwitchPauseMs + 10_000L) {
+            return false;
+        }
+        audioRetriedForModeSwitchAt = switchedAt;
+        Utils.log("audio: " + mime + " failed " + (SystemClock.uptimeMillis() - switchedAt)
+                + " ms after a display mode switch, retrying before revoking");
+        playerView.postDelayed(() -> {
+            if (alive && player != null && player.getPlayerError() != null) {
+                player.prepare();
+            }
+        }, 1_000);
+        return true;
+    }
+
     private boolean recoverByRevokingAudioMime(String mime, boolean persist) {
         // audio/raw is never a passthrough mime: it is what a decoder feeds the sink, and it is also the
         // format both audio renderers probe the sink with before they will decode anything at all. Denying
