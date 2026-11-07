@@ -284,6 +284,9 @@
     <string name="subtitle_title">Субтитры</string>
     <string name="subtitle_off">Выключены</string>
     <string name="subtitle_offset_title">Синхронизация субтитров</string>
+    <string name="subtitle_line_sync">По услышанной реплике</string>
+    <string name="subtitle_line_sync_hint">Выберите реплику, которую только что услышали</string>
+    <string name="subtitle_offset_from_series">Субтитры %s, как в прошлой серии</string>
     <string name="menu_playback">Воспроизведение</string>
     <string name="speed_row">Скорость</string>
     <string name="subtitle_secondary_title">Дополнительные субтитры</string>

@@ -389,6 +389,9 @@
     <string name="subtitle_title">Subtitles</string>
     <string name="subtitle_off">Off</string>
     <string name="subtitle_offset_title">Subtitle timing</string>
+    <string name="subtitle_line_sync">By a heard line</string>
+    <string name="subtitle_line_sync_hint">Pick the line you just heard</string>
+    <string name="subtitle_offset_from_series">Subtitles %s, as in the last episode</string>
     <string name="menu_playback">Playback</string>
     <string name="speed_row">Speed</string>
     <string name="subtitle_secondary_title">Secondary subtitles</string>

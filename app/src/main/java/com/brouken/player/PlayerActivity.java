@@ -1351,6 +1351,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // Subtitle timing offset (seconds, positive = subtitles later) — session-only like the skip offset
     // above. Applied by SubtitleOffsetRenderer, which is rebuilt with the player and re-seeded from here.
     private double subtitleOffsetSec = 0;
+    // The file the two offsets were last brought back for (SubtitleOffsetMemory); on any other file
+    // they are looked up again. Null after a fresh launch, so its first file is looked up too.
+    @Nullable
+    private String subtitleOffsetFileKey;
+    private SubtitleOffsetMemory subtitleOffsetMemory;
     // The second subtitle line and its own timing. Two files from two releases are almost never in
     // sync with each other, so one offset for both would be a setting that cannot be satisfied.
     private SecondarySubtitles secondarySubtitles;
@@ -5225,7 +5230,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             soundDialog.dismiss();
         }
         // Same for the subtitle offset: it was tuned against one file's timing and means nothing to the next.
+        // What was set for the next file or its series comes back once it plays (restoreSubtitleOffsets).
         applySubtitleOffset(0);
+        applySecondarySubtitleOffset(0);
+        subtitleOffsetFileKey = null;
         clearSubtitleTimeline();
         // "Off" was said about the film that is being replaced, not about this one.
         mainLineOff = false;
@@ -5397,6 +5405,67 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         showPickerDialog(skipOffsetDialog);
     }
 
+    private SubtitleOffsetMemory subtitleOffsetMemory() {
+        if (subtitleOffsetMemory == null) {
+            final android.content.SharedPreferences prefs =
+                    getSharedPreferences("subtitle_offset_memory", MODE_PRIVATE);
+            subtitleOffsetMemory = new SubtitleOffsetMemory(new SubtitleOffsetMemory.Store() {
+                @Override
+                public String get(String key) {
+                    return prefs.getString(key, null);
+                }
+
+                @Override
+                public void put(String key, String value) {
+                    if (value == null) prefs.edit().remove(key).apply();
+                    else prefs.edit().putString(key, value).apply();
+                }
+            });
+        }
+        return subtitleOffsetMemory;
+    }
+
+    /** The current item's key for the offset memory: its sync key, the same on every box. */
+    @Nullable
+    private String currentSubtitleOffsetFileKey() {
+        final MediaItem item = player == null ? null : player.getCurrentMediaItem();
+        return item == null || item.localConfiguration == null
+                ? null : SyncKey.of(item.localConfiguration.uri.toString());
+    }
+
+    private void rememberSubtitleOffset(int line, double sec) {
+        final String fileKey = currentSubtitleOffsetFileKey();
+        subtitleOffsetMemory().remember(fileKey, currentSeriesKey(), line, sec);
+        subtitleOffsetFileKey = fileKey;
+    }
+
+    /**
+     * On a file the offsets were not yet brought back for: its own, else its series', else none. A value
+     * from the series is said on screen — it was set on another episode, and may not fit this one.
+     */
+    private void restoreSubtitleOffsets() {
+        final String fileKey = currentSubtitleOffsetFileKey();
+        if (fileKey == null || fileKey.equals(subtitleOffsetFileKey)) {
+            return;
+        }
+        subtitleOffsetFileKey = fileKey;
+        final String series = currentSeriesKey();
+        final SubtitleOffsetMemory.Found main =
+                subtitleOffsetMemory().find(fileKey, series, SubtitleOffsetMemory.MAIN);
+        final SubtitleOffsetMemory.Found second =
+                subtitleOffsetMemory().find(fileKey, series, SubtitleOffsetMemory.SECONDARY);
+        applySubtitleOffset(main == null ? 0 : main.sec);
+        applySecondarySubtitleOffset(second == null ? 0 : second.sec);
+        Utils.log("subtitle offset restored main=" + subtitleOffsetSec
+                + (main != null && main.fromSeries ? " (series)" : "")
+                + " second=" + secondarySubtitleOffsetSec
+                + (second != null && second.fromSeries ? " (series)" : ""));
+        if (main != null && main.fromSeries && main.sec != 0 && playerView != null) {
+            Dialogs.showText(playerView, getString(R.string.subtitle_offset_from_series,
+                    OffsetPanel.format(this, main.sec)), R.drawable.ic_subtitles_24dp, 3000);
+        }
+    }
+
     private void applySecondarySubtitleOffset(double sec) {
         secondarySubtitleOffsetSec = sec;
         if (secondarySubtitleOffset != null) {
@@ -5436,12 +5505,18 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // Named as the panel names it, not "Subtitles" — one line called after the whole feature
             // and the other called "second" reads as a parent and a child rather than as two lines.
             lines.add(new OffsetPanel.Line(named ? getString(R.string.subtitle_main_title) : null,
-                    subtitleOffsetSec, this::applySubtitleOffset));
+                    subtitleOffsetSec, sec -> {
+                        applySubtitleOffset(sec);
+                        rememberSubtitleOffset(SubtitleOffsetMemory.MAIN, sec);
+                    }));
         }
         if (secondaryOffsetShiftable()) {
             lines.add(new OffsetPanel.Line(
                     named ? getString(R.string.subtitle_secondary_title) : null,
-                    secondarySubtitleOffsetSec, this::applySecondarySubtitleOffset));
+                    secondarySubtitleOffsetSec, sec -> {
+                        applySecondarySubtitleOffset(sec);
+                        rememberSubtitleOffset(SubtitleOffsetMemory.SECONDARY, sec);
+                    }));
         }
         if (lines.isEmpty()) {
             return;
@@ -5450,6 +5525,50 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 getString(R.string.subtitle_offset_title), SUBTITLE_OFFSET_MAX_SEC, OFFSET_STEP_SEC,
                 lines.toArray(new OffsetPanel.Line[0]));
         showPickerDialog(subtitleOffsetDialog);
+    }
+
+    /**
+     * The first line's lines around this moment ({@link LineSync}); the one picked is put at the moment
+     * the list opened, which is when the viewer heard it — the time spent choosing does not count.
+     */
+    private void showLineSyncDialog() {
+        final SubtitleTimeline timeline = subtitleTimeline;
+        if (player == null || timeline == null) {
+            return;
+        }
+        final long nowUs = player.getCurrentPosition() * 1000;
+        final long[] starts = new long[timeline.size()];
+        for (int i = 0; i < starts.length; i++) {
+            starts[i] = timeline.startUs(i);
+        }
+        final int[][] around = LineSync.around(starts, nowUs, subtitleOffsetSec, SUBTITLE_OFFSET_MAX_SEC);
+        final int[] lines = around[0];
+        if (lines.length == 0) {
+            return;
+        }
+        final List<Dialogs.MenuItem> items = new ArrayList<>();
+        for (int n = 0; n < lines.length; n++) {
+            final int index = lines[n];
+            final StringBuilder text = new StringBuilder();
+            for (androidx.media3.common.text.Cue cue : timeline.cuesAt(index)) {
+                if (cue.text != null) text.append(cue.text).append(' ');
+            }
+            final double sec = LineSync.offsetFor(starts[index], nowUs);
+            items.add(new Dialogs.MenuItem(LineSync.oneLine(text, 80),
+                    android.text.format.DateUtils.formatElapsedTime(starts[index] / 1_000_000)
+                            + " · " + OffsetPanel.format(this, sec),
+                    n == around[1][0], () -> {
+                        applySubtitleOffset(sec);
+                        rememberSubtitleOffset(SubtitleOffsetMemory.MAIN, sec);
+                        Utils.log("subtitle offset by line " + index + ": " + sec);
+                        if (playerView != null) {
+                            Dialogs.showText(playerView, getString(R.string.subtitle_offset_title) + " "
+                                    + OffsetPanel.format(this, sec), R.drawable.ic_subtitles_24dp, 2000);
+                        }
+                    }));
+        }
+        Dialogs.menu(this, ui, () -> showPickerDialog(Dialogs.openMenu()),
+                getString(R.string.subtitle_line_sync), items);
     }
 
     /**
@@ -13736,6 +13855,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     getString(R.string.subtitle_offset_title), subtitleOffsetSummary(),
                     false, this::showSubtitleOffsetDialog));
         }
+        // Only for a file held whole (SubtitleTimeline): an embedded track has no list of its lines.
+        if (subtitleTimeline != null && subtitleTimeline.size() > 0 && subtitleOffsetShiftable()) {
+            items.add(new Dialogs.MenuItem(R.drawable.ic_subtitle_offset_24dp,
+                    getString(R.string.subtitle_line_sync), getString(R.string.subtitle_line_sync_hint),
+                    false, this::showLineSyncDialog));
+        }
         if (skipOffsetReachable()) {
             // Named after the panel it opens, which is no longer only the offset: the row that said
             // "Skip offset" now leads to how each kind of segment is offered as well.
@@ -17325,6 +17450,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 return;
             }
             matchDisplayModeForNewItem();
+            restoreSubtitleOffsets();
             sayIfTheVideoTrackWasDropped(tracks);
             Utils.log("tracks: video=" + selectedMime(tracks, C.TRACK_TYPE_VIDEO)
                     + " audio=" + selectedMime(tracks, C.TRACK_TYPE_AUDIO)
