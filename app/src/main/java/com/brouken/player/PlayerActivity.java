@@ -3378,6 +3378,13 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         super.onStart();
         alive = true;
         watchDisplayChanges(true);
+        // The listener was off while stopped, and a TV switched off and on (Dune stops us for that) changes
+        // the mode behind our back with nobody to hear it. One check once the display has settled; a mode
+        // that is already right stays put.
+        if (player != null) {
+            displayChangeHandler.removeCallbacks(rematchDisplayMode);
+            displayChangeHandler.postDelayed(rematchDisplayMode, DISPLAY_QUIET_MS);
+        }
         // Before anything here can build a player: the browser's stills must not take a decoder now.
         NetworkThumbs.playerVisible(true);
         Utils.log("onStart" + (player == null ? ", no player" : player.getPlayerError() != null
@@ -16883,7 +16890,16 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     + ", TV box, holding the decoder");
             reportOutcome("load-stalled-held", null);
             setEpisodeNavLoading(false);
-            stallDialog = showSnack(getString(R.string.error_playback_stalled), null);
+            // "Retry" here too (0134 gave it only to the error path): a seek to where it stands opens the
+            // source again on the same decoder — nothing is released — and the watchdog starts over.
+            stallDialog = showSnack(getString(R.string.error_playback_stalled), null, () -> {
+                stallDialog = null;
+                if (player != null) {
+                    Utils.log("retry after held stall");
+                    player.seekTo(player.getCurrentPosition());
+                    armLoadWatchdog();
+                }
+            });
             return;
         }
         Utils.log("watchdog: +" + progressed + " B, loading=" + player.isLoading() + ", stopping");
