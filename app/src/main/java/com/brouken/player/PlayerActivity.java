@@ -7794,43 +7794,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return null;
     }
 
-    /**
-     * The audio track's format with the codec the decoder is actually fed, where the two disagree. An HLS
-     * rendition's format is the master playlist's word: a variant that lists a single audio codec has it
-     * written over every audio rendition it carries (HlsSampleStreamWrapper.deriveFormat), whatever the
-     * segments hold. KinoPub declares mp4a.40.2 on every variant, so its AC3 dub was headed "AAC" while
-     * the decoder was c2.amlogic.audio.decoder.ac3 (27.10.2026). A track that is not playing keeps what
-     * the playlist says, as nothing better is known of it until it plays.
-     *
-     * <p>The two are matched by id where the playing format has one (Format.withManifestFormatInfo). On
-     * KinoPub it does not — the report on the Dune read {@code Audio: id=null} with the rendition's
-     * language and label (29.10.2026), and 0117, which matched by id only, kept saying "AAC" — so a
-     * selected track with the same language and label is taken as the one playing.
-     *
-     * @param selected whether the track is the selected one: only that one can be what plays, and it
-     *                 keeps two renditions that share a label from both being renamed
-     */
+    /** The track's format with the codec and channel count the decoder is fed — see {@link PlayingAudio}. */
     private Format asPlaying(@Nullable final Format track, final boolean selected) {
-        final Format playing = player != null ? player.getAudioFormat() : null;
-        if (track == null || playing == null || !selected
-                || playing.sampleMimeType == null || playing.sampleMimeType.equals(track.sampleMimeType)) {
-            return track;
-        }
-        final boolean same = playing.id != null
-                ? playing.id.equals(track.id)
-                : track.label != null && track.label.equals(playing.label)
-                        && Objects.equals(track.language, playing.language);
-        if (!same) {
-            return track;
-        }
-        final Format.Builder corrected = track.buildUpon()
-                .setSampleMimeType(playing.sampleMimeType)
-                // Not the playing format's codecs: Media3 fills those in from the same playlist entry.
-                .setCodecs(null);
-        if (track.averageBitrate == Format.NO_VALUE && track.peakBitrate == Format.NO_VALUE) {
-            corrected.setAverageBitrate(playing.averageBitrate).setPeakBitrate(playing.peakBitrate);
-        }
-        return corrected.build();
+        return PlayingAudio.of(track, player != null ? player.getAudioFormat() : null, selected);
     }
 
     private static String languageDisplayName(final String language) {
