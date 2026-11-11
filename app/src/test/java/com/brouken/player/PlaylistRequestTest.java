@@ -238,4 +238,27 @@ public class PlaylistRequestTest {
         assertEquals(1, read.warnings.size());
         assertEquals("u", read.items.get(0).uri);
     }
+
+    @Test
+    public void airDateIsReadAsADayAndShownInTheInterfacesLanguage() {
+        final PlaylistRequest read = PlaylistRequest.read(playlist(
+                episode("a", 1, 1, "Pilot").put("air_date", "2015-08-03"),
+                episode("b", 1, 2, "Two").put("air_date", "2015-08-10T00:00:00.0000000Z"),
+                episode("c", 1, 3, "Three").put("air_date", "3 Aug 2015"),
+                episode("d", 1, 4, "Four").put("air_date", "2015-13-01"),
+                episode("e", 1, 5, "Five")));
+
+        assertEquals("2015-08-03", read.items.get(0).airDate);
+        assertEquals("2015-08-10", read.items.get(1).airDate);
+        assertNull(read.items.get(2).airDate);
+        assertNull(read.items.get(3).airDate);
+        assertNull(read.items.get(4).airDate);
+        assertNull(read.error);
+
+        final String ru = PlaylistRequest.airDateText("2015-08-03", new java.util.Locale("ru"));
+        assertTrue(ru, ru.startsWith("3 авг") && ru.contains("2015"));
+        assertEquals("Aug 3, 2015", PlaylistRequest.airDateText("2015-08-03", java.util.Locale.US)
+                .replace(' ', ' '));
+        assertNull(PlaylistRequest.airDateText(null, java.util.Locale.US));
+    }
 }

@@ -4100,7 +4100,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             }
             metadata.setExtras(headerExtras(Utils.unescapeHtml(request.seriesTitle(i)), request.logo(i),
                     episodeLine(item.season, item.episode,
-                            Utils.unescapeHtml(PlaylistRequest.episodeName(item.episodeTitle, item.episode)))));
+                            Utils.unescapeHtml(PlaylistRequest.episodeName(item.episodeTitle, item.episode)),
+                            PlaylistRequest.airDateText(item.airDate, interfaceLocale()))));
             final MediaItem.Builder builder = new MediaItem.Builder()
                     .setUri(Uri.parse(item.uri))
                     .setMediaMetadata(metadata.build());
@@ -7136,7 +7137,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      */
     @Nullable
     private String episodeLine(@Nullable final Integer season, @Nullable final Integer episode,
-                               @Nullable final String name) {
+                               @Nullable final String name, @Nullable final String airDate) {
         final ArrayList<String> parts = new ArrayList<>();
         if (season != null && season > 0) {
             parts.add(getString(R.string.header_season, season));
@@ -7147,7 +7148,17 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (name != null && !name.isEmpty()) {
             parts.add(name);
         }
+        // Last, after the name: "Серия 3 · Название · 3 авг. 2015 г." (user, 11.11.2026). A sender that
+        // still writes the date into the name is not second-guessed: it stops once it sends the field.
+        if (airDate != null) {
+            parts.add(airDate);
+        }
         return parts.isEmpty() ? null : TextUtils.join(" · ", parts);
+    }
+
+    /** The locale the interface speaks — the app's language setting, not necessarily the system's. */
+    private Locale interfaceLocale() {
+        return getResources().getConfiguration().getLocales().get(0);
     }
 
     private static final int HEADER_LOGO_HEIGHT_DP = 44;

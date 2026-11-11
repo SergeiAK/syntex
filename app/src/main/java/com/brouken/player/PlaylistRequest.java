@@ -49,6 +49,8 @@ final class PlaylistRequest {
         String tmdbId;
         Integer season;
         Integer episode;
+        /** The episode's air date as {@code YYYY-MM-DD}; null when none was sent or it was unreadable. */
+        String airDate;
         String segments;
         /** Where the item starts, in milliseconds; null when none was sent. */
         Long positionMs;
@@ -138,6 +140,7 @@ final class PlaylistRequest {
         item.tmdbId = string(bundle, "tmdb_id");
         item.season = integer(bundle.get("season"));
         item.episode = integer(bundle.get("episode"));
+        item.airDate = airDate(string(bundle, "air_date"));
         item.segments = string(bundle, "segments");
         item.positionMs = time(bundle, "position");
         item.trickplay = trickplay(bundle.get("trickplay"), path);
@@ -282,6 +285,44 @@ final class PlaylistRequest {
 
     private static final java.util.regex.Pattern REPEATED_NUMBER = java.util.regex.Pattern.compile(
             "(?iu)(?:episode|ep\\.?|e|серия|серія|эпизод|епізод)?\\s*0*(\\d{1,4})");
+
+    /**
+     * {@code air_date}: the day an episode first aired, {@code YYYY-MM-DD}. A full ISO timestamp (Jellyfin's
+     * {@code PremiereDate}, "2015-08-03T00:00:00.0000000Z") is taken by its date; anything else is dropped,
+     * since a wrong date in the header is worse than none.
+     */
+    static String airDate(final String value) {
+        if (value == null) {
+            return null;
+        }
+        final java.util.regex.Matcher m = AIR_DATE.matcher(value);
+        if (!m.lookingAt()) {
+            return null;
+        }
+        final int month = Integer.parseInt(m.group(2));
+        final int day = Integer.parseInt(m.group(3));
+        if (month < 1 || month > 12 || day < 1 || day > 31) {
+            return null;
+        }
+        return m.group(1) + "-" + m.group(2) + "-" + m.group(3);
+    }
+
+    private static final java.util.regex.Pattern AIR_DATE = java.util.regex.Pattern.compile(
+            "(\\d{4})-(\\d{2})-(\\d{2})(?:$|[T ])");
+
+    /** The air date as the header shows it, in the interface's language: "3 авг. 2015 г.", "Aug 3, 2015". */
+    static String airDateText(final String airDate, final java.util.Locale locale) {
+        if (airDate == null) {
+            return null;
+        }
+        final String[] parts = airDate.split("-");
+        final java.util.Calendar day = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"), locale);
+        day.clear();
+        day.set(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]) - 1, Integer.parseInt(parts[2]));
+        final java.text.DateFormat format = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM, locale);
+        format.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return format.format(day.getTime());
+    }
 
     // --- Section 6.2 -------------------------------------------------------------------------------------
 
