@@ -15464,6 +15464,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 // enters the set by failing in a decoder, and a bitstreamed track that fails does not
                 // reach a decoder at all - it fails at the AudioTrack, which recoverByRevokingAudioMime()
                 // answers instead.
+                boolean ffmpegBehind = false;
+                for (int i = platform + 1; i < out.size(); i++) {
+                    ffmpegBehind |= "FfmpegAudioRenderer".equals(out.get(i).getName());
+                }
+                final boolean ffmpegAudio = ffmpegBehind;
                 if (platform < out.size() && out.get(platform) instanceof MediaCodecAudioRenderer) {
                     out.set(platform, new MediaCodecAudioRenderer(context, getCodecAdapterFactory(),
                             mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener,
@@ -15479,6 +15484,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                             // truth, and it is what makes track selection walk on to the ffmpeg renderer.
                             if (sessionFfmpegAudioFormats.contains(audioFormatKey(format))
                                     || sessionFfmpegAudioFormats.contains(audioTrackKey(format))) {
+                                return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
+                            }
+                            // Ahead of the failure, where the track's name gives the codec away.
+                            if (ffmpegAudio && carriesUndecodableNamedCodec(format, audioSink)) {
                                 return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
                             }
                             return super.supportsFormat(selector, format);
@@ -18765,6 +18774,43 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final String name = format.label != null ? "label " + format.label + " " + format.language
                 : format.id != null ? "id " + format.id : null;
         return name != null ? "track " + mPrefs.mediaUri + " " + name : null;
+    }
+
+    // The named codecs already announced in the log, so the many supportsFormat calls say it once.
+    private static final Set<String> namedCodecLogged = java.util.Collections.synchronizedSet(new HashSet<>());
+
+    /**
+     * A declared AAC whose name says AC3 or E-AC3 (NamedAudioCodec), on a device that can neither decode
+     * that codec nor send it to the output as it is, while ffmpeg can. The platform renderer then refuses
+     * the track up front and selection hands it to the ffmpeg renderer, which accepts the declared AAC and
+     * opens its decoder on the real format. Without this the platform decoder fails to open, and
+     * recoverByDecodingAudioWithFfmpeg rebuilds the player - on KinoPub, once per opening, since every
+     * opening is a new address (Shield 11.11.2026). That recovery stays for what the name does not tell.
+     * A name that lies costs nothing worse than an AAC decoded by ffmpeg.
+     */
+    private static boolean carriesUndecodableNamedCodec(Format format, AudioSink sink) {
+        final String named = NamedAudioCodec.of(format);
+        if (named == null || !FfmpegLibrary.supportsFormat(named)) {
+            return false;
+        }
+        final Format real = format.buildUpon().setSampleMimeType(named).setCodecs(null)
+                .setChannelCount(format.channelCount > 0 ? format.channelCount : 6)
+                .setSampleRate(format.sampleRate > 0 ? format.sampleRate : 48000).build();
+        if (sink.getFormatSupport(real) == AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY) {
+            return false; // goes out as it is: the platform renderer bypasses its decoder
+        }
+        try {
+            if (!MediaCodecUtil.getDecoderInfos(named, false, false).isEmpty()) {
+                return false;
+            }
+        } catch (MediaCodecUtil.DecoderQueryException e) {
+            return false;
+        }
+        if (namedCodecLogged.add(format.label + " " + named)) {
+            Utils.log("audio: \"" + format.label + "\" declared AAC, named " + named
+                    + ", no decoder or passthrough for it - straight to ffmpeg");
+        }
+        return true;
     }
 
     /** What identifies a video stream for the decoder that has to carry it — codec and profile. */
