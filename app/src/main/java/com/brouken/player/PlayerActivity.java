@@ -1707,6 +1707,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         @Override
         public void run() {
             skipTick();
+            nextEpisodeTick();
             // This poll runs exactly while playback does, which is exactly when a frozen picture can
             // happen, so the frame watchdog rides it instead of owning a second timer.
             videoFreezeTick();
@@ -3581,6 +3582,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      */
     @Override
     protected void onDestroy() {
+        if (nextEpisodeCard != null) {
+            nextEpisodeCard.dismiss();
+            nextEpisodeCard = null;
+        }
         if (!handedOver) {
             releasePlayer(false);
         }
@@ -6252,7 +6257,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // (see SKIP_LEAD_SEC): as the Skip button when the user is asked, as the pill when the jump
             // is automatic and there is no button to offer.
             final SkipSegment upcoming = skipManager.upcomingSegment(posSec, SKIP_LEAD_SEC);
-            if (upcoming == null || isSkipOff(upcoming) || autoSkipUndone(posSec)) {
+            if (upcoming == null || isSkipOff(upcoming) || autoSkipUndone(posSec)
+                    || nextEpisodeOwns(upcoming)) {
                 hideSkipButton();
                 hideSkipHeadsUp();
             } else if (isAutoSkip(upcoming)) {
@@ -6270,6 +6276,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 showSkipButton(upcoming);
                 updateSkipButtonProgress(upcoming);
             }
+            return;
+        }
+        if (nextEpisodeOwns(segment)) {
+            // The next-episode card answers these credits: its Watch is where Skip would have gone.
+            hideSkipButton();
+            hideSkipHeadsUp();
             return;
         }
         if (isSkipOff(segment)) {
@@ -13872,7 +13884,166 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // close. Re-applied after every player rebuild (a quality switch makes a new instance).
     private void applySleepAtEndOfItem() {
         if (player != null) {
-            player.setPauseAtEndOfMediaItems(sleepAtEndOfItem);
+            player.setPauseAtEndOfMediaItems(sleepAtEndOfItem || asksNextEpisode());
+        }
+    }
+
+    // ---- Next episode card ------------------------------------------------------------------------------
+
+    private NextEpisodeCard nextEpisodeCard;
+    /** The item the card was shown for, so it is asked once per episode; -1 for none yet. */
+    private int nextEpisodeAskedIndex = -1;
+    /** Cancel was the answer for that item: its end closes the player instead of going on. */
+    private boolean nextEpisodeDeclined;
+    /** The last press or touch, for the card's pass-out protection. */
+    private long lastInputAtMs = SystemClock.uptimeMillis();
+
+    @Override
+    public void onUserInteraction() {
+        super.onUserInteraction();
+        lastInputAtMs = SystemClock.uptimeMillis();
+    }
+
+    /**
+     * Whether the step to the next item is asked rather than taken: the setting is on and there is a next
+     * item. The last episode, a single file and the setting off all end as they always did.
+     */
+    private boolean asksNextEpisode() {
+        return mPrefs != null && mPrefs.nextEpisodeAsk && player != null && player.hasNextMediaItem();
+    }
+
+    /** Credits the card takes over: they run to the end, where its Watch goes. */
+    private boolean nextEpisodeOwns(@Nullable final SkipSegment segment) {
+        return segment != null && segment.credits && segment.reachesEnd && asksNextEpisode();
+    }
+
+    /** Where credits that run to the end begin, from any source the skip machinery has; -1 for none. */
+    private long creditsStartMs() {
+        if (skipManager == null) {
+            return -1;
+        }
+        long start = -1;
+        for (SkipSegment segment : skipManager.getSegments()) {
+            if (segment.credits && segment.reachesEnd) {
+                start = start < 0 ? segment.startMs() : Math.min(start, segment.startMs());
+            }
+        }
+        return start;
+    }
+
+    /** Rides the skip poll, which runs exactly while playback does. */
+    private void nextEpisodeTick() {
+        // Re-applied here because whether a next item exists changes as the playlist moves along.
+        applySleepAtEndOfItem();
+        if (!asksNextEpisode() || (nextEpisodeCard != null && nextEpisodeCard.isShowing())) {
+            return;
+        }
+        if (player.getCurrentMediaItemIndex() == nextEpisodeAskedIndex) {
+            return;
+        }
+        final long at = NextEpisode.showAtMs(mPrefs.nextEpisodeWhen, player.getDuration(), creditsStartMs());
+        if (at >= 0 && player.getCurrentPosition() >= at) {
+            showNextEpisodeCard();
+        }
+    }
+
+    private void showNextEpisodeCard() {
+        if (!asksNextEpisode() || isFinishing()) {
+            return;
+        }
+        if (nextEpisodeCard != null) {
+            nextEpisodeCard.dismiss();
+        }
+        final int index = player.getCurrentMediaItemIndex();
+        nextEpisodeAskedIndex = index;
+        nextEpisodeDeclined = false;
+        hideSkipButton();
+        hideSkipHeadsUp();
+        if (playerView != null) {
+            playerView.hideController();
+        }
+        final long sinceInput = SystemClock.uptimeMillis() - lastInputAtMs;
+        final int countdown = NextEpisode.countdownSec(mPrefs.nextEpisodeCountdownSec, sinceInput,
+                mPrefs.nextEpisodeAwakeHours);
+        Utils.log("next episode card: item " + index + " at " + player.getCurrentPosition()
+                + " of " + player.getDuration() + ", when " + mPrefs.nextEpisodeWhen
+                + ", countdown " + countdown + " s, last input " + sinceInput / 1000 + " s ago");
+        nextEpisodeCard = NextEpisodeCard.show(this, ui, nextEpisodeName(index + 1), countdown,
+                new NextEpisodeCard.Listener() {
+                    @Override
+                    public void onWatch() {
+                        watchNextEpisode();
+                    }
+
+                    @Override
+                    public void onCancel() {
+                        declineNextEpisode();
+                    }
+                });
+    }
+
+    /** What the card names: the header's episode line for that item, else its title. */
+    @Nullable
+    private CharSequence nextEpisodeName(final int index) {
+        if (player == null || index < 0 || index >= player.getMediaItemCount()) {
+            return null;
+        }
+        final MediaMetadata metadata = player.getMediaItemAt(index).mediaMetadata;
+        final String episode = headerExtra(metadata, HEADER_EPISODE);
+        if (episode != null && !episode.isEmpty()) {
+            return episode;
+        }
+        return metadata.displayTitle != null ? metadata.displayTitle : metadata.title;
+    }
+
+    private void watchNextEpisode() {
+        if (player == null || !player.hasNextMediaItem()) {
+            return;
+        }
+        Utils.log("next episode: watch");
+        // The episode was watched to its credits: the launcher hears it ended, as it would of an
+        // automatic step, which this seek is not to Media3.
+        if (apiPlaylistReport != null) {
+            apiPlaylistReport.ended(player.getCurrentMediaItemIndex(), System.currentTimeMillis() / 1000);
+        }
+        clearSkipUndo();
+        steppedBySkip = true;
+        player.seekToNextMediaItem();
+        player.play();
+    }
+
+    private void declineNextEpisode() {
+        Utils.log("next episode: cancel");
+        nextEpisodeDeclined = true;
+        // Answered on the last frame (the card after the end): nothing is left to watch here.
+        if (player != null && !player.getPlayWhenReady()
+                && player.getDuration() > 0 && player.getCurrentPosition() >= player.getDuration() - 1000) {
+            closeAfterEpisode();
+        }
+    }
+
+    /** The end of an episode whose next one was refused: closed like the sleep timer closes. */
+    private void closeAfterEpisode() {
+        Utils.log("next episode: declined, closing at the end");
+        if (apiPlaylistReport != null && player != null) {
+            apiPlaylistReport.ended(player.getCurrentMediaItemIndex(), System.currentTimeMillis() / 1000);
+        }
+        savePlayer();
+        if (player != null) {
+            player.pause();
+        }
+        finish();
+    }
+
+    /** The end-of-item pause asked on the card's behalf: ask now, or close if the answer was Cancel. */
+    private void onNextEpisodeEnd() {
+        if (player == null) {
+            return;
+        }
+        if (nextEpisodeDeclined && nextEpisodeAskedIndex == player.getCurrentMediaItemIndex()) {
+            closeAfterEpisode();
+        } else if (nextEpisodeCard == null || !nextEpisodeCard.isShowing()) {
+            showNextEpisodeCard();
         }
     }
 
@@ -17572,6 +17743,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
         @Override
         public void onMediaItemTransition(MediaItem mediaItem, int reason) {
+            if (nextEpisodeCard != null) {
+                nextEpisodeCard.dismiss();
+                nextEpisodeCard = null;
+            }
+            nextEpisodeDeclined = false;
             // apiPlaylistStartIndex still names the item being left; an auto-advance means it played out.
             if (apiPlaylistReport != null && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                 apiPlaylistReport.ended(apiPlaylistStartIndex, System.currentTimeMillis() / 1000);
@@ -17781,6 +17957,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             if (sleepAtEndOfItem && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) {
                 fireSleepTimer();
                 return;
+            }
+            // The same pause, asked for by the next-episode card.
+            if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM
+                    && mPrefs.nextEpisodeAsk && player.hasNextMediaItem()) {
+                onNextEpisodeEnd();
             }
             // Whatever was posted would now run against a paused player, which is the one thing to avoid.
             playerView.removeCallbacks(passthroughRestartRunnable);

@@ -138,6 +138,36 @@
     <item>8000</item>
     <item>15000</item>
   </string-array>
+  <string-array name="next_when_entries">
+    <item>@string/pref_next_when_credits</item>
+    <item>@string/pref_next_when_30</item>
+    <item>@string/pref_next_when_60</item>
+    <item>@string/pref_next_when_120</item>
+    <item>@string/pref_next_when_end</item>
+  </string-array>
+  <string-array name="next_when_values" translatable="false">
+    <item>credits</item>
+    <item>30</item>
+    <item>60</item>
+    <item>120</item>
+    <item>end</item>
+  </string-array>
+  <string-array name="next_countdown_values" translatable="false">
+    <item>0</item>
+    <item>5</item>
+    <item>10</item>
+    <item>15</item>
+    <item>20</item>
+    <item>30</item>
+    <item>45</item>
+    <item>60</item>
+  </string-array>
+  <string-array name="next_awake_values" translatable="false">
+    <item>0</item>
+    <item>1</item>
+    <item>2</item>
+    <item>3</item>
+  </string-array>
   <string-array name="control_focus_entries">
     <item>@string/pref_control_focus_circle_large</item>
     <item>@string/pref_control_focus_circle</item>

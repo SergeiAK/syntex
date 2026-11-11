@@ -336,6 +336,44 @@
                 app:title="@string/pref_resume_mode"
                 app:useSimpleSummaryProvider="true" />
 
+            <PreferenceCategory app:title="@string/pref_next_section">
+
+                <SwitchPreferenceCompat
+                    app:key="nextEpisodeAsk"
+                    app:defaultValue="false"
+                    app:summaryOn="@string/pref_next_ask_on"
+                    app:summaryOff="@string/pref_next_ask_off"
+                    app:title="@string/pref_next_ask" />
+
+                <ListPreference
+                    app:key="nextEpisodeWhen"
+                    app:defaultValue="credits"
+                    app:dependency="nextEpisodeAsk"
+                    app:entries="@array/next_when_entries"
+                    app:entryValues="@array/next_when_values"
+                    app:title="@string/pref_next_when"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
+                    app:key="nextEpisodeCountdown"
+                    app:defaultValue="15"
+                    app:dependency="nextEpisodeAsk"
+                    app:entries="@array/next_countdown_values"
+                    app:entryValues="@array/next_countdown_values"
+                    app:title="@string/pref_next_countdown"
+                    app:useSimpleSummaryProvider="true" />
+
+                <ListPreference
+                    app:key="nextEpisodeAwake"
+                    app:defaultValue="2"
+                    app:dependency="nextEpisodeAsk"
+                    app:entries="@array/next_awake_values"
+                    app:entryValues="@array/next_awake_values"
+                    app:title="@string/pref_next_awake"
+                    app:useSimpleSummaryProvider="true" />
+
+            </PreferenceCategory>
+
             <ListPreference
                 app:key="screenOrientation"
                 app:defaultValue="0"

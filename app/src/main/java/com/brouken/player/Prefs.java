@@ -405,6 +405,14 @@ class Prefs {
     public boolean skipEnabled = true;
     public String skipMode = SKIP_MODE_BRIEF;
     public String skipModeCredits = SKIP_MODE_BRIEF;
+    /** Ask before the next episode of a playlist instead of moving on unasked (NextEpisode). */
+    public boolean nextEpisodeAsk = false;
+    /** When the card shows: NextEpisode.WHEN_CREDITS, WHEN_END, or a lead in seconds. */
+    public String nextEpisodeWhen = NextEpisode.WHEN_CREDITS;
+    /** Seconds the card counts before moving on; 0 waits for a press. */
+    public int nextEpisodeCountdownSec = 15;
+    /** Hours without a press after which the card waits for one; 0 never. */
+    public int nextEpisodeAwakeHours = 2;
     public boolean skipHideWhenLocked = false;
     /** Whether the pill draws the time it has left: the seconds in its label, and the bar under it. */
     public String skipCountdown = SKIP_COUNTDOWN_RING;
@@ -642,6 +650,16 @@ class Prefs {
         skipEnabled = mSharedPreferences.getBoolean(PREF_KEY_SKIP_ENABLED, skipEnabled);
         skipMode = mSharedPreferences.getString(PREF_KEY_SKIP_MODE, skipMode);
         skipModeCredits = mSharedPreferences.getString(PREF_KEY_SKIP_MODE_CREDITS, skipModeCredits);
+        nextEpisodeAsk = mSharedPreferences.getBoolean(NextEpisode.PREF_ASK, nextEpisodeAsk);
+        nextEpisodeWhen = mSharedPreferences.getString(NextEpisode.PREF_WHEN, nextEpisodeWhen);
+        try {
+            nextEpisodeCountdownSec = Integer.parseInt(mSharedPreferences.getString(NextEpisode.PREF_COUNTDOWN,
+                    String.valueOf(nextEpisodeCountdownSec)));
+            nextEpisodeAwakeHours = Integer.parseInt(mSharedPreferences.getString(NextEpisode.PREF_AWAKE,
+                    String.valueOf(nextEpisodeAwakeHours)));
+        } catch (final NumberFormatException ignored) {
+            // A value from a build that stored something else: the defaults stand.
+        }
         skipFetchOnline = mSharedPreferences.getBoolean(PREF_KEY_SKIP_FETCH, skipFetchOnline);
         skipUndo = mSharedPreferences.getString(PREF_KEY_SKIP_UNDO, skipUndo);
         skipHideWhenLocked = mSharedPreferences.getBoolean(PREF_KEY_SKIP_HIDE_LOCKED, skipHideWhenLocked);

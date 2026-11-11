@@ -707,6 +707,30 @@ public class SettingsActivity extends AppCompatActivity
                 // Only the remote gets asked for a second Back; touch already leaves on the first one.
                 preferenceSingleBack.setVisible(false);
             }
+            // The next-episode card's counts are plain numbers in the store and words on screen: "Wait for
+            // a press" and "5 s"; "Never" and "After 2 h without a press".
+            final ListPreference nextCountdown = findPreference(NextEpisode.PREF_COUNTDOWN);
+            if (nextCountdown != null) {
+                final CharSequence[] values = nextCountdown.getEntryValues();
+                final CharSequence[] names = new CharSequence[values.length];
+                for (int i = 0; i < values.length; i++) {
+                    final int sec = Integer.parseInt(values[i].toString());
+                    names[i] = sec == 0 ? getString(R.string.pref_next_countdown_wait)
+                            : getString(R.string.pref_next_countdown_sec, sec);
+                }
+                nextCountdown.setEntries(names);
+            }
+            final ListPreference nextAwake = findPreference(NextEpisode.PREF_AWAKE);
+            if (nextAwake != null) {
+                final CharSequence[] values = nextAwake.getEntryValues();
+                final CharSequence[] names = new CharSequence[values.length];
+                for (int i = 0; i < values.length; i++) {
+                    final int hours = Integer.parseInt(values[i].toString());
+                    names[i] = hours == 0 ? getString(R.string.pref_next_awake_off)
+                            : getString(R.string.pref_next_awake_hours, hours);
+                }
+                nextAwake.setEntries(names);
+            }
             Preference preferenceKeepAwake = findPreference("keepAwakeOnPause");
             if (preferenceKeepAwake != null && !Utils.isTvBox(getContext())) {
                 // Holding a phone awake through a pause drains it for no one's benefit: the complaint is
