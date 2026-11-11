@@ -15462,7 +15462,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                             // given the track and would then fail to open a decoder for it (measured:
                             // "Decoder init failed: [-49999]"). Saying UNSUPPORTED_SUBTYPE is also the
                             // truth, and it is what makes track selection walk on to the ffmpeg renderer.
-                            if (sessionFfmpegAudioFormats.contains(audioFormatKey(format))) {
+                            if (sessionFfmpegAudioFormats.contains(audioFormatKey(format))
+                                    || sessionFfmpegAudioFormats.contains(audioTrackKey(format))) {
                                 return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
                             }
                             return super.supportsFormat(selector, format);
@@ -18096,10 +18097,13 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                             error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED)) {
                 return;
             }
-            // The audio decoder failed while decoding rather than while opening: nothing below can help
-            // (the re-reads hand the same stream to the same decoder, and the screen restart answers a
-            // dead video decoder), so hand the track to ffmpeg before they spend their budget on it.
-            if (error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
+            // The audio decoder failed while decoding, or did not open at all: nothing below can help (the
+            // re-reads hand the same stream to the same decoder, and the screen restart answers a dead
+            // video decoder), so hand the track to ffmpeg before they spend their budget on it. Not opening
+            // is the KinoPub AC3 dub on Shield (11.11.2026): declared AAC, so the platform renderer took it,
+            // and the box has no AC3 decoder - "Decoder init failed: [-49999]", NO_UNSUPPORTED_SUBTYPE.
+            if ((error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
+                    || error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
                     && recoverByDecodingAudioWithFfmpeg(error)) {
                 return;
             }
@@ -18707,6 +18711,23 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return format.sampleMimeType + (format.codecs != null ? " " + format.codecs : "");
     }
 
+    /**
+     * The track itself, for a stream whose declared codec is not the one it carries. HLS takes a track's
+     * mime from the variant's CODECS (HlsSampleStreamWrapper.deriveFormat), and KinoPub writes mp4a.40.2
+     * on every variant, so its AC3 dub is listed as AAC: track selection hands it to the platform renderer,
+     * which only meets audio/ac3 when the decoder opens. Refusing the real format cannot steer that choice -
+     * selection never sees it - so the track is refused too, by the id the declared and the real format share
+     * (Format.withManifestFormatInfo). Ids repeat from film to film ("1", "2"), and the set lives as long as
+     * the process, hence the media address in the key. Null without an id or an address.
+     */
+    @Nullable
+    private String audioTrackKey(@Nullable Format format) {
+        if (format == null || format.id == null || mPrefs == null || mPrefs.mediaUri == null) {
+            return null;
+        }
+        return "track " + mPrefs.mediaUri + " " + format.id;
+    }
+
     /** What identifies a video stream for the decoder that has to carry it — codec and profile. */
     private static String videoFormatKey(@Nullable Format format) {
         if (format == null) {
@@ -18734,8 +18755,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (!(error instanceof ExoPlaybackException)) {
             return false;
         }
-        final Format format = ((ExoPlaybackException) error).rendererFormat;
+        final ExoPlaybackException exo = (ExoPlaybackException) error;
+        final Format format = exo.rendererFormat;
         final String mime = format != null ? format.sampleMimeType : null;
+        // A failure in ffmpeg itself has nowhere further to go.
+        if (exo.type != ExoPlaybackException.TYPE_RENDERER
+                || "FfmpegAudioRenderer".equals(exo.rendererName)) {
+            return false;
+        }
         // supportsFormat covers both halves of the question: whether the native library is there at all,
         // and whether this build's ffmpeg was compiled with a decoder for this codec (app/libs/README.md).
         // Without it the format would be refused by the only decoder the device has, and the film would
@@ -18746,7 +18773,13 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 || !sessionFfmpegAudioFormats.add(audioFormatKey(format))) {
             return false;
         }
-        Utils.log("audio decoding moved to ffmpeg: " + audioFormatKey(format));
+        // The track as well: selection chooses by the declared format, which may not be this one.
+        final String track = audioTrackKey(format);
+        if (track != null) {
+            sessionFfmpegAudioFormats.add(track);
+        }
+        Utils.log("audio decoding moved to ffmpeg: " + audioFormatKey(format)
+                + (track != null ? ", track " + format.id : ""));
         restorePlayState = true;
         // Same reason as in recoverByRevokingAudioMime(): keep any Dolby Vision workaround across this
         // rebuild rather than letting initializePlayer clear it.
