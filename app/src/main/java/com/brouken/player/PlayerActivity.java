@@ -18789,6 +18789,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         Utils.log("audio decoding moved to ffmpeg: " + audioFormatKey(format)
                 + (track != null ? ", track " + (format.label != null ? format.label : format.id) : ""));
+        // The series' pick put this track on, and the rebuild below would lose it: savePlayer finds no audio
+        // selected after the error, and the memory counts itself done for this item. Shield 11.11.2026: the
+        // remembered AC3 dub failed, moved to ffmpeg, and the rebuilt player opened the first track instead -
+        // the original, which also let the full subtitles on under "forced only". Let it apply once more.
+        trackMemoryDoneFor = null;
         restorePlayState = true;
         // Same reason as in recoverByRevokingAudioMime(): keep any Dolby Vision workaround across this
         // rebuild rather than letting initializePlayer clear it.
