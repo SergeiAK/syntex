@@ -16660,6 +16660,26 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return systemVolume ? 1f : Math.min(playerVolume, 100f) / 100f;
     }
 
+    /**
+     * The first line's choice as savePlayer keeps it. An empty line left by "forced subtitles only" - an
+     * empty override on the track that was showing (selectForcedSubtitle) - is that rule's answer, not the
+     * viewer's: kept as "#none" it read back as "switched off", the rule stood aside for good, and "#none"
+     * stops only DEFAULT and FORCED tracks, not the full one the language preference picks. Shield
+     * 11.11.2026: an AC3 dub moved to ffmpeg, the rebuild came back with full Russian subtitles over it.
+     * Null lets the rule decide again. Switched off by hand (mainLineDisabled) stays "#none".
+     */
+    @Nullable
+    private String savedTextChoice() {
+        final String text = getSelectedTrack(C.TRACK_TYPE_TEXT);
+        if ("#none".equals(text) && !mainLineDisabled()) {
+            final TrackSelectionOverride live = liveTextOverride(player.getCurrentTracks());
+            if (live != null && live.trackIndices.isEmpty()) {
+                return null;
+            }
+        }
+        return text;
+    }
+
     private void savePlayer() {
         // Outside the player guard: the error screen keeps the volume gestures alive without a player.
         mPrefs.updateVolume(Math.round(playerVolume));
@@ -16690,7 +16710,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                             // answers "#none" — which reads back as "the viewer chose off" and disables the
                             // very track the next rebuild restores from mPrefs.subtitleUri. Null means no
                             // choice recorded, letting that track's DEFAULT flag select it as a fresh open does.
-                            paintedSubtitleUri != null ? null : getSelectedTrack(C.TRACK_TYPE_TEXT),
+                            paintedSubtitleUri != null ? null : savedTextChoice(),
                             playerView.getResizeMode(),
                             playerView.getVideoSurfaceView().getScaleX(),
                             currentAspectRatio,
