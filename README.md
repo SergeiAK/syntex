@@ -259,14 +259,14 @@ INFO (или Menu) на пульте открывает карточку с те
 
 ### Launchers: LAMPA and media servers
 
- * **LAMPA.** Syntex understands LAMPA's playlist launch — episodes with their numbers, segments to skip, positions, qualities, subtitles — resumes the way the launcher asks, carries the dub to the next episode, and reports the position of every episode back so LAMPA keeps your progress. **For all of this LAMPA has to recognise Syntex as a player it supports.** Until it does, LAMPA hands Syntex a single link: the video plays, but there is no playlist and no progress goes back. Once that support is in LAMPA, everything listed here works without any change in Syntex
+ * **LAMPA.** Syntex understands LAMPA's playlist launch — episodes with their numbers, segments to skip, positions, qualities, subtitles — resumes the way the launcher asks, carries the dub to the next episode, and reports the position of every episode back so LAMPA keeps your progress. **LAMPA recognises Syntex from version 1.13.6** ([lampa-app/LAMPA#90](https://github.com/lampa-app/LAMPA/pull/90)). An older LAMPA hands Syntex a single link: the video plays, but there is no playlist and no progress goes back
  * HLS links are recognised by the manifest's extension, so a one-time link is not spent on a probe; the frame mode chosen on a LAMPA launch is kept; skip segments are found by file and folder names or by an exact TMDB match when the launcher sends no ids
  * **Media server apps** that hand a video to an external player (Wholphin, Plezy, Emby) get the MX Player contract: the position in, the position and how playback ended back. Checked with Wholphin
 
 <details>
 <summary>По-русски</summary>
 
- * **LAMPA.** Syntex понимает запуск плейлистом из LAMPA — серии с номерами, сегменты для пропуска, позиции, качества, субтитры, — продолжает так, как просит оболочка, переносит озвучку на следующую серию и возвращает позицию каждой серии, чтобы LAMPA сохранила прогресс. **Для всего этого LAMPA должна знать Syntex как поддерживаемый плеер.** Пока поддержки нет, LAMPA передаёт Syntex одну ссылку: видео играет, но без плейлиста, и прогресс не возвращается. Как только поддержка появится в LAMPA, всё перечисленное заработает без изменений в Syntex
+ * **LAMPA.** Syntex понимает запуск плейлистом из LAMPA — серии с номерами, сегменты для пропуска, позиции, качества, субтитры, — продолжает так, как просит оболочка, переносит озвучку на следующую серию и возвращает позицию каждой серии, чтобы LAMPA сохранила прогресс. **LAMPA знает Syntex начиная с версии 1.13.6** ([lampa-app/LAMPA#90](https://github.com/lampa-app/LAMPA/pull/90)). Более старая LAMPA передаёт Syntex одну ссылку: видео играет, но без плейлиста, и прогресс не возвращается
  * HLS узнаётся по расширению манифеста, и одноразовая ссылка не тратится на пробу; режим кадра, выбранный при запуске из LAMPA, сохраняется; сегменты без идентификаторов ищутся по имени файла и папок или по точному совпадению TMDB
  * **Приложения медиасерверов**, отдающие видео внешнему плееру (Wholphin, Plezy, Emby), получают контракт MX Player: позиция на входе, позиция и способ завершения на выходе. Проверено с Wholphin
 
