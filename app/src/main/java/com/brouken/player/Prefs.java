@@ -308,6 +308,8 @@ class Prefs {
     public int controllerTimeout = 3500;
     /** Whether paused controls stay until Back rather than fading like they do during playback. */
     public boolean controllerKeepOnPause = false;
+    /** How a focused control-row button is marked: a {@link ControlFocus} key. */
+    public String controlFocus = ControlFocus.CIRCLE_LARGE.key;
     // Whether compressed surround (Dolby, DTS) may be bitstreamed to the receiver. Off by default: every
     // track is decoded in the player to PCM (see PlayerActivity's audio sink), multichannel included -
     // only the compressed bitstream path is refused. That path is the whole fragile chain on a box whose
@@ -589,6 +591,7 @@ class Prefs {
             // A value from a build that stored something else: the default stands.
         }
         controllerKeepOnPause = mSharedPreferences.getBoolean("controllerKeepOnPause", controllerKeepOnPause);
+        controlFocus = mSharedPreferences.getString(ControlFocus.PREF_KEY, controlFocus);
         // Static because the view reads it too (CustomPlayerView), and both read it per show.
         PlayerActivity.CONTROLLER_TIMEOUT = controllerTimeout;
         audioPassthrough = mSharedPreferences.getBoolean(PREF_KEY_AUDIO_PASSTHROUGH, audioPassthrough);

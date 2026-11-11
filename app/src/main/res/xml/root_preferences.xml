@@ -276,6 +276,14 @@
                 app:title="@string/pref_controller_timeout"
                 app:useSimpleSummaryProvider="true" />
 
+            <ListPreference
+                app:key="controlFocus"
+                app:defaultValue="circle_large"
+                app:entries="@array/control_focus_entries"
+                app:entryValues="@array/control_focus_values"
+                app:title="@string/pref_control_focus"
+                app:useSimpleSummaryProvider="true" />
+
             <SwitchPreferenceCompat
                 app:key="controllerKeepOnPause"
                 app:defaultValue="false"

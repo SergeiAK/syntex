@@ -43,6 +43,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.RippleDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.graphics.drawable.Icon;
 import android.media.AudioManager;
 import android.media.MediaCodecList;
@@ -2326,8 +2327,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             infoColumn.setMinimumHeight(headerClockColumnParams.topMargin
                     + headerClock.getLineHeight()          // the clock row this column sits beside
                     + headerButtonsParams.topMargin
-                    + ui.clusterBox()                      // the icon row itself
-                    + ui.clusterPad());                    // and the nudge that lands it on the grid line
+                    + clusterBox()                      // the icon row itself
+                    + clusterPad());                    // and the nudge that lands it on the grid line
         }
 
         topInfoPanel.addView(headerClockColumn);
@@ -2991,8 +2992,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // of moving the row. The panel must stop clipping to its padding for the nudge to survive.
             final boolean rtl = getResources().getConfiguration().getLayoutDirection()
                     == View.LAYOUT_DIRECTION_RTL;
-            headerButtons.setTranslationX(rtl ? -ui.clusterPad() : ui.clusterPad());
-            headerButtons.setTranslationY(ui.clusterPad());
+            headerButtons.setTranslationX(rtl ? -clusterPad() : clusterPad());
+            headerButtons.setTranslationY(clusterPad());
             // The nudge moves the row outside its own layout box, so every ancestor that would clip it has to
             // stop: the padding clip on the panel, and the child clip on both the panel and the column. Without
             // the child clips off, the row is cut by exactly the nudge — a fifth of every glyph.
@@ -8217,7 +8218,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             }
             // On the row's centre line, not on its bottom: with the line's own pill gone the two share one
             // ground, and a line sitting low beside the icons read as a second row (measured on the Dune).
-            final int rowHeight = tvButtonRow.getHeight() > 0 ? tvButtonRow.getHeight() : ui.clusterBox();
+            final int rowHeight = tvButtonRow.getHeight() > 0 ? tvButtonRow.getHeight() : clusterBox();
             final int bottom = rowBottom + Math.max(0, (rowHeight - transferHeight) / 2);
             if (lp.bottomMargin != bottom) {
                 lp.bottomMargin = bottom;
@@ -8324,7 +8325,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (tvBottomPlate == null || !(tvBottomPlate.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
             return;
         }
-        final int rowHeight = tvButtonRow.getHeight() > 0 ? tvButtonRow.getHeight() : ui.clusterBox();
+        final int rowHeight = tvButtonRow.getHeight() > 0 ? tvButtonRow.getHeight() : clusterBox();
         final int top = rowBottom + rowHeight;
         final FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tvBottomPlate.getLayoutParams();
         final int bottom;
@@ -13712,30 +13713,97 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (button == null) {
             return;
         }
-        final int pad = ui.clusterPad();
+        final int pad = clusterPad();
         button.setPadding(pad, pad, pad, pad);
         // The glyph keeps saying what the control is - the accent when it is on - and focus is the disc
         // under it: state is ink, focus is the ground, and the two never share a property.
-        button.setImageTintList(ContextCompat.getColorStateList(this, R.color.control_icon_tint));
-        // Focus is a white disc under a dark glyph, the whole button wide - the mark Google TV and tvOS put
-        // on a focused control, and the one that stays legible on any frame without a line around it.
-        // White rather than the accent, because the accent already means "on" here (a subtitle button
-        // with subtitles on), and the two have to be told apart on the same button.
-        final GradientDrawable focusDisc = new GradientDrawable();
-        focusDisc.setShape(GradientDrawable.OVAL);
-        focusDisc.setColor(new ColorStateList(new int[][]{{android.R.attr.state_focused}, {}},
-                new int[]{0xFFF5F5F5, Color.TRANSPARENT}));
-        button.setBackground(new InsetDrawable(focusDisc, ui.dpS(2)));
-        // The press is the disc's shape too: a square wash over a round focus mark flashed a square for
+        final ControlFocus focus = controlFocus();
+        final ColorStateList tint = ContextCompat.getColorStateList(this, R.color.control_icon_tint);
+        if (focus.filled()) {
+            button.setImageTintList(tint);
+        } else {
+            // A frame has nothing under the glyph to turn it dark against: it keeps its light ink focused,
+            // and the accent when the control is on.
+            final int on = tint.getColorForState(new int[]{android.R.attr.state_selected}, Color.WHITE);
+            button.setImageTintList(new ColorStateList(
+                    new int[][]{{android.R.attr.state_selected}, {}}, new int[]{on, Color.WHITE}));
+        }
+        // Focus is white under or around the glyph - the mark Google TV and tvOS put on a focused control,
+        // and the one that stays legible on any frame. White rather than the accent, because the accent
+        // already means "on" here (a subtitle button with subtitles on), and the two have to be told apart
+        // on the same button. Its shape is the user's pick (ControlFocus).
+        final StateListDrawable mark = new StateListDrawable();
+        mark.addState(new int[]{android.R.attr.state_focused}, controlFocusMark(focus));
+        mark.addState(new int[]{}, new ColorDrawable(Color.TRANSPARENT));
+        button.setBackground(mark);
+        // The press is the mark's shape too: a square wash over a round focus mark flashed a square for
         // the half second of every press (seen on the Dune, 23.10.2026).
         button.setForeground(Utils.coveringRipple(
                 Utils.pressOnly(ContextCompat.getColor(this, R.color.ripple_chrome)),
                 new ColorDrawable(Color.TRANSPARENT),
-                new InsetDrawable(Utils.shape(Color.WHITE, Utils.CIRCLE), ui.dpS(2))));
+                new InsetDrawable(Utils.shape(Color.WHITE,
+                        focus.round() ? Utils.CIRCLE : focusPx(10)), focusPx(2))));
         final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ui.clusterBox(), ui.clusterBox());
+                clusterBox(), clusterBox());
         params.gravity = Gravity.CENTER_VERTICAL;
         button.setLayoutParams(params);
+    }
+
+    private ControlFocus controlFocus() {
+        return mPrefs != null ? ControlFocus.of(mPrefs.controlFocus) : ControlFocus.CIRCLE_LARGE;
+    }
+
+    /** The control-row button, widened for a focus mark that needs it. */
+    private int clusterBox() {
+        return ui.clusterBox(controlFocus().extraDp);
+    }
+
+    /** The control-row button's padding: all of the widening, so the glyph keeps its size. */
+    private int clusterPad() {
+        return ui.clusterPad(controlFocus().extraDp);
+    }
+
+    /** dp of the 40dp phone button the focus marks are drawn in, at this device's size. */
+    private int focusPx(final float dp) {
+        return ui.dpS(dp * ui.clusterUnit());
+    }
+
+    private static final int FOCUS_WHITE = 0xFFF5F5F5;
+
+    /** What a focused control-row button wears, drawn edge to edge of its (possibly widened) box. */
+    private Drawable controlFocusMark(final ControlFocus focus) {
+        switch (focus) {
+            case SQUARE:
+                return new InsetDrawable(Utils.shape(FOCUS_WHITE, focusPx(10)), focusPx(2));
+            case CIRCLE_RING: {
+                // The ring's outer edge is the box's; 2dp of the frame between it and the 36dp disc.
+                final GradientDrawable ring = new GradientDrawable();
+                ring.setShape(GradientDrawable.OVAL);
+                ring.setStroke(focusPx(1.5f), FOCUS_WHITE);
+                return new LayerDrawable(new Drawable[]{
+                        new InsetDrawable(Utils.shape(FOCUS_WHITE, Utils.CIRCLE), focusPx(4)),
+                        new InsetDrawable(ring, focusPx(0.5f))});
+            }
+            case SQUARE_RING: {
+                final GradientDrawable frame = new GradientDrawable();
+                frame.setCornerRadius(focusPx(12.5f));
+                frame.setStroke(focusPx(1.5f), FOCUS_WHITE);
+                return new LayerDrawable(new Drawable[]{
+                        new InsetDrawable(Utils.shape(FOCUS_WHITE, focusPx(9)), focusPx(5)),
+                        new InsetDrawable(frame, focusPx(0.5f))});
+            }
+            case OUTLINE: {
+                final GradientDrawable frame = new GradientDrawable();
+                frame.setCornerRadius(focusPx(10));
+                frame.setStroke(focusPx(2), FOCUS_WHITE);
+                return new InsetDrawable(frame, focusPx(2));
+            }
+            case CIRCLE:
+            case CIRCLE_LARGE:
+            default:
+                // 36dp in 40, or 44 in 48: the disc keeps 2dp off the box either way.
+                return new InsetDrawable(Utils.shape(FOCUS_WHITE, Utils.CIRCLE), focusPx(2));
+        }
     }
 
     // ---- Sleep timer ------------------------------------------------------------------------------------

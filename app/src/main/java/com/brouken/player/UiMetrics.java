@@ -81,6 +81,11 @@ final class UiMetrics {
     // phone's size its glyphs were the biggest thing on the card, bigger than the transport they serve.
     int clusterBox()        { return dpS(t(40, 40, 40, 30)); }
     int clusterPad()        { return dpS(t(8, 8, 8, 6)); }
+    // The same button widened by a focus mark that needs more than 40dp (ControlFocus.extraDp), the padding
+    // taking all of it so the glyph keeps its size. Scaled like the box: a quarter less on TV.
+    float clusterUnit()     { return t(40, 40, 40, 30) / 40f; }
+    int clusterBox(int extraDp) { return dpS(t(40, 40, 40, 30) + extraDp * clusterUnit()); }
+    int clusterPad(int extraDp) { return dpS(t(8, 8, 8, 6) + extraDp * clusterUnit() / 2f); }
     int focusLabelRoom()    { return dpS(16); }   // TV: under the row, for the focused button's name
     int heroBox()           { return dpS(90); }   // central play/pause tap target (was exo_icon_size)
     int heroInset()         { return dpS(10); }   // coral disc inset within the hero box

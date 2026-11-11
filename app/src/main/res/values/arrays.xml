@@ -138,6 +138,22 @@
     <item>8000</item>
     <item>15000</item>
   </string-array>
+  <string-array name="control_focus_entries">
+    <item>@string/pref_control_focus_circle_large</item>
+    <item>@string/pref_control_focus_circle</item>
+    <item>@string/pref_control_focus_square</item>
+    <item>@string/pref_control_focus_circle_ring</item>
+    <item>@string/pref_control_focus_square_ring</item>
+    <item>@string/pref_control_focus_outline</item>
+  </string-array>
+  <string-array name="control_focus_values" translatable="false">
+    <item>circle_large</item>
+    <item>circle</item>
+    <item>square</item>
+    <item>circle_ring</item>
+    <item>square_ring</item>
+    <item>outline</item>
+  </string-array>
   <string-array name="hold_speed_entries">
     <item>@string/pref_hold_speed_adjust</item>
     <item>@string/pref_hold_speed_fixed</item>
