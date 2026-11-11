@@ -18773,14 +18773,19 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // play in silence instead of showing what went wrong. It answers by mime, so a profile ffmpeg
         // cannot decode either still ends on the error screen - one failure later, which is the price of
         // there being no way to ask it about a profile in advance.
-        if (mime == null || !MimeTypes.isAudio(mime) || !FfmpegLibrary.supportsFormat(mime)
-                || !sessionFfmpegAudioFormats.add(audioFormatKey(format))) {
+        if (mime == null || !MimeTypes.isAudio(mime) || !FfmpegLibrary.supportsFormat(mime)) {
             return false;
         }
-        // The track as well: selection chooses by the declared format, which may not be this one.
+        // The track as well: selection chooses by the declared format, which may not be this one. Either key
+        // being new is reason enough: the format's stays in the set for the whole process, so on the next
+        // film - or the same one reopened, KinoPub handing out a fresh address each time - only the track's
+        // is new (Shield 11.11.2026: the second opening went straight to the error screen). The same track
+        // failing again under the same address adds neither, and that is the guard against a loop.
         final String track = audioTrackKey(format);
-        if (track != null) {
-            sessionFfmpegAudioFormats.add(track);
+        final boolean newFormat = sessionFfmpegAudioFormats.add(audioFormatKey(format));
+        final boolean newTrack = track != null && sessionFfmpegAudioFormats.add(track);
+        if (!newFormat && !newTrack) {
+            return false;
         }
         Utils.log("audio decoding moved to ffmpeg: " + audioFormatKey(format)
                 + (track != null ? ", track " + (format.label != null ? format.label : format.id) : ""));
