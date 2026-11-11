@@ -709,6 +709,66 @@ public final class SegmentFinder {
         return kept;
     }
 
+    /**
+     * The launcher's typed segments as one more voice beside this lookup's vote, category by category.
+     * Agreeing (starts within {@link #AGREE_TOLERANCE_SEC}): the launcher's timing, now confirmed - it
+     * analysed this very file. Disagreeing: the lookup wins only when at least {@link #MIN_VOTES} of its
+     * sources stood behind its answer, since one launcher against one source is a tie, and a tie goes to
+     * the more file-accurate timing. A category only one side has is taken from that side, so the lookup
+     * fills what the launcher did not name (Jellyfin sends a recap and no intro, say). Ads and the
+     * launcher's untyped segments pass through as they came. Pure: inputs are not changed.
+     *
+     * <p>Field cases, 11.11.2026: «True Detective» S2E7, Intro Skipper's intro 0:28-1:30 and outro
+     * 60:32-61:39 right; «American Dad» S1E2, a lone recap 0:00-0:53 laid over the first scene - which a
+     * confirmed lookup now outvotes, and which nothing can outvote when the lookup has no recap at all.
+     */
+    public static List<SkipSegment> mergeLauncher(List<SkipSegment> launcher, List<SkipSegment> online) {
+        final List<SkipSegment> out = new ArrayList<>();
+        final Map<SkipSegment.Category, List<SkipSegment>> said = new LinkedHashMap<>();
+        for (SkipSegment seg : launcher) {
+            if (seg.type != SkipSegment.Type.SKIP || seg.category == SkipSegment.Category.UNKNOWN) {
+                out.add(seg);
+                continue;
+            }
+            List<SkipSegment> list = said.get(seg.category);
+            if (list == null) {
+                list = new ArrayList<>();
+                said.put(seg.category, list);
+            }
+            list.add(seg);
+        }
+        final Map<SkipSegment.Category, SkipSegment> found = new LinkedHashMap<>();
+        for (SkipSegment seg : online) {
+            if (!found.containsKey(seg.category)) {
+                found.put(seg.category, seg);
+            }
+        }
+        for (Map.Entry<SkipSegment.Category, List<SkipSegment>> entry : said.entrySet()) {
+            final SkipSegment theirs = found.remove(entry.getKey());
+            if (theirs == null) {
+                out.addAll(entry.getValue());
+                continue;
+            }
+            boolean agree = false;
+            for (SkipSegment seg : entry.getValue()) {
+                agree |= Math.abs(seg.startSec - theirs.startSec) <= AGREE_TOLERANCE_SEC;
+            }
+            if (!agree && theirs.confirmed) {
+                out.add(theirs);
+                continue;
+            }
+            for (SkipSegment seg : entry.getValue()) {
+                final SkipSegment kept = new SkipSegment(seg.startSec, seg.endSec, seg.type, seg.category,
+                        seg.coordBase, seg.timeTrust);
+                kept.confirmed = agree;
+                out.add(kept);
+            }
+        }
+        out.addAll(found.values());
+        Collections.sort(out, (a, b) -> Double.compare(a.startSec, b.startSec));
+        return out;
+    }
+
     // ---- Sources -----------------------------------------------------------------------------
 
     /** SkipDB: {segments:{intro,recap,outro,preview}}, each null or {start_ms,end_ms,confidence}. */

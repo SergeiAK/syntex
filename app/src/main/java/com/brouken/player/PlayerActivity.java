@@ -1664,6 +1664,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // launcher's or the lookup's, fills in the rest. See applySkipSource.
     private FileChapters fileChapters = FileChapters.NONE;
     private SkipSource baseSkipSource;
+    // The launcher's segments when they say what they are: then the lookup still runs, and its answer is
+    // weighed against these (SegmentFinder.mergeLauncher) instead of being dropped. Null otherwise.
+    private IntentSegmentsSource typedIntentSource;
     // Bumped whenever a lookup is cancelled or superseded; a callback carrying an older generation is a
     // late arrival from an abandoned lookup and is dropped.
     private int segmentFetchGeneration;
@@ -5246,6 +5249,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         skipBuilt = false;
         skipSourceFromIntent = false;
+        typedIntentSource = null;
         fileChapters = FileChapters.NONE;
         baseSkipSource = null;
         skipNextPrefetched = false;
@@ -5297,8 +5301,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // hiding here would cut the notification short. Its own 3s timer governs it, so it rides across the
         // transition ("carry-through") and disappears on schedule.
         final String json = currentSegmentsJson();
-        skipSourceFromIntent = json != null && !json.isEmpty();
-        baseSkipSource = skipSourceFromIntent ? new IntentSegmentsSource(json) : null;
+        final IntentSegmentsSource intent = json != null && !json.isEmpty() ? new IntentSegmentsSource(json) : null;
+        // Typed segments do not close the lookup: they are one voice in it (see onSegmentsFetched).
+        typedIntentSource = intent != null && intent.isTyped() ? intent : null;
+        skipSourceFromIntent = intent != null && typedIntentSource == null;
+        baseSkipSource = intent;
         // A new item: its chapters come with its own onTracksChanged, which follows the transition. A rail
         // left open showed the old item's chapters and the old item as the one playing.
         fileChapters = FileChapters.NONE;
@@ -5648,8 +5655,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (player == null || skipManager == null) {
             return;
         }
-        // Intent segments win outright; anything else this lookup may already have found is its own
-        // earlier, less certain result and is meant to be replaced.
+        // Untyped intent segments win outright; typed ones are weighed against what this finds. Anything
+        // else this lookup may already have found is its own earlier, less certain result, to be replaced.
         // Named chapters do not stop it: they cover only the kinds they name, and the lookup fills the rest.
         if (!mPrefs.skipEnabled || !mPrefs.skipFetchOnline || skipSourceFromIntent) {
             Utils.log("segments: not searching, " + (skipSourceFromIntent ? "the launcher sent them"
@@ -5852,14 +5859,22 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             return;
         }
         // Drop a late callback from a cancelled lookup, a result for another media item, or anything at
-        // all once intent segments have appeared. A newer result for this item does replace an older
-        // one: that is how the first quick answer gets corrected by the full vote.
+        // all once untyped intent segments have appeared. A newer result for this item does replace an
+        // older one: that is how the first quick answer gets corrected by the full vote.
         if (generation != segmentFetchGeneration
                 || player.getCurrentMediaItemIndex() != targetIndex
                 || skipSourceFromIntent) {
             return;
         }
-        baseSkipSource = new NetworkSegmentsSource(segments);
+        final IntentSegmentsSource intent = typedIntentSource;
+        if (intent != null) {
+            final NetworkSegmentsSource online = new NetworkSegmentsSource(segments);
+            baseSkipSource = durationSec ->
+                    SegmentFinder.mergeLauncher(intent.getSegments(durationSec), online.getSegments(durationSec));
+            Utils.log("segments: launcher's typed ones weighed against the lookup");
+        } else {
+            baseSkipSource = new NetworkSegmentsSource(segments);
+        }
         applySkipSource();
         rebuildSkip();
     }
@@ -12766,7 +12781,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // one - so they are asked for again. What the old title found goes first: it is about another
         // film, and left in place it would go on skipping if the new title has nothing.
         if (!skipSourceFromIntent && skipManager != null) {
-            baseSkipSource = null;
+            baseSkipSource = typedIntentSource;
             applySkipSource();
             rebuildSkip();
             maybeFetchSegmentsOnline();

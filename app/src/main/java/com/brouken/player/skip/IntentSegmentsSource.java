@@ -15,12 +15,19 @@ import java.util.List;
  * <pre>{ "duration_ms": &lt;ms&gt;, "skip": [{"start": &lt;sec&gt;, "end": &lt;sec&gt;}], "ad": [ ... ] }</pre>
  * {@code start}/{@code end} are in seconds. Timings are remapped against the actual file duration
  * via {@link SegmentAdjuster}. Any parse failure yields an empty list — playback is never blocked.
+ *
+ * <p>A {@code skip} segment may say what it is: {@code "type"} one of {@code intro}, {@code recap},
+ * {@code outro} (or {@code credits}), {@code preview}, {@code commercial}. A commercial goes with the
+ * {@code ad} ones; the others keep their category, which is what lets the player weigh them against
+ * its own lookup instead of taking them whole ({@link #isTyped()}, {@link SegmentFinder#mergeLauncher}).
+ * An unknown word reads as no type. Lampa sends none, and for it nothing changes.
  */
 public class IntentSegmentsSource implements SkipSource {
 
     private final List<SegmentAdjuster.Seg> skip = new ArrayList<>();
     private final List<SegmentAdjuster.Seg> ad = new ArrayList<>();
     private double refDurationSec;
+    private boolean typed;
     private final boolean valid;
 
     public IntentSegmentsSource(String json) {
@@ -32,6 +39,37 @@ public class IntentSegmentsSource implements SkipSource {
         return valid && !(skip.isEmpty() && ad.isEmpty());
     }
 
+    /**
+     * Whether the sender named what its segments are. Then they are one voice among the player's own
+     * sources rather than the whole answer: a launcher that knows the type usually takes it from a
+     * server's analysis of the file (Jellyfin's Intro Skipper), right as often as not.
+     */
+    public boolean isTyped() {
+        return valid && typed;
+    }
+
+    /** The category a sender's word names; null for a commercial, UNKNOWN for anything unrecognised. */
+    static SkipSegment.Category category(String type) {
+        if (type == null) {
+            return SkipSegment.Category.UNKNOWN;
+        }
+        switch (type.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "intro":
+                return SkipSegment.Category.INTRO;
+            case "recap":
+                return SkipSegment.Category.RECAP;
+            case "outro":
+            case "credits":
+                return SkipSegment.Category.CREDITS;
+            case "preview":
+                return SkipSegment.Category.PREVIEW;
+            case "commercial":
+                return null;
+            default:
+                return SkipSegment.Category.UNKNOWN;
+        }
+    }
+
     private boolean parse(String json) {
         if (json == null || json.isEmpty()) {
             return false;
@@ -39,17 +77,18 @@ public class IntentSegmentsSource implements SkipSource {
         try {
             JSONObject root = new JSONObject(json);
             refDurationSec = parseDurationMs(root.opt("duration_ms"));
-            parseArray(root.optJSONArray("skip"), skip);
-            parseArray(root.optJSONArray("ad"), ad);
+            parseArray(root.optJSONArray("skip"), skip, ad);
+            parseArray(root.optJSONArray("ad"), ad, ad);
             return true;
         } catch (Exception e) {
             skip.clear();
             ad.clear();
+            typed = false;
             return false;
         }
     }
 
-    private static void parseArray(JSONArray array, List<SegmentAdjuster.Seg> out) {
+    private void parseArray(JSONArray array, List<SegmentAdjuster.Seg> out, List<SegmentAdjuster.Seg> ads) {
         if (array == null) {
             return;
         }
@@ -63,7 +102,15 @@ public class IntentSegmentsSource implements SkipSource {
             if (Double.isNaN(start) || Double.isNaN(end) || end <= start) {
                 continue;
             }
-            out.add(new SegmentAdjuster.Seg(start, end));
+            final SkipSegment.Category category = out == ads ? SkipSegment.Category.UNKNOWN
+                    : category(seg.optString("type", null));
+            if (category == null) {
+                ads.add(new SegmentAdjuster.Seg(start, end));
+                typed = true;
+            } else {
+                out.add(new SegmentAdjuster.Seg(start, end, category));
+                typed |= category != SkipSegment.Category.UNKNOWN;
+            }
         }
     }
 
@@ -96,7 +143,12 @@ public class IntentSegmentsSource implements SkipSource {
 
         List<SkipSegment> out = new ArrayList<>();
         for (SegmentAdjuster.Seg seg : result.skip) {
-            out.add(new SkipSegment(seg.start, seg.end, SkipSegment.Type.SKIP));
+            // Typed: timed by whoever analysed this very file, then remapped to its length - as file-
+            // accurate as the player's sources get, so chapter-grade trust. Untyped keeps its old shape.
+            out.add(seg.category == SkipSegment.Category.UNKNOWN
+                    ? new SkipSegment(seg.start, seg.end, SkipSegment.Type.SKIP)
+                    : new SkipSegment(seg.start, seg.end, SkipSegment.Type.SKIP, seg.category,
+                            SkipSegment.CoordBase.DURATION_AWARE, SkipSegment.TIME_TRUST_CHAPTER));
         }
         for (SegmentAdjuster.Seg seg : result.ad) {
             out.add(new SkipSegment(seg.start, seg.end, SkipSegment.Type.AD));

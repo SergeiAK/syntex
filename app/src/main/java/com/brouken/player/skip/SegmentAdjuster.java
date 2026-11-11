@@ -22,14 +22,21 @@ public final class SegmentAdjuster {
     public static final class Seg {
         public double start;
         public double end;
+        /** What the sender called it; carried through the remap untouched, UNKNOWN when it said nothing. */
+        public SkipSegment.Category category = SkipSegment.Category.UNKNOWN;
 
         public Seg(double start, double end) {
             this.start = start;
             this.end = end;
         }
 
+        public Seg(double start, double end, SkipSegment.Category category) {
+            this(start, end);
+            this.category = category;
+        }
+
         Seg copy() {
-            return new Seg(start, end);
+            return new Seg(start, end, category);
         }
     }
 
@@ -67,7 +74,9 @@ public final class SegmentAdjuster {
         List<Seg> mappedSkip = new ArrayList<>();
         for (Seg seg : skip) {
             boolean isTail = tailAtRef && seg == tail;
-            mappedSkip.add(mapSegment(seg, duration, isTail, creditRefLen, tailStart, refDuration));
+            final Seg mapped = mapSegment(seg, duration, isTail, creditRefLen, tailStart, refDuration);
+            mapped.category = seg.category;
+            mappedSkip.add(mapped);
         }
 
         List<Seg> mappedAd = new ArrayList<>();
