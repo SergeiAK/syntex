@@ -168,21 +168,25 @@
     <item>2</item>
     <item>3</item>
   </string-array>
+  <string-array name="active_mark_entries">
+    <item>@string/pref_active_mark_dot</item>
+    <item>@string/pref_active_mark_dash</item>
+  </string-array>
+  <string-array name="active_mark_values" translatable="false">
+    <item>dot</item>
+    <item>dash</item>
+  </string-array>
   <string-array name="control_focus_entries">
     <item>@string/pref_control_focus_circle_large</item>
-    <item>@string/pref_control_focus_circle</item>
     <item>@string/pref_control_focus_square</item>
     <item>@string/pref_control_focus_circle_ring</item>
     <item>@string/pref_control_focus_square_ring</item>
-    <item>@string/pref_control_focus_outline</item>
   </string-array>
   <string-array name="control_focus_values" translatable="false">
     <item>circle_large</item>
-    <item>circle</item>
     <item>square</item>
     <item>circle_ring</item>
     <item>square_ring</item>
-    <item>outline</item>
   </string-array>
   <string-array name="hold_speed_entries">
     <item>@string/pref_hold_speed_adjust</item>

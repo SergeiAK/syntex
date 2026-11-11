@@ -141,12 +141,13 @@
     <string name="pref_controller_timeout_15">15 секунд</string>
     <string name="pref_controller_keep_on_pause">Не скрывать панель на паузе</string>
     <string name="pref_control_focus">Фокус кнопок</string>
-    <string name="pref_control_focus_circle_large">Большой круг</string>
-    <string name="pref_control_focus_circle">Круг</string>
+    <string name="pref_control_focus_circle_large">Круг</string>
     <string name="pref_control_focus_square">Скруглённый квадрат</string>
     <string name="pref_control_focus_circle_ring">Круг и кольцо</string>
     <string name="pref_control_focus_square_ring">Квадрат и рамка</string>
-    <string name="pref_control_focus_outline">Только рамка</string>
+    <string name="pref_active_mark">Пометка включённой кнопки</string>
+    <string name="pref_active_mark_dot">Точка</string>
+    <string name="pref_active_mark_dash">Черта</string>
     <string name="pref_controller_keep_on_pause_on">На паузе панель остаётся, пока не нажата кнопка «Назад»</string>
     <string name="pref_controller_keep_on_pause_off">На паузе панель гаснет так же, как при воспроизведении</string>
     <string name="pref_hold_speed">Удержание для ускорения</string>
@@ -554,6 +555,7 @@
     <string name="pref_resume_always">Всегда продолжать</string>
     <string name="pref_resume_never">Всегда с начала</string>
     <string name="resume_ask_title">Продолжить просмотр?</string>
+    <string name="pref_viewing_section">Просмотр</string>
     <string name="pref_next_section">Следующая серия</string>
     <string name="pref_next_ask">Спрашивать перед следующей серией</string>
     <string name="pref_next_ask_on">Карточка с отсчётом, «Смотреть» и «Отмена»</string>

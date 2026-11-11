@@ -310,6 +310,8 @@ class Prefs {
     public boolean controllerKeepOnPause = false;
     /** How a focused control-row button is marked: a {@link ControlFocus} key. */
     public String controlFocus = ControlFocus.CIRCLE_LARGE.key;
+    /** How an "on" control-row button is marked: an {@link ActiveMark} key. */
+    public String activeMark = ActiveMark.DOT.key;
     // Whether compressed surround (Dolby, DTS) may be bitstreamed to the receiver. Off by default: every
     // track is decoded in the player to PCM (see PlayerActivity's audio sink), multichannel included -
     // only the compressed bitstream path is refused. That path is the whole fragile chain on a box whose
@@ -600,6 +602,7 @@ class Prefs {
         }
         controllerKeepOnPause = mSharedPreferences.getBoolean("controllerKeepOnPause", controllerKeepOnPause);
         controlFocus = mSharedPreferences.getString(ControlFocus.PREF_KEY, controlFocus);
+        activeMark = mSharedPreferences.getString(ActiveMark.PREF_KEY, activeMark);
         // Static because the view reads it too (CustomPlayerView), and both read it per show.
         PlayerActivity.CONTROLLER_TIMEOUT = controllerTimeout;
         audioPassthrough = mSharedPreferences.getBoolean(PREF_KEY_AUDIO_PASSTHROUGH, audioPassthrough);

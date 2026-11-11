@@ -13706,15 +13706,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // under it: state is ink, focus is the ground, and the two never share a property.
         final ControlFocus focus = controlFocus();
         final ColorStateList tint = ContextCompat.getColorStateList(this, R.color.control_icon_tint);
-        if (focus.filled()) {
-            button.setImageTintList(tint);
-        } else {
-            // A frame has nothing under the glyph to turn it dark against: it keeps its light ink focused,
-            // and the accent when the control is on.
-            final int on = tint.getColorForState(new int[]{android.R.attr.state_selected}, Color.WHITE);
-            button.setImageTintList(new ColorStateList(
-                    new int[][]{{android.R.attr.state_selected}, {}}, new int[]{on, Color.WHITE}));
-        }
+        button.setImageTintList(tint);
         // Focus is white under or around the glyph - the mark Google TV and tvOS put on a focused control,
         // and the one that stays legible on any frame. White rather than the accent, because the accent
         // already means "on" here (a subtitle button with subtitles on), and the two have to be told apart
@@ -13728,18 +13720,53 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // it - the reason the wide ones filled the disc - and with a bigger mark the glyph grew with it
         // (Shield, 11.11.2026). The glyph keeps that pre-3.3 size whatever the mark; only the mark grows.
         final int glyphPad = ui.dpS(2) + focusPx(focus.extraDp / 2f);
-        button.setPadding(glyphPad, glyphPad, glyphPad, glyphPad);
+        // Every glyph in the row a little higher, the room under it the active mark's: glyph and mark
+        // centre in the focus shape together, and the row stays level whichever buttons are on.
+        final int raise = focusPx(ActiveMark.GLYPH_RAISE_DP);
+        button.setPadding(glyphPad, glyphPad - raise, glyphPad, glyphPad + raise);
         // The press is the mark's shape too: a square wash over a round focus mark flashed a square for
         // the half second of every press (seen on the Dune, 23.10.2026).
-        button.setForeground(Utils.coveringRipple(
+        final Drawable press = Utils.coveringRipple(
                 Utils.pressOnly(ContextCompat.getColor(this, R.color.ripple_chrome)),
                 new ColorDrawable(Color.TRANSPARENT),
                 new InsetDrawable(Utils.shape(Color.WHITE,
-                        focus.round() ? Utils.CIRCLE : focusPx(10)), focusPx(2))));
+                        focus.round() ? Utils.CIRCLE : focusPx(10)), focusPx(2)));
+        button.setForeground(stacked(press, activeMarkLayer(tint)));
         final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 clusterBox(), clusterBox());
         params.gravity = Gravity.CENTER_VERTICAL;
         button.setLayoutParams(params);
+    }
+
+    /**
+     * The "on" mark under the glyph, as a foreground layer over the whole button: the theme's accent while
+     * the button is on, dark like the glyph once the remote is on it too (the negative the white focus
+     * shape needs), nothing while it is off.
+     */
+    private Drawable activeMarkLayer(final ColorStateList tint) {
+        final ActiveMark kind = mPrefs != null ? ActiveMark.of(mPrefs.activeMark) : ActiveMark.DOT;
+        final int on = tint.getColorForState(new int[]{android.R.attr.state_selected}, Color.WHITE);
+        final GradientDrawable shape = new GradientDrawable();
+        shape.setColor(new ColorStateList(new int[][]{
+                {android.R.attr.state_selected, android.R.attr.state_focused},
+                {android.R.attr.state_selected},
+                {}}, new int[]{0xFF1A1A1A, on, Color.TRANSPARENT}));
+        final int w;
+        final int h;
+        if (kind == ActiveMark.DASH) {
+            w = focusPx(12);
+            h = focusPx(2.4f);
+            shape.setCornerRadius(h / 2f);
+        } else {
+            w = focusPx(3.4f);
+            h = w;
+            shape.setShape(GradientDrawable.OVAL);
+        }
+        final LayerDrawable layer = new LayerDrawable(new Drawable[]{shape});
+        layer.setLayerGravity(0, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        layer.setLayerSize(0, w, h);
+        layer.setLayerInsetTop(0, clusterBox() / 2 + focusPx(ActiveMark.MARK_BELOW_CENTRE_DP) - h / 2);
+        return layer;
     }
 
     private ControlFocus controlFocus() {
@@ -13796,16 +13823,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                         new InsetDrawable(Utils.shape(FOCUS_WHITE, focusPx(9)), focusPx(5)),
                         new InsetDrawable(frame, focusPx(0.5f)));
             }
-            case OUTLINE: {
-                final GradientDrawable frame = new GradientDrawable();
-                frame.setCornerRadius(focusPx(10));
-                frame.setStroke(focusPx(2), FOCUS_WHITE);
-                return new InsetDrawable(frame, focusPx(2));
-            }
-            case CIRCLE:
             case CIRCLE_LARGE:
             default:
-                // 36dp in 40, or 44 in 48: the disc keeps 2dp off the box either way.
+                // 44 in 48: the disc keeps 2dp off the box.
                 return new InsetDrawable(Utils.shape(FOCUS_WHITE, Utils.CIRCLE), focusPx(2));
         }
     }
