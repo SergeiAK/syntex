@@ -13702,8 +13702,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (button == null) {
             return;
         }
-        final int pad = clusterPad();
-        button.setPadding(pad, pad, pad, pad);
         // The glyph keeps saying what the control is - the accent when it is on - and focus is the disc
         // under it: state is ink, focus is the ground, and the two never share a property.
         final ControlFocus focus = controlFocus();
@@ -13725,6 +13723,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         mark.addState(new int[]{android.R.attr.state_focused}, controlFocusMark(focus));
         mark.addState(new int[]{}, new ColorDrawable(Color.TRANSPARENT));
         button.setBackground(mark);
+        // After the background, never before it: setBackground takes the drawable's padding as the view's,
+        // and an inset mark's padding is its inset. Before 3.3 that inset, 2dp, was all the glyph had around
+        // it - the reason the wide ones filled the disc - and with a bigger mark the glyph grew with it
+        // (Shield, 11.11.2026). The glyph keeps that pre-3.3 size whatever the mark; only the mark grows.
+        final int glyphPad = ui.dpS(2) + focusPx(focus.extraDp / 2f);
+        button.setPadding(glyphPad, glyphPad, glyphPad, glyphPad);
         // The press is the mark's shape too: a square wash over a round focus mark flashed a square for
         // the half second of every press (seen on the Dune, 23.10.2026).
         button.setForeground(Utils.coveringRipple(
@@ -13759,6 +13763,17 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
     private static final int FOCUS_WHITE = 0xFFF5F5F5;
 
+    /**
+     * Layers that each measure from the box's own edge. LayerDrawable nests by default - every layer is
+     * drawn inside the padding of the ones before it - which put the ring 4dp in, on the disc's own rim,
+     * white on white: "circle and ring" showed a plain circle (Shield, 11.11.2026).
+     */
+    private static LayerDrawable stacked(final Drawable... layers) {
+        final LayerDrawable layer = new LayerDrawable(layers);
+        layer.setPaddingMode(LayerDrawable.PADDING_MODE_STACK);
+        return layer;
+    }
+
     /** What a focused control-row button wears, drawn edge to edge of its (possibly widened) box. */
     private Drawable controlFocusMark(final ControlFocus focus) {
         switch (focus) {
@@ -13769,17 +13784,17 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 final GradientDrawable ring = new GradientDrawable();
                 ring.setShape(GradientDrawable.OVAL);
                 ring.setStroke(focusPx(1.5f), FOCUS_WHITE);
-                return new LayerDrawable(new Drawable[]{
+                return stacked(
                         new InsetDrawable(Utils.shape(FOCUS_WHITE, Utils.CIRCLE), focusPx(4)),
-                        new InsetDrawable(ring, focusPx(0.5f))});
+                        new InsetDrawable(ring, focusPx(0.5f)));
             }
             case SQUARE_RING: {
                 final GradientDrawable frame = new GradientDrawable();
                 frame.setCornerRadius(focusPx(12.5f));
                 frame.setStroke(focusPx(1.5f), FOCUS_WHITE);
-                return new LayerDrawable(new Drawable[]{
+                return stacked(
                         new InsetDrawable(Utils.shape(FOCUS_WHITE, focusPx(9)), focusPx(5)),
-                        new InsetDrawable(frame, focusPx(0.5f))});
+                        new InsetDrawable(frame, focusPx(0.5f)));
             }
             case OUTLINE: {
                 final GradientDrawable frame = new GradientDrawable();
