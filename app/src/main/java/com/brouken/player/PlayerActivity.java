@@ -18716,16 +18716,20 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * mime from the variant's CODECS (HlsSampleStreamWrapper.deriveFormat), and KinoPub writes mp4a.40.2
      * on every variant, so its AC3 dub is listed as AAC: track selection hands it to the platform renderer,
      * which only meets audio/ac3 when the decoder opens. Refusing the real format cannot steer that choice -
-     * selection never sees it - so the track is refused too, by the id the declared and the real format share
-     * (Format.withManifestFormatInfo). Ids repeat from film to film ("1", "2"), and the set lives as long as
-     * the process, hence the media address in the key. Null without an id or an address.
+     * selection never sees it - so the track is refused too, by what the declared and the real format share. Not the id: the listed track carries the rendition's
+     * ("group:name", HlsPlaylistParser), while the format reaching the decoder from a muxed TS has none -
+     * Shield 11.11.2026, "Format(null, 07. Дубляж (RUS) AC3, …)". The label and language come from the
+     * playlist on both, so they are the key, the id only when there is no label. Labels repeat from film to
+     * film, and the set lives as long as the process, hence the media address. Null with neither.
      */
     @Nullable
     private String audioTrackKey(@Nullable Format format) {
-        if (format == null || format.id == null || mPrefs == null || mPrefs.mediaUri == null) {
+        if (format == null || mPrefs == null || mPrefs.mediaUri == null) {
             return null;
         }
-        return "track " + mPrefs.mediaUri + " " + format.id;
+        final String name = format.label != null ? "label " + format.label + " " + format.language
+                : format.id != null ? "id " + format.id : null;
+        return name != null ? "track " + mPrefs.mediaUri + " " + name : null;
     }
 
     /** What identifies a video stream for the decoder that has to carry it — codec and profile. */
@@ -18779,7 +18783,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             sessionFfmpegAudioFormats.add(track);
         }
         Utils.log("audio decoding moved to ffmpeg: " + audioFormatKey(format)
-                + (track != null ? ", track " + format.id : ""));
+                + (track != null ? ", track " + (format.label != null ? format.label : format.id) : ""));
         restorePlayState = true;
         // Same reason as in recoverByRevokingAudioMime(): keep any Dolby Vision workaround across this
         // rebuild rather than letting initializePlayer clear it.
