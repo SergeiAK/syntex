@@ -64,6 +64,14 @@
             android:name="io.sentry.auto-init"
             android:value="false" />
 
+        <!-- What this build reads from a launch's playlist beyond the documented contract, for a launcher
+             to ask before it relies on it (the versionCode follows the release tag and cannot tell builds
+             apart). segment_type: a skip segment's "type" makes the launcher's segments one voice in the
+             lookup instead of the whole answer (IntentSegmentsSource.isTyped). Syntex HUB checks it. -->
+        <meta-data
+            android:name="com.syntex.playlist.segment_type"
+            android:value="true" />
+
         <!-- autoRemoveFromRecents: a launcher (Lampa, MX-style api) starts every episode with its own data
              URI, and leaving one finishes the activity to hand the position back. The emptied task would stay
              in recents, and since the URI differs the system keeps it beside the next episode's task instead
