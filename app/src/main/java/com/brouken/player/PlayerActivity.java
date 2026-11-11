@@ -5356,12 +5356,23 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return (durationMs != C.TIME_UNSET && durationMs > 0) ? durationMs / 1000.0 : 0;
     }
 
+    /** The segment list last written to the log, so a rebuild that changed nothing is not repeated. */
+    private String skipLoggedSegments;
+
     private void rebuildSkip() {
         if (skipManager == null) {
             return;
         }
         skipManager.setOffsetSec(skipOffsetSec);
         skipManager.rebuild(currentDurationSec());
+        // What the bar and the Skip button now go by, whenever it changes: a rebuild in the middle of a
+        // segment is visible in the log as a second line, not only as a button that blinks.
+        final String onBar = SegmentFinder.describe(skipManager.getSegments());
+        if (!onBar.equals(skipLoggedSegments)) {
+            skipLoggedSegments = onBar;
+            Utils.log("segments: on the bar " + onBar + " at "
+                    + (player != null ? player.getCurrentPosition() / 1000 : -1) + " s");
+        }
         updateSkipHighlights();
         if (skipManager.hasSegments()) {
             skipSeenThisSession = true;
@@ -5878,7 +5889,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             final NetworkSegmentsSource online = new NetworkSegmentsSource(segments);
             baseSkipSource = durationSec ->
                     SegmentFinder.mergeLauncher(intent.getSegments(durationSec), online.getSegments(durationSec));
-            Utils.log("segments: launcher's typed ones weighed against the lookup");
+            // All three sides, so the log says whose timing won (True Detective S2E7, 11.11.2026).
+            final double sec = currentDurationSec();
+            Utils.log("segments: launcher's typed ones weighed against the lookup: launcher "
+                    + SegmentFinder.describe(intent.getSegments(sec)) + "; lookup "
+                    + SegmentFinder.describe(online.getSegments(sec)) + "; merged "
+                    + SegmentFinder.describe(baseSkipSource.getSegments(sec)));
         } else {
             baseSkipSource = new NetworkSegmentsSource(segments);
         }

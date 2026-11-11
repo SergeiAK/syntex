@@ -469,7 +469,8 @@ public final class SegmentFinder {
     }
 
     /** "INTRO 93-183 CREDITS 1340-1430", "nothing" when empty; a trailing * marks a confirmed pick. */
-    private static String describe(List<SkipSegment> segments) {
+    /** "INTRO 28-90* CREDITS 3632-end", a star for confirmed: how the log names a segment list. */
+    public static String describe(List<SkipSegment> segments) {
         if (segments.isEmpty()) {
             return "nothing";
         }
