@@ -215,4 +215,27 @@ public class PlaylistRequestTest {
         assertEquals("start_index 2 is out of range 0..1", read.error);
         assertTrue(read.items.isEmpty());
     }
+
+    @Test
+    public void aTrickplaySetIsReadByAddress() {
+        final Bundle film = new Bundle().put("uri", "https://jf/Videos/1/stream").put("trickplay", new Bundle()
+                .put("url", "https://jf/Videos/1/Trickplay/320/{n}.jpg?api_key=k").put("width", 320)
+                .put("columns", 10).put("rows", 10).put("count", 565).put("interval_ms", 10_000));
+        final PlaylistRequest read = PlaylistRequest.read(new Bundle().put("items", new Parcelable[]{film}));
+        final PlaylistRequest.TrickplaySet set = read.items.get(0).trickplay;
+        assertEquals("https://jf/Videos/1/Trickplay/320/{n}.jpg?api_key=k", set.url);
+        assertEquals(565, set.count);
+        assertEquals(10_000, set.intervalMs);
+        assertTrue(read.warnings.isEmpty());
+    }
+
+    @Test
+    public void aTrickplaySetWithoutItsLayoutIsDroppedWithAWarning() {
+        final Bundle film = new Bundle().put("uri", "u")
+                .put("trickplay", new Bundle().put("url", "https://jf/{n}.jpg").put("width", 320));
+        final PlaylistRequest read = PlaylistRequest.read(new Bundle().put("items", new Parcelable[]{film}));
+        assertNull(read.items.get(0).trickplay);
+        assertEquals(1, read.warnings.size());
+        assertEquals("u", read.items.get(0).uri);
+    }
 }

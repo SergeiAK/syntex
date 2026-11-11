@@ -55,6 +55,25 @@ final class PlaylistRequest {
         /** Label to uri, in the order sent. Empty when the item has none. */
         final LinkedHashMap<String, String> qualities = new LinkedHashMap<>();
         final List<Subtitle> subtitles = new ArrayList<>();
+        /** A Jellyfin trickplay set by address; null when none was sent or it was unusable. */
+        TrickplaySet trickplay;
+    }
+
+    /**
+     * A trickplay set the caller knows the address of (a Jellyfin server, which streams the file, so no set
+     * can be found beside it): {@code url} with {@code {n}} for the sheet number from 0, the frame
+     * {@code width}, the grid {@code columns × rows}, {@code count} frames in all, one per {@code interval_ms};
+     * {@code headers} - name, value pairs sent with the sheet requests only (Jellyfin's token: its sheets need
+     * one, and a token kept out of the address stays out of the log).
+     */
+    static final class TrickplaySet {
+        String url;
+        String[] headers;
+        int width;
+        int columns;
+        int rows;
+        int count;
+        long intervalMs;
     }
 
     String title;
@@ -121,6 +140,7 @@ final class PlaylistRequest {
         item.episode = integer(bundle.get("episode"));
         item.segments = string(bundle, "segments");
         item.positionMs = time(bundle, "position");
+        item.trickplay = trickplay(bundle.get("trickplay"), path);
 
         String firstSelected = null;
         final List<Object> qualities = bundles(bundle.get("qualities"));
@@ -180,6 +200,38 @@ final class PlaylistRequest {
             }
         }
         return item;
+    }
+
+    /** The {@code trickplay} bundle, or null - with a warning when one was sent but cannot be used. */
+    private TrickplaySet trickplay(final Object value, final String path) {
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof Bundle)) {
+            warn(path + ": trickplay is not a Bundle; skipped");
+            return null;
+        }
+        final Bundle bundle = (Bundle) value;
+        final TrickplaySet set = new TrickplaySet();
+        set.url = string(bundle, "url");
+        set.headers = strings(bundle.get("headers"));
+        final Integer width = integer(bundle.get("width"));
+        final Integer columns = integer(bundle.get("columns"));
+        final Integer rows = integer(bundle.get("rows"));
+        final Integer count = integer(bundle.get("count"));
+        final Long interval = whole(bundle.get("interval_ms"));
+        if (set.url == null || !set.url.contains("{n}") || width == null || width <= 0 || columns == null
+                || columns <= 0 || rows == null || rows <= 0 || count == null || count <= 0
+                || interval == null || interval <= 0) {
+            warn(path + ": trickplay needs url with {n}, width, columns, rows, count and interval_ms; skipped");
+            return null;
+        }
+        set.width = width;
+        set.columns = columns;
+        set.rows = rows;
+        set.count = count;
+        set.intervalMs = interval;
+        return set;
     }
 
     private void fail(final String message) {

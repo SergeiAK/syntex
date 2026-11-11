@@ -21,6 +21,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * A Jellyfin trickplay set lying next to the video being played (see {@link TrickplayIndex}), and the
@@ -31,7 +34,8 @@ import java.io.InputStream;
  * each, and kept compressed — a decoded 3200×1320 sheet is 17 MB, a frame cut out of it 170 KB.
  *
  * <p>Places it is looked for: SMB and WebDAV (through the browser's own listings and reads) and files
- * on the device. A stream from elsewhere has no folder beside it.
+ * on the device. A stream from elsewhere has no folder beside it: there the caller may send the set by
+ * address in its playlist ({@link #sent}, Jellyfin's {@code /Videos/{id}/Trickplay/{width}/{n}.jpg}).
  */
 final class Trickplay {
 
@@ -52,10 +56,19 @@ final class Trickplay {
                 }
             };
 
+    /** Sent with every sheet request: a playlist's {@code trickplay.headers}; empty for a set beside the file. */
+    private final Map<String, String> headers;
+
     private Trickplay(final Context context, final TrickplayIndex index, final Uri[] sheets) {
+        this(context, index, sheets, Collections.emptyMap());
+    }
+
+    private Trickplay(final Context context, final TrickplayIndex index, final Uri[] sheets,
+                      final Map<String, String> headers) {
         this.context = context.getApplicationContext();
         this.index = index;
         this.sheets = sheets;
+        this.headers = headers;
     }
 
     /** True for the addresses a set can be looked for beside. */
@@ -112,6 +125,25 @@ final class Trickplay {
             Log.d(TAG, "no set for " + video + ": " + e);
             return null;
         }
+    }
+
+    /** The set a playlist sent by address: its sheets are {@code url} with the sheet number for {n}. */
+    static Trickplay sent(final Context context, final PlaylistRequest.TrickplaySet set) {
+        final TrickplayIndex index = TrickplayIndex.stated(set.width, set.columns, set.rows, set.count,
+                set.intervalMs);
+        final Uri[] sheets = new Uri[index.sheets];
+        for (int i = 0; i < sheets.length; i++) {
+            sheets[i] = Uri.parse(set.url.replace("{n}", Integer.toString(i)));
+        }
+        final Map<String, String> headers = new HashMap<>();
+        if (set.headers != null) {
+            for (int i = 0; i + 1 < set.headers.length; i += 2) {
+                headers.put(set.headers[i], set.headers[i + 1]);
+            }
+        }
+        Log.d(TAG, "sent " + set.width + " - " + set.columns + "x" + set.rows + ", " + sheets.length
+                + " sheets, " + set.intervalMs + " ms, " + headers.size() + " headers");
+        return new Trickplay(context, index, sheets, headers);
     }
 
     @Nullable
@@ -216,7 +248,7 @@ final class Trickplay {
         }
         final DataSource source = NetworkThumbs.sideFiles(context).createDataSource();
         try {
-            source.open(new DataSpec(uri));
+            source.open(new DataSpec.Builder().setUri(uri).setHttpRequestHeaders(headers).build());
             final ByteArrayOutputStream out = new ByteArrayOutputStream(1 << 20);
             final byte[] buffer = new byte[64 * 1024];
             int n;

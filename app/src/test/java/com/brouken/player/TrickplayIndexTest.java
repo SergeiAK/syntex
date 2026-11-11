@@ -90,4 +90,15 @@ public class TrickplayIndexTest {
         // A ten-minute file with 50 sheets would be a frame every 0.12 s: not this film's set.
         assertNull(TrickplayIndex.of("320 - 10x10", 50, 600_000));
     }
+
+    @Test
+    public void aStatedSetTakesItsLayoutAsSent() {
+        // Jellyfin's TrickplayInfo for "Anastasia": 565 frames 320 px, 10x10, every 10 s - six sheets.
+        final TrickplayIndex index = TrickplayIndex.stated(320, 10, 10, 565, 10_000);
+        assertEquals(6, index.sheets);
+        assertEquals(10_000, index.intervalMs);
+        assertArrayEquals(new int[] {5, 4, 6}, index.locate(5_640_000));
+        // A count filling its sheets exactly gives no empty one after them.
+        assertEquals(2, TrickplayIndex.stated(320, 10, 10, 200, 10_000).sheets);
+    }
 }

@@ -1327,6 +1327,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // index with apiMediaItems; apiSingleQuality holds the top-level map for a single (non-playlist) video.
     // Maps are empty when the sender supplied no quality variants.
     final List<LinkedHashMap<String, String>> apiPlaylistQuality = new ArrayList<>();
+    /** Each playlist item's trickplay set sent by address, null where none was. */
+    final List<PlaylistRequest.TrickplaySet> apiPlaylistTrickplay = new ArrayList<>();
     LinkedHashMap<String, String> apiSingleQuality = new LinkedHashMap<>();
     // Current manual choice — in-session only, never persisted.
     int selectedVideoQualityMode = VideoQualityChoice.MODE_AUTO;
@@ -4079,6 +4081,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         apiPlaylistImdbIds.clear();
         apiPlaylistTmdbIds.clear();
         apiPlaylistQuality.clear();
+        apiPlaylistTrickplay.clear();
         final int size = request.items.size();
         apiPlaylistPositions = new long[size];
         for (int i = 0; i < size; i++) {
@@ -4125,6 +4128,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             apiPlaylistImdbIds.add(item.imdbId);
             apiPlaylistTmdbIds.add(item.tmdbId);
             apiPlaylistQuality.add(sortedQualities(item.qualities));
+            apiPlaylistTrickplay.add(item.trickplay);
             // A jump to another item from the playlist panel starts where the caller says it was left.
             apiPlaylistPositions[i] = item.positionMs != null ? item.positionMs : C.TIME_UNSET;
         }
@@ -5229,6 +5233,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         apiPlaylistImdbIds.clear();
         apiPlaylistTmdbIds.clear();
         apiPlaylistQuality.clear();
+        apiPlaylistTrickplay.clear();
         apiSingleQuality = new LinkedHashMap<>();
         selectedVideoQualityMode = VideoQualityChoice.MODE_AUTO;
         selectedVideoTrackGroup = null;
@@ -6881,6 +6886,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         apiPlaylistImdbIds.clear();
         apiPlaylistTmdbIds.clear();
         apiPlaylistQuality.clear();
+        apiPlaylistTrickplay.clear();
         apiPlaylistStartIndex = 0;
         apiExtrasIndex = 0;
 
@@ -16942,6 +16948,13 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      */
     private void lookForTrickplay(@Nullable final Uri uri, final long durationMs) {
         releaseTrickplay();
+        // A set the playlist sent by address (a Jellyfin stream has no folder beside it): nothing to look for.
+        final PlaylistRequest.TrickplaySet sent = sentTrickplay();
+        if (sent != null) {
+            trickplayFor = uri;
+            trickplay = Trickplay.sent(getApplicationContext(), sent);
+            return;
+        }
         if (uri == null || durationMs <= 0 || !Trickplay.speaks(uri)) {
             return;
         }
@@ -16962,6 +16975,16 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }, "trickplay");
         worker.setDaemon(true);
         worker.start();
+    }
+
+    /** The trickplay set the playlist sent for the item now playing, or null. */
+    @Nullable
+    private PlaylistRequest.TrickplaySet sentTrickplay() {
+        if (player == null || apiPlaylistTrickplay.isEmpty()) {
+            return null;
+        }
+        final int index = player.getCurrentMediaItemIndex();
+        return index >= 0 && index < apiPlaylistTrickplay.size() ? apiPlaylistTrickplay.get(index) : null;
     }
 
     /** The position the card wants a frame for, or -1; a frame cut for any other is not shown. */

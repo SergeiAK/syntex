@@ -142,6 +142,14 @@ final class TrickplayIndex {
                 ? new TrickplayIndex(layout[0], layout[1], layout[2], sheets, estimate) : null;
     }
 
+    /** A set whose layout the caller stated (a playlist's {@code trickplay}): nothing left to guess. */
+    static TrickplayIndex stated(final int width, final int columns, final int rows, final int count,
+                                 final long intervalMs) {
+        final long perSheet = (long) columns * rows;
+        final int sheets = (int) ((count + perSheet - 1) / perSheet);
+        return new TrickplayIndex(width, columns, rows, sheets, intervalMs);
+    }
+
     int perSheet() {
         return columns * rows;
     }
