@@ -451,7 +451,7 @@
     <string name="stats_network">Network: %1$s</string>
     <string name="stats_stream">Stream: %1$s</string>
     <string name="stats_overall">Average bitrate: %1$s</string>
-    <string name="transfer_buffer">Buffer %1$d s</string>
+    <string name="transfer_buffer">Buffer %1$d s, %2$d%%</string>
     <string name="transfer_network_stream">Network %1$s Mbps for a %2$s stream</string>
     <string name="transfer_network">Network %1$s Mbps</string>
     <string name="transfer_stream">Stream %1$s Mbps</string>

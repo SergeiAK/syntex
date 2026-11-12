@@ -8685,7 +8685,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * On a local file this is always full, which is itself the answer.
      */
     private String bufferText() {
-        return getString(R.string.transfer_buffer, player.getTotalBufferedDuration() / 1000);
+        final long bufferedMs = player.getTotalBufferedDuration();
+        return getString(R.string.transfer_buffer, bufferedMs / 1000,
+                (int) Math.min(100, bufferedMs * 100 / bufferCeilingMs()));
     }
 
     /**

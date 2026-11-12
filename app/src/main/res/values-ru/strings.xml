@@ -344,7 +344,7 @@
     <string name="stats_network">Сеть: %1$s</string>
     <string name="stats_stream">Поток: %1$s</string>
     <string name="stats_overall">Средний битрейт: %1$s</string>
-    <string name="transfer_buffer">Буфер %1$d с</string>
+    <string name="transfer_buffer">Буфер %1$d с, %2$d%%</string>
     <string name="transfer_network_stream">Сеть %1$s Мбит/с при потоке %2$s</string>
     <string name="transfer_network">Сеть %1$s Мбит/с</string>
     <string name="transfer_stream">Поток %1$s Мбит/с</string>
