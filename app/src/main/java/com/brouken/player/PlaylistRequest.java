@@ -280,7 +280,11 @@ final class PlaylistRequest {
             return null;
         }
         final java.util.regex.Matcher m = REPEATED_NUMBER.matcher(name.trim());
-        if (m.matches() && (episode == null || Integer.parseInt(m.group(1)) == episode)) {
+        // A bare number is a repeat only of the episode number it equals. With no episode - a movie - it is
+        // the year Syntex HUB sends ("1966"), and only a worded "Серия 3" stays a repeat (HUB, 12.11.2026).
+        if (m.matches() && (episode == null
+                ? !m.group(0).matches("\\d+")
+                : Integer.parseInt(m.group(1)) == episode)) {
             return null;
         }
         return name;

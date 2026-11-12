@@ -2575,10 +2575,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // stats panel over the picture for it. It takes the pill's exact geometry (set with the insets, so
         // it follows the seek bar on every device) and yields to whichever pill wants that row — the room
         // on this side, Skip on the other, which a full-width line does reach under in portrait.
-        // Monospace, like the panel, so the digits stand still.
+        // The ordinary face with tabular figures: the digits still stand still from one second to the next,
+        // without monospace's letter-wide spaces that spread the line past the screen (user, 12.11.2026).
         transferView = new TextView(this);
         transferView.setTextColor(0xB3FFFFFF);
-        transferView.setTypeface(Typeface.MONOSPACE);
+        transferView.setFontFeatureSettings("tnum");
         transferView.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textInfo());
         // One row where it fits — landscape and TV — and three where it does not, which is a phone held
         // upright (updateTransfer gives each figure its own row there) and any screen where the Skip
@@ -8635,11 +8636,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         addField(fields, source);
         if (figures) {
             addField(fields, bufferText());
-            addField(fields, networkText());
-            final Format video = player.getVideoFormat();
-            if (video != null) {
-                addField(fields, bitrateText(video));
-            }
+            addField(fields, rateText(player.getVideoFormat()));
         }
         // Upright the three never fit across the screen, so they stop pretending to be one line and take
         // a row each. The separators go with the row they were separating: what tells two figures apart
@@ -8688,18 +8685,34 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * On a local file this is always full, which is itself the answer.
      */
     private String bufferText() {
-        final long bufferedMs = player.getTotalBufferedDuration();
-        return getString(R.string.stats_buffer, bufferedMs / 1000,
-                (int) Math.min(100, bufferedMs * 100 / bufferCeilingMs()));
+        return getString(R.string.transfer_buffer, player.getTotalBufferedDuration() / 1000);
     }
 
-    /** The measured network rate, or null before the first estimate lands. */
+    /**
+     * "Network 25 Mbps for an 11 stream": what arrives against what playing takes, in one field (user,
+     * 12.11.2026) - the unit once, and either half alone while the other is not known yet. The stream is
+     * the track's own bitrate, else the whole file over its duration.
+     */
     @Nullable
-    private String networkText() {
-        final long source = sourceBitrate();
-        return source > 0
-                ? getString(R.string.stats_network, getString(R.string.quality_bitrate, source / 1_000_000f))
-                : null;
+    private String rateText(@Nullable Format video) {
+        final long network = sourceBitrate();
+        float stream = 0;
+        if (video != null) {
+            stream = video.bitrate != Format.NO_VALUE ? video.bitrate / 1_000_000f : overallBitrate();
+        }
+        if (network > 0 && stream > 0) {
+            return getString(R.string.transfer_network_stream, mbps(network / 1_000_000f), mbps(stream));
+        }
+        if (network > 0) {
+            return getString(R.string.transfer_network, mbps(network / 1_000_000f));
+        }
+        return stream > 0 ? getString(R.string.transfer_stream, mbps(stream)) : null;
+    }
+
+    /** Whole megabits from 10 up, one decimal below: 25, 11, 4.5. */
+    private static String mbps(final float value) {
+        return value >= 10 ? String.valueOf(Math.round(value))
+                : String.format(Locale.getDefault(), "%.1f", value);
     }
 
     /**
@@ -8711,19 +8724,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return read > 0 ? read : bandwidthBitrate;
     }
 
-    /**
-     * The track's own bitrate where the container states one. Matroska and AVI carry none to read, so the
-     * whole file over its duration is all there is — labelled apart from Stream: it counts audio and
-     * subtitles in too. Null when neither is known.
-     */
-    @Nullable
-    private String bitrateText(Format video) {
-        if (video.bitrate != Format.NO_VALUE) {
-            return getString(R.string.stats_stream, getString(R.string.quality_bitrate, video.bitrate / 1_000_000f));
-        }
-        final float overall = overallBitrate();
-        return overall > 0 ? getString(R.string.stats_overall, getString(R.string.quality_bitrate, overall)) : null;
-    }
 
 
     /**

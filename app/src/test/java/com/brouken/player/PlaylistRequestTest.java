@@ -50,6 +50,10 @@ public class PlaylistRequestTest {
         assertEquals("Серия 4", PlaylistRequest.episodeName("Серия 4", 3));
         assertEquals("The Kingsroad", PlaylistRequest.episodeName("The Kingsroad", 2));
         assertEquals("1984", PlaylistRequest.episodeName("1984", 2));
+        // A movie: no episode, and the bare number is the year Syntex HUB sends.
+        assertEquals("1966", PlaylistRequest.episodeName("1966", null));
+        assertEquals("1966 · Цветная версия", PlaylistRequest.episodeName("1966 · Цветная версия", null));
+        assertNull(PlaylistRequest.episodeName("Серия 3", null));
     }
 
     @Test
