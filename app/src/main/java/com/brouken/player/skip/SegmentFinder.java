@@ -747,7 +747,12 @@ public final class SegmentFinder {
         for (Map.Entry<SkipSegment.Category, List<SkipSegment>> entry : said.entrySet()) {
             final SkipSegment theirs = found.remove(entry.getKey());
             if (theirs == null) {
-                out.addAll(entry.getValue());
+                for (SkipSegment seg : entry.getValue()) {
+                    if (seg.category == SkipSegment.Category.RECAP && swallowsIntro(seg, online)) {
+                        continue;
+                    }
+                    out.add(seg);
+                }
                 continue;
             }
             boolean agree = false;
@@ -768,6 +773,22 @@ public final class SegmentFinder {
         out.addAll(found.values());
         Collections.sort(out, (a, b) -> Double.compare(a.startSec, b.startSec));
         return out;
+    }
+
+    /**
+     * A recap the found intro starts inside: a recap comes before the intro, so this one is laid over the
+     * opening scene and the intro both - «American Dad» S5E7, 12.11.2026: Jellyfin's recap 0-67 around the
+     * lookup's intro 48-60, and no recap in the episode at all. Dropped, so the bar is not blue under the
+     * action and the intro gets its own prompt.
+     */
+    private static boolean swallowsIntro(SkipSegment recap, List<SkipSegment> online) {
+        for (SkipSegment seg : online) {
+            if (seg.category == SkipSegment.Category.INTRO
+                    && seg.startSec > recap.startSec && seg.startSec < recap.endSec) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---- Sources -----------------------------------------------------------------------------

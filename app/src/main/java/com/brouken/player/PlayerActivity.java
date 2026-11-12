@@ -21223,11 +21223,38 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final String picked = mPrefs.mediaUri == null ? null
                 : getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE)
                         .getString(SIDE_PICK_PREFIX + mPrefs.mediaUri, null);
+        boolean ownPick = false;
         for (final Uri uri : uris) {
             if (uri.getLastPathSegment() != null && uri.getLastPathSegment().equals(picked)) {
                 chosen = uri;
+                ownPick = true;
                 break;
             }
+        }
+        // "Forced only" holds for the files beside the media as for the tracks inside it: only one named
+        // forced goes up by itself (8 Women, 12.11: a full .rus.srt came on). The rest stay in the picker.
+        if (!ownPick && mPrefs.subtitleForcedOnly) {
+            Uri forced = null;
+            for (final Uri uri : uris) {
+                if (ForcedSubtitles.isForced(false, uri.getLastPathSegment())) {
+                    forced = uri;
+                    break;
+                }
+            }
+            if (forced == null) {
+                Utils.log("subtitles: forced only, " + uris.size() + " beside the file, none forced, none shown");
+                // A full one put up by an earlier guess, before this rule, is not the viewer's choice either.
+                if (mPrefs.subtitleUri != null && mPrefs.subtitleUri.getLastPathSegment() != null) {
+                    for (final Uri uri : uris) {
+                        if (mPrefs.subtitleUri.getLastPathSegment().equals(uri.getLastPathSegment())) {
+                            mPrefs.updateSubtitle(null);
+                            break;
+                        }
+                    }
+                }
+                return;
+            }
+            chosen = forced;
         }
         Utils.log("subtitles: " + uris.size() + " beside the file, showing " + chosen.getLastPathSegment());
         // Remembered either way: a player not built yet reads it when it is.

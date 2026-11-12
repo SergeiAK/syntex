@@ -44,6 +44,28 @@ public class LauncherSegmentsTest {
     }
 
     @Test
+    public void aRecapAroundTheFoundIntroIsDropped() {
+        // «American Dad» S5E7, 12.11.2026: Jellyfin's recap 0-67, the lookup's intro 48-60, no recap at all.
+        final List<SkipSegment> merged = SegmentFinder.mergeLauncher(
+                launcher("{\"skip\":[{\"start\":0,\"end\":67,\"type\":\"recap\"}]}"),
+                Arrays.asList(net(48, 60, SkipSegment.Category.INTRO, true),
+                        net(1097, 1298, SkipSegment.Category.CREDITS, false)));
+        assertEquals(2, merged.size());
+        assertEquals(SkipSegment.Category.INTRO, merged.get(0).category);
+        assertEquals(48, merged.get(0).startSec, 0.001);
+        assertEquals(SkipSegment.Category.CREDITS, merged.get(1).category);
+    }
+
+    @Test
+    public void aRecapBeforeTheFoundIntroStays() {
+        final List<SkipSegment> merged = SegmentFinder.mergeLauncher(
+                launcher("{\"skip\":[{\"start\":0,\"end\":40,\"type\":\"recap\"}]}"),
+                Arrays.asList(net(48, 60, SkipSegment.Category.INTRO, true)));
+        assertEquals(2, merged.size());
+        assertEquals(SkipSegment.Category.RECAP, merged.get(0).category);
+    }
+
+    @Test
     public void commercialGoesWithTheAds() {
         final List<SkipSegment> segments = launcher(
                 "{\"skip\":[{\"start\":600,\"end\":660,\"type\":\"commercial\"}]}");

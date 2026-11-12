@@ -73,7 +73,7 @@ final class PlaySource {
             return null;
         }
         final String scheme = uri.getScheme();
-        if (TorrFiles.speaks(uri)) {
+        if (TorrFiles.speaks(uri) || torrServerStream(uri)) {
             return context.getString(R.string.source_torrent);
         }
         if (SmbSessions.SCHEME.equals(scheme)) {
@@ -92,6 +92,25 @@ final class PlaySource {
             return context.getString(R.string.source_local);
         }
         return null;
+    }
+
+    /**
+     * A TorrServer address as LAMPA and the server's own M3U write it - {@code /stream/Name.mkv?link=...}
+     * or {@code /play/<hash>/<index>} - which is plain http and would otherwise read as "Online".
+     */
+    static boolean torrServerStream(@Nullable final Uri uri) {
+        if (uri == null || !("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))) {
+            return false;
+        }
+        final String path = uri.getPath();
+        if (path == null) {
+            return false;
+        }
+        if (path.contains("/stream/") || path.endsWith("/stream")) {
+            return uri.getQueryParameter("link") != null;
+        }
+        final int play = path.indexOf("/play/");
+        return play >= 0 && path.substring(play + 6).split("/").length >= 2;
     }
 
     /** The launching app's package: the referrer Android records for the start, when it records one. */

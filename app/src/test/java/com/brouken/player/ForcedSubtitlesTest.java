@@ -53,7 +53,9 @@ public class ForcedSubtitlesTest {
         assertEquals("eng", ForcedSubtitles.wantedLanguage("eng", list));
         // A dub the list does not name: full subtitles stay the answer.
         assertNull(ForcedSubtitles.wantedLanguage("fra", list));
-        assertNull(ForcedSubtitles.wantedLanguage(null, list));
+        // Audio of no known language is taken for the viewer's own dub, the first listed language.
+        assertEquals("rus", ForcedSubtitles.wantedLanguage(null, list));
+        assertNull(ForcedSubtitles.wantedLanguage(null, Collections.<String>emptyList()));
         assertNull(ForcedSubtitles.wantedLanguage("rus", Collections.<String>emptyList()));
     }
 }

@@ -55,10 +55,18 @@ final class ForcedSubtitles {
      * The language whose forced track should be shown, or null when the rule does not apply and the
      * ordinary choice stands.
      *
+     * <p>Audio of no known language counts as the first listed one: "forced only" is the setting of a
+     * viewer who watches in their own language, and the untagged track is nearly always that dub - the
+     * single audio of a KinoPub HLS stream through LAMPA has neither a language nor a name (V for
+     * Vendetta, 12.11). Reading it as foreign put the full subtitles on by language.
+     *
      * @param audioLanguage ISO 639-2 code of the audio being played, or null when unknown
      * @param preferred     the subtitle language list, ISO 639-2 codes
      */
     static String wantedLanguage(String audioLanguage, List<String> preferred) {
-        return audioLanguage != null && preferred.contains(audioLanguage) ? audioLanguage : null;
+        if (audioLanguage == null) {
+            return preferred.isEmpty() ? null : preferred.get(0);
+        }
+        return preferred.contains(audioLanguage) ? audioLanguage : null;
     }
 }
