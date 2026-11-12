@@ -6535,6 +6535,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final boolean stateChanged = skipPill != mode;
         skipPill = mode;
         final boolean appearing = buttonSkip.getVisibility() != View.VISIBLE;
+        if (stateChanged || appearing) {
+            // When the pill came and went is what a "it showed for a second" report needs (S5E7, 12.11).
+            Utils.log("skip pill: " + mode + " \"" + label + "\"" + (actionable ? "" : " notice")
+                    + " at " + pillPositionSec());
+        }
         buttonSkip.animate().cancel();
         if (stateChanged && !appearing) {
             // The same target changes its verb in place - "Don't skip" (refuse the jump) becomes "Go back"
@@ -6640,7 +6645,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     /** Takes the pill away whatever it is showing, cancelling its timer. */
+    private String pillPositionSec() {
+        return player == null ? "?" : String.format(java.util.Locale.US, "%.1f s", player.getCurrentPosition() / 1000.0);
+    }
+
     private void hideSkipPill() {
+        if (skipPill != SkipPill.NONE) {
+            Utils.log("skip pill: hidden at " + pillPositionSec());
+        }
         if (pillCountdownAnimator != null) {
             pillCountdownAnimator.cancel();
             pillCountdownAnimator = null;
@@ -11049,13 +11061,23 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * @return whether the first line was changed
      */
     private boolean selectForcedSubtitle() {
-        if (player == null || paintedSubtitleUri != null || mPrefs.subtitleTrackId != null
-                || mainLineDisabled()) {
+        if (player == null) {
+            return false;
+        }
+        if (paintedSubtitleUri != null || mPrefs.subtitleTrackId != null || mainLineDisabled()) {
+            if (mPrefs.subtitleForcedOnly) {
+                forcedSkipLog(paintedSubtitleUri != null ? "a file is painted"
+                        : mPrefs.subtitleTrackId != null ? "remembered track " + mPrefs.subtitleTrackId
+                        : "the line is off");
+            }
             return false;
         }
         final Tracks tracks = player.getCurrentTracks();
         final TrackSelectionOverride live = liveTextOverride(tracks);
         if (live != null && !live.trackIndices.isEmpty()) {
+            if (mPrefs.subtitleForcedOnly) {
+                forcedSkipLog("a track picked over the selector");
+            }
             return false;
         }
         final String language = forcedOnlyLanguage(tracks);
@@ -11109,6 +11131,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             return true;
         }
         if (live != null || shown == null) {
+            if (shown == null && live == null) {
+                forcedSkipLog("nothing shown yet");
+            }
             return false; // already empty, or nothing to take off
         }
         Utils.log("subtitles: forced only, audio=" + language + ", no forced track, line left empty");
@@ -11947,6 +11972,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 () -> {
                     disableSubtitles();
                     rememberSeriesPick(C.TRACK_TYPE_TEXT, null, 0);
+                    rememberHandText("#none");
                 }));
         for (final Uri fileOnly : filesOnly) {
             // addSubtitleTrack rather than paintSubtitle: it carries the already-on-screen guard, so
@@ -11997,6 +12023,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                         () -> {
                             applySubtitle(trackGroup, index);
                             rememberSeriesPick(C.TRACK_TYPE_TEXT, trackGroup, index);
+                            rememberHandText(format.id);
                             if (format.id != null) {
                                 rememberSidePick(Uri.parse(format.id));
                             }
@@ -17014,6 +17041,33 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         return systemVolume ? 1f : Math.min(playerVolume, 100f) / 100f;
     }
 
+    // The first line's track the viewer picked by hand in the menu, per media, so "forced only" can tell
+    // it from a guess that savePlayer kept as well. "#none" is subtitles switched off by hand.
+    private static final String HAND_TEXT_PREFIX = "handtext|";
+
+    private void rememberHandText(@Nullable final String id) {
+        if (mPrefs.mediaUri == null || id == null) {
+            return;
+        }
+        getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE).edit()
+                .putString(HAND_TEXT_PREFIX + mPrefs.mediaUri, id).apply();
+    }
+
+    // Why "forced only" stood aside, once per reason in a row: the rule runs on every track change.
+    private String forcedSkipLast;
+
+    private void forcedSkipLog(final String why) {
+        if (!why.equals(forcedSkipLast)) {
+            forcedSkipLast = why;
+            Utils.log("subtitles: forced only, stood aside: " + why);
+        }
+    }
+
+    private boolean isHandText(@Nullable final String id) {
+        return id != null && mPrefs.mediaUri != null && id.equals(getSharedPreferences(TRACK_MEMORY_PREFS,
+                MODE_PRIVATE).getString(HAND_TEXT_PREFIX + mPrefs.mediaUri, null));
+    }
+
     /**
      * The first line's choice as savePlayer keeps it. An empty line left by "forced subtitles only" - an
      * empty override on the track that was showing (selectForcedSubtitle) - is that rule's answer, not the
@@ -17025,6 +17079,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     @Nullable
     private String savedTextChoice() {
         final String text = getSelectedTrack(C.TRACK_TYPE_TEXT);
+        // Under "forced only" a full track on screen is kept for the file only when the viewer picked it:
+        // one put up by a guess - the language preference, an older build - came back on every open and
+        // kept the rule away for good (V for Vendetta through LAMPA, 12.11.2026).
+        if (mPrefs.subtitleForcedOnly && text != null && !"#none".equals(text) && !isHandText(text)) {
+            return null;
+        }
         if ("#none".equals(text) && !mainLineDisabled()) {
             final TrackSelectionOverride live = liveTextOverride(player.getCurrentTracks());
             if (live != null && live.trackIndices.isEmpty()) {
@@ -18328,7 +18388,20 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     // Fresh player: re-assert what the user had picked. Also under apiAccess — the ids are
                     // kept in memory there (Prefs is non-persistent) and cleared by updateMedia, so a
                     // launcher-driven session restores its own choice and not a previous clip's.
+                    // Under "forced only" a remembered full track the viewer did not pick is a guess kept
+                    // by an older build: not restored, and the rule decides again (savedTextChoice).
+                    boolean forcedAgain = false;
+                    if (mPrefs.subtitleForcedOnly && mPrefs.subtitleTrackId != null
+                            && !"#none".equals(mPrefs.subtitleTrackId) && !isHandText(mPrefs.subtitleTrackId)) {
+                        Utils.log("subtitles: forced only, remembered track " + mPrefs.subtitleTrackId
+                                + " was not picked by hand, not restored");
+                        mPrefs.subtitleTrackId = null;
+                        forcedAgain = true;
+                    }
                     setSelectedTracks(mPrefs.subtitleTrackId, mPrefs.audioTrackId);
+                    if (forcedAgain) {
+                        selectForcedSubtitle();
+                    }
                     restoreVideoQuality();
                 }
             } else if (state == Player.STATE_BUFFERING) {
