@@ -1415,7 +1415,8 @@ public class Utils {
     public static String stripUrlQuery(final String text) {
         if (text == null)
             return null;
-        return URL_QUERY.matcher(text).replaceAll("$1");
+        // Tokens written into the host or path (KinoPub) go too: a query is not the only place for them.
+        return UrlTokens.hide(URL_QUERY.matcher(text).replaceAll("$1"));
     }
 
     // Privacy-safe rendering of a media URI for crash/error reports: keeps scheme, host, port and path
