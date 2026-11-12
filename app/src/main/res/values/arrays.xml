@@ -180,13 +180,11 @@
     <item>@string/pref_control_focus_circle_large</item>
     <item>@string/pref_control_focus_square</item>
     <item>@string/pref_control_focus_circle_ring</item>
-    <item>@string/pref_control_focus_square_ring</item>
   </string-array>
   <string-array name="control_focus_values" translatable="false">
     <item>circle_large</item>
     <item>square</item>
     <item>circle_ring</item>
-    <item>square_ring</item>
   </string-array>
   <string-array name="hold_speed_entries">
     <item>@string/pref_hold_speed_adjust</item>

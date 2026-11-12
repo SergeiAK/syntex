@@ -17,9 +17,8 @@ enum ControlFocus {
     /** A 36dp square with 10dp corners, the shape most glyphs have. */
     SQUARE("square", 0),
     /** The 36dp disc and a thin ring around it across a gap, in a 44dp button. */
-    CIRCLE_RING("circle_ring", 4),
-    /** A 34dp square and a thin frame around it across a gap, in a 44dp button. */
-    SQUARE_RING("square_ring", 4);
+    CIRCLE_RING("circle_ring", 4);
+    // "Square and frame" was dropped (user, 12.11.2026); a stored square_ring falls back to the default.
 
     static final String PREF_KEY = "controlFocus";
 

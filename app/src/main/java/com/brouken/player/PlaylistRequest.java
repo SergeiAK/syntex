@@ -79,6 +79,8 @@ final class PlaylistRequest {
     }
 
     String title;
+    /** The caller's name for where the playlist comes from ("Kinopub", "Jellyfin"); null when not sent. */
+    String source;
     String logo;
     String background;
     int startIndex;
@@ -98,6 +100,7 @@ final class PlaylistRequest {
     static PlaylistRequest read(final Bundle playlist) {
         final PlaylistRequest request = new PlaylistRequest();
         request.title = string(playlist, "title");
+        request.source = string(playlist, "source");
         request.logo = string(playlist, "logo");
         request.background = string(playlist, "background");
         request.headers = strings(playlist.get("headers"));

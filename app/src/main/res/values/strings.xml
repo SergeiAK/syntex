@@ -213,7 +213,6 @@
     <string name="pref_control_focus_circle_large">Circle</string>
     <string name="pref_control_focus_square">Rounded square</string>
     <string name="pref_control_focus_circle_ring">Circle and ring</string>
-    <string name="pref_control_focus_square_ring">Square and frame</string>
     <string name="pref_active_mark">Active button mark</string>
     <string name="pref_active_mark_dot">Dot</string>
     <string name="pref_active_mark_dash">Dash</string>
@@ -834,4 +833,8 @@
     <string name="pref_sync_hub_summary">Not set. For example http://192.168.1.40:8790 — the hub keeps a copy for every device</string>
     <string name="pref_sync_folder_status_unreadable">Unreadable: %1$d.</string>
     <string name="pref_sync_part_failed">%1$s: failed: %2$s</string>
+    <string name="stats_l_source">Source</string>
+    <string name="source_torrent">Torrent</string>
+    <string name="source_online">Online</string>
+    <string name="source_local">On device</string>
 </resources>

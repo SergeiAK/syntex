@@ -1999,7 +1999,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
      * on the same path a shared link takes, and Back comes straight back here.
      */
     private void play(final Uri uri) {
-        startActivity(new Intent(Intent.ACTION_VIEW, uri).setClass(this, PlayerActivity.class));
+        startActivity(new Intent(Intent.ACTION_VIEW, uri).setClass(this, PlayerActivity.class)
+                .putExtra(PlayerActivity.EXTRA_FROM_BROWSER, true));
     }
 
     /**
@@ -3542,7 +3543,8 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         }
         Recents.record(this, file.getName(), file.getUri());
         startActivity(new Intent(Intent.ACTION_VIEW, file.getUri())
-                .setClass(this, PlayerActivity.class));
+                .setClass(this, PlayerActivity.class)
+                .putExtra(PlayerActivity.EXTRA_FROM_BROWSER, true));
     }
 
     /**

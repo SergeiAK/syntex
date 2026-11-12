@@ -144,7 +144,6 @@
     <string name="pref_control_focus_circle_large">Круг</string>
     <string name="pref_control_focus_square">Скруглённый квадрат</string>
     <string name="pref_control_focus_circle_ring">Круг и кольцо</string>
-    <string name="pref_control_focus_square_ring">Квадрат и рамка</string>
     <string name="pref_active_mark">Пометка включённой кнопки</string>
     <string name="pref_active_mark_dot">Точка</string>
     <string name="pref_active_mark_dash">Черта</string>
@@ -810,4 +809,8 @@
     <string name="pref_sync_hub_summary">Не задан. Например, http://192.168.1.40:8790 — hub хранит копию каждого устройства</string>
     <string name="pref_sync_folder_status_unreadable">Не прочитано: %1$d.</string>
     <string name="pref_sync_part_failed">%1$s: ошибка: %2$s</string>
+    <string name="stats_l_source">Источник</string>
+    <string name="source_torrent">Торрент</string>
+    <string name="source_online">Онлайн</string>
+    <string name="source_local">Локально</string>
 </resources>

@@ -850,6 +850,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * an empty player to be asked there, which is what "join opens a black screen" was.
      */
     static final String EXTRA_JOIN_CODE = "join_code";
+    /**
+     * Set by Syntex's own browser on what it hands over. Only those launches wear the header poster and
+     * its episode number: from LAMPA and other apps the frame and the grey number chip were noise the user
+     * asked to drop (12.11.2026).
+     */
+    static final String EXTRA_FROM_BROWSER = "from_browser";
     static final String EXTRA_JOIN_PASSWORD = "join_password";
     private static final int REQUEST_SETTINGS = 100;
     /** How long the controls stay up, from Settings (Prefs.controllerTimeout); 3500 until they load. */
@@ -877,6 +883,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     private String headerLogoShown;
     /** "Season 1 · Episode 3 · name", under the bold line, when a playlist item says which episode it is. */
     private TextView episodeLineView;
+    /** Where this comes from, small under the title: "Kinopub · Syntex HUB" (PlaySource). */
+    private TextView sourceLineView;
     private TextView videoInfoView;
     private TextView audioInfoView;
     private TextView endsAtView;
@@ -1261,6 +1269,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     boolean apiAccess;
     boolean apiAccessPartial;
     String apiTitle;
+    /** The caller's name for where this comes from (PlaySource); null when it sent none. */
+    String apiSource;
     Uri apiThumbnailUri;
     String apiSegments;
     String[] apiHeaders;
@@ -2039,7 +2049,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         buttonUpdate.setVisibility(View.GONE);
         // Tint the glyph, never the background: a background on these buttons swallows it. An offered update
         // is a control that is on, and wears the same coral every on state wears.
-        buttonUpdate.setSelected(true);
+        setClusterOn(buttonUpdate, true);
         buttonUpdate.setImageTintList(ContextCompat.getColorStateList(this, R.color.control_icon_tint));
         buttonUpdate.setOnClickListener(view -> {
             final UpdateInfo info = mPrefs.updatePending;
@@ -2217,6 +2227,19 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         episodeLineView.setTextDirection(View.TEXT_DIRECTION_LOCALE);
         episodeLineView.setVisibility(View.GONE);
         infoColumn.addView(episodeLineView);
+
+        sourceLineView = new TextView(this);
+        sourceLineView.setTextColor(ContextCompat.getColor(this, R.color.ink_tertiary));
+        sourceLineView.setTextSize(TypedValue.COMPLEX_UNIT_SP, ui.textInfo());
+        final LinearLayout.LayoutParams sourceLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sourceLp.topMargin = ui.dpS(2);
+        sourceLineView.setLayoutParams(sourceLp);
+        sourceLineView.setSingleLine(true);
+        sourceLineView.setEllipsize(TextUtils.TruncateAt.END);
+        sourceLineView.setTextDirection(View.TEXT_DIRECTION_LOCALE);
+        sourceLineView.setVisibility(View.GONE);
+        infoColumn.addView(sourceLineView);
 
         // Two meta lines: video (resolution · codec · HDR) and the audio track (label / codec / language).
         // The gaps are the design's, and they are what makes the text column as tall as the poster beside it,
@@ -3996,6 +4019,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 // which getString() would silently drop.
                 final CharSequence titleExtra = bundle.getCharSequence(API_TITLE);
                 apiTitle = Utils.unescapeHtml(titleExtra == null ? null : titleExtra.toString());
+                apiSource = bundle.getString(PlaySource.EXTRA_SOURCE);
                 final String thumbnail = bundle.getString(API_THUMBNAIL);
                 if (thumbnail != null) {
                     apiThumbnailUri = Uri.parse(thumbnail);
@@ -4078,6 +4102,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // Every playlist launch is answered; the caller reads it from the result or its callback.
         intentReturnResult = true;
         apiTitle = Utils.unescapeHtml(request.title);
+        apiSource = request.source;
         apiHeaders = request.headers;
         apiPlaylistResultCallback = request.resultCallback;
         apiPlaylistResumeMode = ResumePolicy.playlistMode(request.askResume);
@@ -5215,6 +5240,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // session inherits it and finish() reports a video watched to its end that the user just started.
         playbackFinished = false;
         apiTitle = null;
+        apiSource = null;
         apiThumbnailUri = null;
         apiSegments = null;
         apiHeaders = null;
@@ -7275,6 +7301,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         titleView.setText(series != null && episode != null ? series : currentTitle());
         episodeLineView.setText(episode);
         episodeLineView.setVisibility(series != null && episode != null ? View.VISIBLE : View.GONE);
+        final String sourceLine = playSource().line();
+        sourceLineView.setText(sourceLine);
+        sourceLineView.setVisibility(sourceLine != null ? View.VISIBLE : View.GONE);
         showHeaderLogo(headerExtra(metadata, HEADER_LOGO));
 
         Uri artworkUri = metadata != null ? metadata.artworkUri : null;
@@ -8502,6 +8531,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         sections.add(screen);
 
         final InfoCard.Section transfer = new InfoCard.Section(getString(R.string.stats_sec_buffer));
+        final String sourceRow = sourceDetails();
+        if (sourceRow != null) {
+            transfer.row(getString(R.string.stats_l_source), sourceRow);
+        }
         final long bufferedMs = player.getTotalBufferedDuration();
         final String buffer = getString(R.string.stats_v_buffer_of, bufferedMs / 1000, bufferCeilingMs() / 1000);
         // Stops for want of data, seeks and the first start left out: the line that says a wait was the
@@ -9128,6 +9161,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      *                every file on the device, none of which arrives with a poster
      */
     private void updatePoster(final Uri artwork, final Uri media, final int index, final int count) {
+        final Intent launch = getIntent();
+        if (launch == null || !launch.getBooleanExtra(EXTRA_FROM_BROWSER, false)) {
+            Glide.with(this).clear(posterView);
+            posterSlot.setVisibility(View.GONE);
+            return;
+        }
         final boolean isPlaylist = count > 1;
         final String number = String.valueOf(index + 1);
         posterBadgeView.setText(number);
@@ -10149,7 +10188,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         buttonQuality.setImageResource(video != null
                 ? QualityIcon.of(video.width, video.height) : R.drawable.ic_high_quality_24dp);
         // Light the icon coral when a specific quality is pinned (anything other than Auto).
-        buttonQuality.setSelected(selectedVideoQualityMode != VideoQualityChoice.MODE_AUTO);
+        setClusterOn(buttonQuality, selectedVideoQualityMode != VideoQualityChoice.MODE_AUTO);
     }
 
     private String qualityChoiceTitle(VideoQualityChoice choice) {
@@ -10598,7 +10637,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // working button that still looks dead. The deferred post() this runs from gives us last word.
         Utils.setButtonEnabled(this, exoSubtitle, hasSubtitles);
         // Light the CC icon coral while either line is actually showing something.
-        exoSubtitle.setSelected(textSelected);
+        setClusterOn(exoSubtitle, textSelected);
         // The header names the subtitles on screen, and this is where a change of them lands.
         updateMediaInfo();
     }
@@ -13735,11 +13774,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // and an inset mark's padding is its inset. Before 3.3 that inset, 2dp, was all the glyph had around
         // it - the reason the wide ones filled the disc - and with a bigger mark the glyph grew with it
         // (Shield, 11.11.2026). The glyph keeps that pre-3.3 size whatever the mark; only the mark grows.
-        final int glyphPad = ui.dpS(2) + focusPx(focus.extraDp / 2f);
-        // Every glyph in the row a little higher, the room under it the active mark's: glyph and mark
-        // centre in the focus shape together, and the row stays level whichever buttons are on.
-        final int raise = focusPx(ActiveMark.GLYPH_RAISE_DP);
-        button.setPadding(glyphPad, glyphPad - raise, glyphPad, glyphPad + raise);
+        placeClusterGlyph(button);
         // The press is the mark's shape too: a square wash over a round focus mark flashed a square for
         // the half second of every press (seen on the Dune, 23.10.2026).
         final Drawable press = Utils.coveringRipple(
@@ -13752,6 +13787,26 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 clusterBox(), clusterBox());
         params.gravity = Gravity.CENTER_VERTICAL;
         button.setLayoutParams(params);
+    }
+
+    /**
+     * Centres the glyph in the focus shape, or - while the button is on and wears the active mark under
+     * it - raises it a little, so glyph and mark centre together. Raising every glyph in the row left the
+     * ones with no mark visibly high in the circle (Dune, 12.11.2026).
+     */
+    private void placeClusterGlyph(final ImageButton button) {
+        final int glyphPad = ui.dpS(2) + focusPx(controlFocus().extraDp / 2f);
+        final int raise = button.isSelected() ? focusPx(ActiveMark.GLYPH_RAISE_DP) : 0;
+        button.setPadding(glyphPad, glyphPad - raise, glyphPad, glyphPad + raise);
+    }
+
+    /** Turns a control-row button's "on" state, and with it the glyph's place over the mark. */
+    private void setClusterOn(@Nullable final ImageButton button, final boolean on) {
+        if (button == null) {
+            return;
+        }
+        button.setSelected(on);
+        placeClusterGlyph(button);
     }
 
     /**
@@ -13783,6 +13838,29 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         layer.setLayerSize(0, w, h);
         layer.setLayerInsetTop(0, clusterBox() / 2 + focusPx(ActiveMark.MARK_BELOW_CENTRE_DP) - h / 2);
         return layer;
+    }
+
+    private PlaySource playSource() {
+        return PlaySource.of(this, getIntent(), apiSource, currentMediaUri());
+    }
+
+    /** The statistics card's source row: the header's line, the launching app's package and the host. */
+    @Nullable
+    private String sourceDetails() {
+        final PlaySource source = playSource();
+        final List<String> parts = new ArrayList<>();
+        final String line = source.line();
+        if (line != null) {
+            parts.add(line);
+        }
+        if (source.appPackage != null) {
+            parts.add(source.appPackage);
+        }
+        final Uri uri = currentMediaUri();
+        if (uri != null && uri.getHost() != null && !uri.getHost().isEmpty()) {
+            parts.add(uri.getPort() > 0 ? uri.getHost() + ":" + uri.getPort() : uri.getHost());
+        }
+        return parts.isEmpty() ? null : TextUtils.join(" · ", parts);
     }
 
     private ControlFocus controlFocus() {
@@ -13830,14 +13908,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 return stacked(
                         new InsetDrawable(Utils.shape(FOCUS_WHITE, Utils.CIRCLE), focusPx(4)),
                         new InsetDrawable(ring, focusPx(0.5f)));
-            }
-            case SQUARE_RING: {
-                final GradientDrawable frame = new GradientDrawable();
-                frame.setCornerRadius(focusPx(12.5f));
-                frame.setStroke(focusPx(1.5f), FOCUS_WHITE);
-                return stacked(
-                        new InsetDrawable(Utils.shape(FOCUS_WHITE, focusPx(9)), focusPx(5)),
-                        new InsetDrawable(frame, focusPx(0.5f)));
             }
             case CIRCLE_LARGE:
             default:
@@ -13948,6 +14018,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     private boolean nextEpisodeDeclined;
     /** The last press or touch, for the card's pass-out protection. */
     private long lastInputAtMs = SystemClock.uptimeMillis();
+    /**
+     * When the playlist stepped to another item with the controls down, else 0. While the new item loads
+     * (and through an AFR switch) it stands paused, Media3 shows the controls for a paused player, and
+     * with "Keep the panel on pause" nothing put them away again: the new episode started under a panel
+     * nobody had asked for (user, 12.11.2026). The first play after the step puts them back down - unless
+     * a key was pressed since, which makes them the viewer's.
+     */
+    private long steppedHiddenAtMs;
 
     @Override
     public void onUserInteraction() {
@@ -17794,6 +17872,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
         @Override
         public void onMediaItemTransition(MediaItem mediaItem, int reason) {
+            steppedHiddenAtMs = controllerVisibleFully ? 0 : SystemClock.uptimeMillis();
             if (nextEpisodeCard != null) {
                 nextEpisodeCard.dismiss();
                 nextEpisodeCard = null;
@@ -18032,6 +18111,16 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         public void onIsPlayingChanged(boolean isPlaying) {
             Utils.log("playing=" + isPlaying + (player != null ? " playWhenReady=" + player.getPlayWhenReady()
                     + " state=" + stateName(player.getPlaybackState()) : ""));
+            if (isPlaying && steppedHiddenAtMs != 0) {
+                // The press that made the step (its key-up lands just after) is not one that asked for them.
+                final boolean asked = lastInputAtMs > steppedHiddenAtMs + 700;
+                steppedHiddenAtMs = 0;
+                if (!asked && controllerVisibleFully && !locked && !pickerDialogOpen) {
+                    Utils.log("controls: down after the step to the next item");
+                    // Posted: the timeout set further down re-shows a panel that is still fully up.
+                    playerView.post(playerView::hideController);
+                }
+            }
             // Subtitles are painted off the media position, which only moves while this is true.
             if (subtitleOffset != null) {
                 subtitleOffset.wake();
