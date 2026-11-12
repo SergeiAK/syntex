@@ -7313,9 +7313,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         titleView.setText(series != null && episode != null ? series : currentTitle());
         episodeLineView.setText(episode);
         episodeLineView.setVisibility(series != null && episode != null ? View.VISIBLE : View.GONE);
-        final String sourceLine = playSource().line();
-        sourceLineView.setText(sourceLine);
-        sourceLineView.setVisibility(sourceLine != null ? View.VISIBLE : View.GONE);
+        // The source moved to the transfer line, first field (user's call, 12.11.2026): the header is kept
+        // for the title, poster and the video/audio lines it used to crowd.
+        sourceLineView.setVisibility(View.GONE);
         showHeaderLogo(headerExtra(metadata, HEADER_LOGO));
 
         Uri artworkUri = metadata != null ? metadata.artworkUri : null;
@@ -8618,25 +8618,37 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             transferView.setVisibility(View.GONE);
             return;
         }
-        if (!transferLineWanted() || player == null || !controllerChromeVisible || inPip
+        if (player == null || !controllerChromeVisible || inPip
                 || (!isTvBox && isVisible(roomPill))) {
             fadeChrome(transferView, false);
             return;
         }
+        // Where the video comes from leads the line whenever it is known: for a file on a share or on the
+        // box, where the figures are left out, it is the line on its own.
+        final String source = playSource().line();
+        final boolean figures = transferLineWanted();
+        if (!figures && source == null) {
+            fadeChrome(transferView, false);
+            return;
+        }
         final List<String> fields = new ArrayList<>();
-        addField(fields, bufferText());
-        addField(fields, networkText());
-        final Format video = player.getVideoFormat();
-        if (video != null) {
-            addField(fields, bitrateText(video));
+        addField(fields, source);
+        if (figures) {
+            addField(fields, bufferText());
+            addField(fields, networkText());
+            final Format video = player.getVideoFormat();
+            if (video != null) {
+                addField(fields, bitrateText(video));
+            }
         }
         // Upright the three never fit across the screen, so they stop pretending to be one line and take
         // a row each. The separators go with the row they were separating: what tells two figures apart
         // there is the line break, and a dot at the end of every row is only clutter.
         final boolean portrait =
                 getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
-        // TV: bars between the figures, which stand apart better than dots in a monospaced line on the plate.
-        transferView.setText(TextUtils.join(portrait ? "\n" : isTvBox ? "  |  " : " · ", fields));
+        // One dot between fields everywhere: the TV's spaced bars spread three figures over half the screen
+        // (user, 12.11.2026), and with the source in front the line has to stay compact.
+        transferView.setText(TextUtils.join(portrait ? "\n" : " · ", fields));
         // Stop short of the Skip pill rather than step aside for it: the pill stands for a whole opening
         // or a whole set of credits, and the figures would be gone for all of it. The pill's own width is
         // the only thing that has to be read, and it is read on the tick that is running anyway.
