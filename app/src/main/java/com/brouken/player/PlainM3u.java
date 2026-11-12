@@ -63,7 +63,7 @@ final class PlainM3u {
     @Nullable
     static List<Entry> parse(final String text, final String base) {
         String body = text;
-        if (body.startsWith("﻿")) {
+        if (body.startsWith("\uFEFF")) {
             body = body.substring(1);
         }
         if (!body.trim().startsWith("#EXTM3U") || body.contains("#EXT-X-")) {

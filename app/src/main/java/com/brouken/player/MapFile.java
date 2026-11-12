@@ -1,5 +1,7 @@
 package com.brouken.player;
 
+import android.annotation.SuppressLint;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -88,6 +90,8 @@ final class MapFile {
      * reached when that failed for good reason, and fails the same. java.nio.file is API 26: on the
      * Android 7 boxes it is not there at all, which is a failed write and not a crash.
      */
+    // API 26, behind the LinkageError catch below - lint cannot see that guard
+    @SuppressLint("NewApi")
     private static boolean replace(final File from, final File to) {
         try {
             java.nio.file.Files.move(from.toPath(), to.toPath(),
