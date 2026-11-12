@@ -14,7 +14,7 @@ final class UrlTokens {
 
     static final String MARK = "<token>";
 
-    private static final Pattern URL = Pattern.compile("(?:https?|rtsps?)://[^\s,)}\]\"']+");
+    private static final Pattern URL = Pattern.compile("(?:https?|rtsps?)://[^\\s,)}\\]\"']+");
     private static final Pattern RUN = Pattern.compile("[A-Za-z0-9_=-]{24,}");
     private static final Pattern LETTER = Pattern.compile("[A-Za-z]");
     private static final Pattern DIGIT = Pattern.compile("[0-9]");
