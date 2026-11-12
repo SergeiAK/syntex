@@ -10976,6 +10976,15 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         if (bestGroup == null) {
             return false;
         }
+        // "Forced only" holds for a track known by its name as for one tagged: only a forced one goes up
+        // by itself. V for Vendetta through LAMPA, 12.11.2026: KinoPub's subtitles come untagged, labelled
+        // "rus", and this put the full one on over the rule - which then stood aside for a track picked.
+        if (!ForcedSubtitles.isForced(bestForced, trackName(bestGroup.getFormat(bestIndex)))
+                && forcedOnlyLanguage(tracks) != null) {
+            Utils.log("subtitles: forced only, the full track named " + trackName(bestGroup.getFormat(bestIndex))
+                    + " not put on by its name");
+            return false;
+        }
         applySubtitle(bestGroup, bestIndex);
         return true;
     }
