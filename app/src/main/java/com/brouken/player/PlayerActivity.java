@@ -3209,6 +3209,21 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 final boolean wasVisibleFully = controllerVisibleFully;
                 controllerVisible = visibility == View.VISIBLE;
                 controllerVisibleFully = playerView.isControllerFullyVisible();
+                // Up after a step taken with the controls down, with no key since: Media3's own, for the
+                // paused moment between the step and the play (or the load, or the display mode's hold).
+                // Caught as it comes up rather than at the first play: the show is animated, and the play
+                // came while it was still under way - "not fully visible" - so it stayed (Shield log,
+                // 14.11.2026: "panel down, from the card", then the panel up for good).
+                if (controllerVisible && !wasVisible && steppedHiddenAtMs != 0) {
+                    final boolean asked = lastInputAtMs > steppedHiddenAtMs + 700;
+                    final boolean stale = SystemClock.uptimeMillis() - steppedHiddenAtMs > 30_000;
+                    if (asked || stale) {
+                        steppedHiddenAtMs = 0;
+                    } else if (!locked && !pickerDialogOpen) {
+                        Utils.log("controls: down, raised by the step to the next item");
+                        playerView.post(playerView::hideController);
+                    }
+                }
                 // Not under the resume question. askResume hides the controls, but on ⏭ in the panel
                 // the press that started the jump brings them back after it (Shield, 25.10: header,
                 // buttons and the bar under the question, "From the start" over ⏮).
@@ -14076,6 +14091,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * a key was pressed since, which makes them the viewer's.
      */
     private long steppedHiddenAtMs;
+    /** The step was the card's Watch (pressed or counted down): see watchNextEpisode. */
+    private boolean steppedFromCard;
 
     @Override
     public void onUserInteraction() {
@@ -14187,6 +14204,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         clearSkipUndo();
         steppedBySkip = true;
+        // A panel up at this point is Media3's, raised by the end-of-item pause under the card, never one
+        // the viewer asked for: the step is taken as one with the controls down.
+        steppedFromCard = true;
+        playerView.hideController();
         player.seekToNextMediaItem();
         player.play();
     }
@@ -17955,7 +17976,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
         @Override
         public void onMediaItemTransition(MediaItem mediaItem, int reason) {
-            steppedHiddenAtMs = controllerVisibleFully ? 0 : SystemClock.uptimeMillis();
+            steppedHiddenAtMs = controllerVisibleFully && !steppedFromCard ? 0 : SystemClock.uptimeMillis();
+            Utils.log("controls: step to item " + player.getCurrentMediaItemIndex() + ", panel "
+                    + (controllerVisibleFully ? "up" : "down") + (steppedFromCard ? ", from the card" : ""));
+            steppedFromCard = false;
             if (nextEpisodeCard != null) {
                 nextEpisodeCard.dismiss();
                 nextEpisodeCard = null;
@@ -18175,6 +18199,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM
                     && mPrefs.nextEpisodeAsk && player.hasNextMediaItem()) {
                 onNextEpisodeEnd();
+                // Media3 raises the panel for any paused player, this pause too: under the card it went
+                // unseen, and the step that followed carried it into the next episode (user, 14.11.2026).
+                if (nextEpisodeCard != null && nextEpisodeCard.isShowing()) {
+                    playerView.post(playerView::hideController);
+                }
             }
             // Whatever was posted would now run against a paused player, which is the one thing to avoid.
             playerView.removeCallbacks(passthroughRestartRunnable);
@@ -18197,8 +18226,14 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             if (isPlaying && steppedHiddenAtMs != 0) {
                 // The press that made the step (its key-up lands just after) is not one that asked for them.
                 final boolean asked = lastInputAtMs > steppedHiddenAtMs + 700;
-                steppedHiddenAtMs = 0;
-                if (!asked && controllerVisibleFully && !locked && !pickerDialogOpen) {
+                // Kept while the panel is still down: the first play can come before the pause that
+                // raises it (the load, the display mode's hold), and spending the mark there left the
+                // panel up after an automatic step (user, 14.11.2026). A key, or 30 s, ends it.
+                final boolean stale = SystemClock.uptimeMillis() - steppedHiddenAtMs > 30_000;
+                if (asked || stale || controllerVisibleFully) {
+                    steppedHiddenAtMs = 0;
+                }
+                if (!asked && !stale && controllerVisibleFully && !locked && !pickerDialogOpen) {
                     Utils.log("controls: down after the step to the next item");
                     // Posted: the timeout set further down re-shows a panel that is still fully up.
                     playerView.post(playerView::hideController);
