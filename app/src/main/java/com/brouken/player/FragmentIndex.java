@@ -2,6 +2,8 @@ package com.brouken.player;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /**
  * The fragments of a fragmented MP4 that carries no index of its own — no {@code sidx}, no
@@ -23,10 +25,12 @@ final class FragmentIndex {
 
     final long[] offsets;
     final long[] timesUs;
+    final boolean complete;
 
-    private FragmentIndex(long[] offsets, long[] timesUs) {
+    private FragmentIndex(long[] offsets, long[] timesUs, boolean complete) {
         this.offsets = offsets;
         this.timesUs = timesUs;
+        this.complete = complete;
     }
 
     int size() {
@@ -45,7 +49,14 @@ final class FragmentIndex {
      * @return null when the file is not one of these: not an MP4 at the start, no {@code moov} with a
      *         track, or no fragment found.
      */
-    static FragmentIndex scan(final Reader reader, final long length, final java.util.function.BooleanSupplier cancelled)
+    static FragmentIndex scan(final Reader reader, final long length, final BooleanSupplier cancelled)
+            throws IOException {
+        return scan(reader, length, cancelled, -1, null);
+    }
+
+    /** Optionally publishes one snapshot, once the index reaches the startup seek target. */
+    static FragmentIndex scan(final Reader reader, final long length, final BooleanSupplier cancelled,
+                              final long readyAtUs, Consumer<FragmentIndex> onCovered)
             throws IOException {
         long position = 0;
         long timescale = 0;
@@ -116,6 +127,12 @@ final class FragmentIndex {
                     times[count] = decode * 1_000_000L / timescale;
                     count++;
                     otherSince = -1;
+                    if (onCovered != null && times[count - 1] >= readyAtUs
+                            && !cancelled.getAsBoolean()) {
+                        onCovered.accept(new FragmentIndex(Arrays.copyOf(offs, count),
+                                Arrays.copyOf(times, count), false));
+                        onCovered = null;
+                    }
                 }
                 // The mdat after it, when its header came in with the window: on to the box after that.
                 if (size + 16 <= got && u32(buffer, (int) size + 4) == MDAT) {
@@ -134,7 +151,8 @@ final class FragmentIndex {
         if (!sawFtyp || count == 0 || timescale == 0) {
             return null;
         }
-        return new FragmentIndex(Arrays.copyOf(offs, count), Arrays.copyOf(times, count));
+        return new FragmentIndex(Arrays.copyOf(offs, count), Arrays.copyOf(times, count),
+                position <= length && length - position < 8 && !cancelled.getAsBoolean());
     }
 
     /**

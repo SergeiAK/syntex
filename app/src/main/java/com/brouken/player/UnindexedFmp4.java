@@ -1,5 +1,6 @@
 package com.brouken.player;
 
+import android.content.Context;
 import android.net.Uri;
 
 import androidx.media3.common.C;
@@ -37,19 +38,28 @@ import java.util.Map;
  */
 final class UnindexedFmp4 extends ForwardingExtractor {
 
+    private final Context context;
     private final Uri uri;
     private final DataSource.Factory source;
+    private final long resumePositionUs;
+    private final Object seekMapLock = new Object();
 
     private ExtractorOutput output;
     private volatile boolean released;
     private boolean wantsIndex;
-    private long durationUs = C.TIME_UNSET;
     private boolean started;
+    private long inputLength = C.LENGTH_UNSET;
+    private boolean nativeIndex;
+    private boolean earlyIndexPublished;
+    private SeekMap unseekableMap;
 
-    UnindexedFmp4(Extractor delegate, Uri uri, DataSource.Factory source) {
+    UnindexedFmp4(Extractor delegate, Context context, Uri uri, DataSource.Factory source,
+                  long resumePositionUs) {
         super(delegate);
+        this.context = context;
         this.uri = uri;
         this.source = source;
+        this.resumePositionUs = resumePositionUs;
     }
 
     @Override
@@ -68,10 +78,20 @@ final class UnindexedFmp4 extends ForwardingExtractor {
 
             @Override
             public void seekMap(SeekMap seekMap) {
-                output.seekMap(lengthened(seekMap));
-                if (!seekMap.isSeekable()) {
-                    wantsIndex = true;
-                    durationUs = seekMap.getDurationUs();
+                synchronized (seekMapLock) {
+                    if (seekMap.isSeekable()) {
+                        nativeIndex = true;
+                        wantsIndex = false;
+                    } else {
+                        wantsIndex = true;
+                        unseekableMap = seekMap;
+                        // Media3 prepares with the first map it sees. Do not hand it an unseekable
+                        // map that would discard the nonzero start before our index is ready.
+                        if (resumePositionUs > 0 && inputLength != C.LENGTH_UNSET && !nativeIndex) {
+                            return;
+                        }
+                    }
+                    output.seekMap(lengthened(seekMap));
                 }
             }
         });
@@ -107,10 +127,11 @@ final class UnindexedFmp4 extends ForwardingExtractor {
 
     @Override
     public int read(ExtractorInput input, PositionHolder seekPosition) throws IOException {
+        inputLength = input.getLength();
         final int result = super.read(input, seekPosition);
-        if (wantsIndex && !started && input.getLength() != C.LENGTH_UNSET) {
+        if (wantsIndex && !started && inputLength != C.LENGTH_UNSET) {
             started = true;
-            startScan(input.getLength());
+            startScan(inputLength, unseekableMap);
         }
         return result;
     }
@@ -121,33 +142,111 @@ final class UnindexedFmp4 extends ForwardingExtractor {
         super.release();
     }
 
-    private void startScan(final long length) {
+    private void startScan(final long length, final SeekMap originalMap) {
+        if (resumePositionUs > 0) {
+            Utils.log("fmp4 index: waiting before starting at the saved position");
+        }
         final Thread thread = new Thread(() -> {
             final long began = System.nanoTime();
             final FragmentIndex index;
             try {
-                index = FragmentIndex.scan(this::readAt, length, () -> released);
+                index = "smb".equalsIgnoreCase(uri.getScheme())
+                        ? scanSmb(length, originalMap.getDurationUs(), began)
+                        : FragmentIndex.scan(this::readAt, length, () -> released);
             } catch (IOException | RuntimeException e) {
                 Utils.log("fmp4 index: scan failed, " + e);
+                publishScan(null, originalMap, began);
                 return;
             }
-            if (released) {
-                return;
-            }
-            if (index == null) {
-                Utils.log("fmp4 index: no fragments found");
-                return;
-            }
-            Utils.log("fmp4 index: " + index.size() + " fragments in "
-                    + (System.nanoTime() - began) / 1_000_000 + " ms, seekable");
-            output.seekMap(new IndexSeekMap(index, durationUs));
+            publishScan(index, originalMap, began);
         }, "Fmp4Index");
         thread.setDaemon(true);
         thread.setPriority(Thread.MIN_PRIORITY);
         thread.start();
     }
 
-    /** One positioned read, through the same source the player reads from: credentials and all. */
+    private void publishScan(FragmentIndex index, SeekMap originalMap, long began) {
+        synchronized (seekMapLock) {
+            if (released || nativeIndex) {
+                return;
+            }
+            if (index == null) {
+                Utils.log("fmp4 index: no fragments found");
+            }
+            if (resumePositionUs > 0 && (index == null || !index.complete)) {
+                if (earlyIndexPublished) {
+                    Utils.log("fmp4 index: incomplete, keeping the startup seek map");
+                } else {
+                    Utils.log("fmp4 index: incomplete, opening without the saved position");
+                    output.seekMap(originalMap);
+                }
+            } else if (index != null) {
+                Utils.log("fmp4 index: " + index.size() + " fragments in "
+                        + (System.nanoTime() - began) / 1_000_000 + " ms, seekable");
+                output.seekMap(new IndexSeekMap(index, originalMap.getDurationUs()));
+            }
+        }
+    }
+
+    private void publishResumeIndex(FragmentIndex index, long durationUs, long began) {
+        synchronized (seekMapLock) {
+            if (released || nativeIndex) {
+                return;
+            }
+            earlyIndexPublished = true;
+            Utils.log("fmp4 index: saved position " + resumePositionUs / 1000 + " ms covered by "
+                    + index.size() + " fragments in " + (System.nanoTime() - began) / 1_000_000
+                    + " ms, still scanning");
+            output.seekMap(new IndexSeekMap(index, durationUs));
+        }
+    }
+
+    /** Keep one SMB handle for the scan; each box needs only its own positioned read. */
+    private FragmentIndex scanSmb(long length, long durationUs, long began) throws IOException {
+        if (released) {
+            return null;
+        }
+        final com.hierynomus.smbj.share.File file = SmbSessions.open(context, uri);
+        // A partial map must not shorten the apparent duration: the resume policy uses it to
+        // distinguish a real saved position from a film already watched to the end.
+        final boolean early = resumePositionUs > 0 && resumePositionUs < durationUs;
+        try {
+            return FragmentIndex.scan((position, into, size) -> {
+                try {
+                    return readSmbFully(file::read, position, into, size);
+                } catch (RuntimeException e) {
+                    SmbSessions.readFailed(file, e);
+                    throw e;
+                }
+            }, length, () -> released, resumePositionUs,
+                    early ? index -> publishResumeIndex(index, durationUs, began) : null);
+        } finally {
+            try {
+                file.close();
+            } catch (Exception ignored) {
+                // A failed connection may already have closed the handle.
+            }
+        }
+    }
+
+    @FunctionalInterface
+    interface SmbRead {
+        int read(byte[] buffer, long position, int offset, int length);
+    }
+
+    static int readSmbFully(SmbRead read, long position, byte[] buffer, int length) {
+        int total = 0;
+        while (total < length) {
+            final int count = read.read(buffer, position + total, total, length - total);
+            if (count <= 0) {
+                break;
+            }
+            total += count;
+        }
+        return total;
+    }
+
+    /** One positioned read for other sources, through the same source the player reads from. */
     private int readAt(long position, byte[] into, int length) throws IOException {
         final DataSource dataSource = source.createDataSource();
         try {
@@ -196,6 +295,8 @@ final class UnindexedFmp4 extends ForwardingExtractor {
 
         @Override
         public SeekPoints getSeekPoints(long timeUs) {
+            // On the startup snapshot a request beyond its coverage starts reading at the last
+            // known moof. Media3 still passes the original target to the extractor and sample queues.
             final int i = index.indexFor(timeUs);
             return new SeekPoints(new SeekPoint(index.timesUs[i], index.offsets[i]));
         }
@@ -203,11 +304,18 @@ final class UnindexedFmp4 extends ForwardingExtractor {
 
     static final class Factory extends ForwardingExtractorsFactory {
 
+        private final Context context;
         private final DataSource.Factory source;
+        private final Uri resumeUri;
+        private final long resumePositionUs;
 
-        Factory(ExtractorsFactory factory, DataSource.Factory source) {
+        Factory(Context context, ExtractorsFactory factory, DataSource.Factory source, Uri resumeUri,
+                long resumePositionUs) {
             super(factory);
+            this.context = context.getApplicationContext();
             this.source = source;
+            this.resumeUri = resumeUri;
+            this.resumePositionUs = resumePositionUs;
         }
 
         @Override
@@ -215,7 +323,8 @@ final class UnindexedFmp4 extends ForwardingExtractor {
             final Extractor[] extractors = super.createExtractors(uri, responseHeaders);
             for (int i = 0; i < extractors.length; i++) {
                 if (extractors[i].getUnderlyingImplementation() instanceof FragmentedMp4Extractor) {
-                    extractors[i] = new UnindexedFmp4(extractors[i], uri, source);
+                    extractors[i] = new UnindexedFmp4(extractors[i], context, uri, source,
+                            uri.equals(resumeUri) ? resumePositionUs : 0);
                 }
             }
             return extractors;

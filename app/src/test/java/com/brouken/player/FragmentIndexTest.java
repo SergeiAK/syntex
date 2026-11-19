@@ -1,5 +1,6 @@
 package com.brouken.player;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -38,6 +39,47 @@ public class FragmentIndexTest {
     }
 
     @Test
+    public void fragmentsBeforePrematureEndDoNotMakeACompleteIndex() throws IOException {
+        try (RandomAccessFile raf = new RandomAccessFile(
+                ExtractorHarness.testFile("frag-noindex.mp4"), "r")) {
+            final FragmentIndex index = FragmentIndex.scan((position, into, length) -> {
+                raf.seek(position);
+                return Math.max(raf.read(into, 0, length), 0);
+            }, raf.length() + 4096, () -> false);
+            assertNotNull(index);
+            assertTrue(!index.complete);
+        }
+    }
+
+    @Test
+    public void resumeTargetGetsOneSnapshotBeforeTheFullIndex() throws IOException {
+        final long targetUs = 6_000_000;
+        final FragmentIndex[] snapshot = {null};
+        try (RandomAccessFile raf = new RandomAccessFile(
+                ExtractorHarness.testFile("frag-noindex.mp4"), "r")) {
+            final FragmentIndex index = FragmentIndex.scan((position, into, length) -> {
+                raf.seek(position);
+                return Math.max(raf.read(into, 0, length), 0);
+            }, raf.length(), () -> false, targetUs, partial -> {
+                assertEquals(null, snapshot[0]);
+                snapshot[0] = partial;
+                assertTrue(!partial.complete);
+                assertTrue(partial.timesUs[partial.size() - 1] >= targetUs);
+                assertTrue(partial.timesUs[partial.size() - 2] < targetUs);
+            });
+            assertNotNull(snapshot[0]);
+            assertNotNull(index);
+            assertTrue(index.complete);
+            assertTrue(index.size() > snapshot[0].size());
+            final long durationUs = 16_000_000;
+            final SeekMap map = new UnindexedFmp4.IndexSeekMap(snapshot[0], durationUs);
+            assertEquals(durationUs, map.getDurationUs());
+            assertEquals(snapshot[0].offsets[snapshot[0].size() - 1],
+                    map.getSeekPoints(durationUs - 1).first.position);
+        }
+    }
+
+    @Test
     public void aFileThatIsNotAnMp4IsLeftAlone() throws IOException {
         final File file = File.createTempFile("not-mp4", ".bin");
         try {
@@ -48,9 +90,32 @@ public class FragmentIndexTest {
         }
     }
 
+    @Test
+    public void smbScanReadFillsShortReadsAndStopsAtEndOfFile() {
+        final byte[] buffer = new byte[6];
+        final byte[] data = {1, 2, 3, 4, 5};
+        final int[] calls = {0};
+        final int count = UnindexedFmp4.readSmbFully((into, position, offset, length) -> {
+            assertEquals(1L + offset, position);
+            assertEquals(buffer.length - offset, length);
+            calls[0]++;
+            final int available = data.length - (int) position;
+            if (available == 0) {
+                return -1;
+            }
+            final int read = Math.min(2, available);
+            System.arraycopy(data, (int) position, into, offset, read);
+            return read;
+        }, 1, buffer, buffer.length);
+        assertEquals(4, count);
+        assertEquals(3, calls[0]);
+        assertArrayEquals(new byte[]{2, 3, 4, 5, 0, 0}, buffer);
+    }
+
     private static void checkIndexAndSeek(File file) throws IOException {
         final FragmentIndex index = scan(file);
         assertNotNull(index);
+        assertTrue(index.complete);
         assertTrue("fragments: " + index.size(), index.size() > 5);
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
             final byte[] tag = new byte[4];
@@ -77,7 +142,8 @@ public class FragmentIndexTest {
         final SeekMap.SeekPoints points = map.getSeekPoints(targetUs);
         assertTrue(points.first.position > 0);
         assertTrue(points.first.timeUs <= targetUs);
-        ExtractorHarness.seekAndRead(extractor, file, result, points.first.position, points.first.timeUs, 40);
+        // A muxed fragment can store a whole video run before its first audio packet.
+        ExtractorHarness.seekAndRead(extractor, file, result, points.first.position, points.first.timeUs, 160);
         final ExtractorHarness.Track video = result.track(C.TRACK_TYPE_VIDEO);
         assertNotNull(video);
         assertTrue(video.samples > 0);

@@ -3820,7 +3820,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     cancelKeyScrub();
                     if (moved && player != null) {
                         player.setSeekParameters(SeekParameters.EXACT);
-                        player.seekTo(keyScrubStart);
+                        seekFromKey(keyScrubStart);
                     }
                     playerView.removeCallbacks(playerView.textClearRunnable);
                     playerView.textClearRunnable.run();
@@ -4455,6 +4455,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 }
                 break;
             case KeyEvent.KEYCODE_DPAD_UP:
+                playerView.finishPausedKeySeek();
                 if (controllerVisibleFully && isInTvRail(getCurrentFocus())) {
                     // Up walks the rail back the way Down came: from the playlist to the chapters when the
                     // file has them, from the chapters to the transport, which closes the rail.
@@ -4484,6 +4485,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
+                playerView.finishPausedKeySeek();
                 if (controllerVisibleFully) {
                     // TV: below the transport is the rail - Down opens the file's chapters there, and Down
                     // from the chapters the playlist in their place (see tvRailMode).
@@ -4613,7 +4615,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             cancelKeyScrub();
             final long seekTo = Math.max(0, pos + (forward ? 3_000 : -3_000));
             player.setSeekParameters(SeekParameters.EXACT);
-            seekBackwards(seekTo);
+            seekFromKey(seekTo);
             // Without this the two limits above never bite here — the last-step stamp would stay at
             // whatever some earlier media left it, and a held key would seek once per key repeat.
             keyScrubLastMs = now;
@@ -4681,7 +4683,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // forward three seconds. So the step lands where it was asked to, and pays a decode from the
         // preceding keyframe for it.
         player.setSeekParameters(SeekParameters.EXACT);
-        if (seekIfLanded(keyScrubTarget)) {
+        if (seekIfLanded(keyScrubTarget, true)) {
             keyScrubSeeked = keyScrubTarget;
         }
         playerView.removeCallbacks(keyScrubCommit);
@@ -4773,11 +4775,30 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
     /** One seek in flight at a time, the gate every scrub shares; see onRenderedFirstFrame. */
     boolean seekIfLanded(long position) {
+        return seekIfLanded(position, false);
+    }
+
+    private boolean seekIfLanded(long position, boolean fromKey) {
         if (!frameRendered || player == null)
             return false;
         frameRendered = false;
-        seekBackwards(position);
+        if (fromKey) {
+            seekFromKey(position);
+        } else {
+            seekBackwards(position);
+        }
         return true;
+    }
+
+    private void seekFromKey(long position) {
+        if (isTvBox && !controllerVisibleFully && !player.getPlayWhenReady()) {
+            playerView.keepControlsDownForPausedKeySeek();
+        }
+        seekBackwards(position);
+        // No-op seeks need not report a state change; do not leave auto-show disabled for them.
+        if (player.getPlaybackState() != Player.STATE_BUFFERING) {
+            playerView.finishPausedKeySeek();
+        }
     }
 
     /**
@@ -5017,7 +5038,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final long duration = player.getDuration();
         if (duration != C.TIME_UNSET && !isLiveStream() && target >= duration - END_HOLD_MS) {
             player.pause();
-            seekExact(Math.max(0, duration - END_HOLD_MS));
+            player.setSeekParameters(SeekParameters.EXACT);
+            seekFromKey(Math.max(0, duration - END_HOLD_MS));
             return;
         }
         // Only when the target was never reached — which is exactly when the one-in-flight gate dropped
@@ -5027,7 +5049,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // step, not a re-run of one that arrived.
         if (seeked != target) {
             // The one seek the viewer stops on is the one that has to be true to the readout — seekExact.
-            seekExact(target);
+            player.setSeekParameters(SeekParameters.EXACT);
+            seekFromKey(target);
         }
     }
 
@@ -16453,8 +16476,13 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // that Dv7Converter still finds a MatroskaExtractor where it looks for one; see MkvCuesLink.
         // A fragmented MP4 without any index is walked box by box on a thread of its own and becomes seekable
         // when that is done; for the player only, the preview frames do not need it (see UnindexedFmp4).
+        final Uri fmp4ResumeUri = !apiAccess && resumeStart == ResumePolicy.Start.OPEN
+                && !ResumePolicy.NEVER.equals(resumeMode())
+                && mPrefs.mediaUri != null && "smb".equalsIgnoreCase(mPrefs.mediaUri.getScheme())
+                ? mPrefs.mediaUri : null;
         final ExtractorsFactory seekableExtractorsFactory = new MkvCuesLink.Factory(
-                new UnindexedFmp4.Factory(convertDV7 ? dv7Converter : baseExtractorsFactory, hashSource));
+                new UnindexedFmp4.Factory(this, convertDV7 ? dv7Converter : baseExtractorsFactory, hashSource,
+                        fmp4ResumeUri, fmp4ResumeUri == null ? 0 : Util.msToUs(mPrefs.getPosition())));
         // The preview frames' own extractor (FileFrames) reads through the same sources, without the
         // wrappers that watch the player's bytes, and without the DV7 rewrite: a preview needs the base
         // layer only.
@@ -17665,6 +17693,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // A pending key-seek target belongs to the session being torn down; left armed it would land
             // on whatever plays next.
             playerView.removeCallbacks(keyScrubCommit);
+            playerView.finishPausedKeySeek();
         }
         if (playerView != null) {
             stopGlide();
@@ -18079,6 +18108,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
         @Override
         public void onEvents(Player player, Player.Events events) {
+            // Runs after PlayerView has handled the individual state changes for this seek.
+            if (playerView != null && (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_PLAYER_ERROR)
+                    || (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)
+                        && (player.getPlaybackState() != Player.STATE_BUFFERING || player.getPlayWhenReady())))) {
+                playerView.finishPausedKeySeek();
+            }
             // Media3 re-shows the subtitle button (greyed, disabled) on its own control updates while
             // loading. Re-assert our "hidden until subtitle tracks exist" rule afterwards (deferred so it wins),
             // but only on events that can actually touch the controls — not on every frequent event dispatch.

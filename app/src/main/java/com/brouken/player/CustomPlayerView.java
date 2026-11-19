@@ -37,6 +37,8 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
     private long seekMax;
     private long seekLastPosition;
     public boolean seekProgress;
+    private boolean pausedKeySeek;
+    private boolean autoShowAfterKeySeek;
     private boolean boostAllowed = false;
     private boolean canSetAutoBrightness = false;
     // Volume in percent (0-200, above 100 = boost) tracked as a float so the absolute gesture keeps
@@ -114,6 +116,31 @@ public class CustomPlayerView extends PlayerView implements GestureDetector.OnGe
             seekProgress = true;
             setSeekLook(true);
             showProgress();
+        }
+    }
+
+    /** A paused seek can go READY → BUFFERING → READY; neither change should open the controls. */
+    void keepControlsDownForPausedKeySeek() {
+        if (!pausedKeySeek) {
+            autoShowAfterKeySeek = getControllerAutoShow();
+            pausedKeySeek = true;
+            super.setControllerAutoShow(false);
+        }
+    }
+
+    void finishPausedKeySeek() {
+        if (pausedKeySeek) {
+            pausedKeySeek = false;
+            super.setControllerAutoShow(autoShowAfterKeySeek);
+        }
+    }
+
+    @Override
+    public void setControllerAutoShow(boolean autoShow) {
+        if (pausedKeySeek) {
+            autoShowAfterKeySeek = autoShow;
+        } else {
+            super.setControllerAutoShow(autoShow);
         }
     }
 
