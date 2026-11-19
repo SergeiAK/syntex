@@ -183,11 +183,11 @@
     <string name="pref_rate_multiple_double">Doubled: 25 fps at 50 Hz</string>
     <string name="pref_rate_multiple_highest">Highest: 25 fps at 50 or 100 Hz</string>
     <string name="pref_skip_24p">No 24p</string>
-    <string name="pref_skip_24p_on">Films go to 60 Hz as 3:2, never to 24 Hz. For TVs that flicker or stay dark long at 24 Hz</string>
-    <string name="pref_skip_24p_off">Films go to 24 Hz where the screen has it. Turn on if the TV flickers or stays dark long at 24 Hz</string>
+    <string name="pref_skip_24p_on">Skip 23.976, 24, 47.952 and 48 Hz when matching the display. The rate depends on the available modes</string>
+    <string name="pref_skip_24p_off">Allow 24p modes when matching the display. Turn on to skip them if the TV flickers or stays dark when switching</string>
     <string name="pref_allow_system_framerate">Let the system change the refresh rate</string>
-    <string name="pref_allow_system_framerate_on">The system picks the rate. The screen may blink</string>
-    <string name="pref_allow_system_framerate_off">Nothing moves the refresh rate while you watch</string>
+    <string name="pref_allow_system_framerate_on">Syntex can suggest a refresh rate to Android. The screen may blink</string>
+    <string name="pref_allow_system_framerate_off">No refresh-rate hints to Android. Syntex’s own display matching is configured separately</string>
     <string name="pref_tunneling">Tunneled playback</string>
     <string name="pref_tunneling_summary">Improves 4K and HDR. On some boxes the picture freezes, and the app turns it off itself</string>
     <string name="notice_tunneling_disabled">Tunneled playback disabled — it freezes the picture on this device</string>
@@ -233,7 +233,7 @@
     <string name="pref_skip_mode_credits">End credits</string>
     <string name="pref_skip_fetch">Find segments online</string>
     <string name="pref_skip_fetch_on">Segments are looked up in online databases too</string>
-    <string name="pref_skip_fetch_off">Only segments from the launching app are ever used</string>
+    <string name="pref_skip_fetch_off">No online search. Use file chapters and segments from the launching app</string>
     <string name="pref_skip_undo">Offer “Go back”</string>
     <string name="pref_skip_undo_all">After every skip</string>
     <string name="pref_skip_undo_manual">Only after a skip I made</string>
@@ -506,7 +506,7 @@
     <string name="pref_chapter_marks_cuts">Bar cut into chapters</string>
     <string name="pref_chapter_marks_off">None, skip bands only</string>
     <string name="pref_seek_preview">Seek preview</string>
-    <string name="pref_seek_preview_on">A long seek shows where it will land, with a trickplay frame where the file has them beside it; the film plays on and jumps once at the end</string>
+    <string name="pref_seek_preview_on">Show the target of a long seek and a preview frame when available</string>
     <string name="pref_seek_preview_off">Every seek moves the picture itself</string>
     <string name="pref_keep_awake_on_pause">Keep the screen on while paused</string>
     <string name="pref_keep_awake_on_pause_on">The screensaver stays away for the time below</string>
@@ -665,10 +665,10 @@
     <string name="pref_smb_protection_encrypt_hint">Hides what is sent and guards against tampering. Signed instead if the server does not encrypt. May slow very high bitrates</string>
     <string name="pref_smb_protection_unsigned">No signing</string>
     <string name="pref_smb_protection_unsigned_hint">The fastest. No protection against tampering unless the server requires it</string>
-    <string name="pref_appearance_header_summary">Theme, AMOLED black</string>
-    <string name="pref_controls_header_summary">Volume, gestures, hold to speed up</string>
-    <string name="pref_onscreen_header_summary">Clock, remaining time, statistics</string>
-    <string name="pref_video_header_summary">Resume, frame rate, picture in picture</string>
+    <string name="pref_appearance_header_summary">Language, theme, accent colour, AMOLED black</string>
+    <string name="pref_controls_header_summary">Resume playback, exit, seeking, next episode</string>
+    <string name="pref_onscreen_header_summary">Clock, player controls, chapters, dim on pause</string>
+    <string name="pref_video_header_summary">Frame rate, picture in picture</string>
     <string name="pref_resume_mode">Resume playback</string>
     <string name="pref_resume_ask_open">Ask when opening</string>
     <string name="pref_resume_ask_every">Ask for every video</string>
@@ -699,14 +699,15 @@
     <string name="resume_ask_message">You stopped at %1$s</string>
     <string name="resume_ask_continue">Resume</string>
     <string name="resume_ask_start_over">Start over</string>
+    <string name="browse_resume_playback">Resume</string>
     <string name="resume_ask_continue_from">Resume from %1$s</string>
     <string name="resume_ask_left">%1$s left</string>
-    <string name="pref_browser_header_summary">Access to files, hidden files, .nomedia</string>
-    <string name="pref_audio_header_summary">Preferred languages, passthrough</string>
+    <string name="pref_browser_header_summary">File access, recent and hidden files, SMB protection</string>
+    <string name="pref_audio_header_summary">Preferred languages, passthrough, audio delay</string>
     <string name="pref_subtitle_header_summary">Languages, second line, search, look</string>
     <string name="pref_decoding_header_summary">Decoder priority, tunnelling, Dolby Vision</string>
     <string name="pref_about_header">About</string>
-    <string name="pref_about_header_summary">Version, updates</string>
+    <string name="pref_about_header_summary">Version, project, diagnostics</string>
 
     <string name="pref_about_device">Device info</string>
     <string name="pref_device_header_summary">Screen, sound, decoders</string>
@@ -797,7 +798,7 @@
     <string name="pref_seek_hold_steps">Steps that grow: 3, 10, 30, 60 s</string>
     <string name="pref_seek_hold_fixed">Fixed step, as set above</string>
     <string name="pref_seek_hold_glide">The mark moves on its own: press again for 2x to 16x, the other way to slow down and stop; OK lands, Back goes back</string>
-    <string name="pref_seek_without_set">Without trickplay frames beside the file</string>
+    <string name="pref_seek_without_set">When no ready-made trickplay frames are available</string>
     <string name="pref_seek_without_set_card">Time on the card, no picture</string>
     <string name="pref_seek_without_set_frames">Frames from the file itself where the box can decode them</string>
     <string name="browse_watched_add">Mark as watched</string>
@@ -806,7 +807,7 @@
     <string name="browse_empty_save_here">No folders here. Use \"Save here\" in the bar to save into this one.</string>
     <string name="browse_save_here">Save here</string>
     <string name="pref_sync_header">Sync between devices</string>
-    <string name="pref_sync_header_summary">Positions, watched marks and settings — to a file and back</string>
+    <string name="pref_sync_header_summary">Progress and settings: file, shared folder, Discovery-hub</string>
     <string name="pref_sync_positions">Positions</string>
     <string name="pref_sync_positions_summary">Where playback stopped in each file</string>
     <string name="pref_sync_watched">Watched marks</string>

@@ -94,8 +94,8 @@
     <string name="pref_framerate_matching_on">Подходящий режим запрашивают при открытии файла</string>
     <string name="pref_framerate_matching">Подбирать частоту под видео</string>
     <string name="pref_allow_system_framerate">Разрешать системе менять частоту</string>
-    <string name="pref_allow_system_framerate_on">Частоту выбирает сама система. Экран может мигать</string>
-    <string name="pref_allow_system_framerate_off">Во время просмотра частоту не двигает вообще ничто</string>
+    <string name="pref_allow_system_framerate_on">Syntex может предложить Android частоту обновления. Экран может мигать</string>
+    <string name="pref_allow_system_framerate_off">Syntex не подсказывает частоту Android. Собственный автоподбор настраивается отдельно</string>
     <string name="pref_general_header">Общие</string>
     <string name="pref_appearance_header">Внешний вид</string>
     <string name="pref_section_language">Язык</string>
@@ -163,8 +163,8 @@
     <string name="pref_skip_mode_auto">Пропускать автоматически</string>
     <string name="pref_skip_mode_credits">Финальные титры</string>
     <string name="pref_skip_fetch">Искать сегменты онлайн</string>
-    <string name="pref_skip_fetch_on">Сегменты ищутся ещё и в онлайн-базах, если их нет</string>
-    <string name="pref_skip_fetch_off">Берутся только сегменты от запустившего приложения</string>
+    <string name="pref_skip_fetch_on">Сегменты ищутся также в онлайн-базах</string>
+    <string name="pref_skip_fetch_off">Без поиска в интернете: используются главы файла и сегменты от запустившего приложения</string>
     <string name="pref_skip_undo">Предлагать «Вернуться»</string>
     <string name="pref_skip_undo_all">После любого пропуска</string>
     <string name="pref_skip_undo_manual">Только после пропуска вручную</string>
@@ -399,7 +399,7 @@
     <string name="pref_chapter_marks_cuts">Полоса нарезана на главы</string>
     <string name="pref_chapter_marks_off">Без глав, только сегменты</string>
     <string name="pref_seek_preview">Превью при перемотке</string>
-    <string name="pref_seek_preview_on">При длинной перемотке видно, куда придёт переход, а если рядом с файлом есть кадры trickplay — и кадр; фильм идёт дальше, переход — один в конце</string>
+    <string name="pref_seek_preview_on">При длинной перемотке показывается цель перехода и кадр, если он доступен</string>
     <string name="pref_seek_preview_off">Каждая перемотка сразу двигает картинку</string>
     <string name="pref_keep_awake_on_pause">Не гасить экран на паузе</string>
     <string name="pref_keep_awake_on_pause_on">Заставка не включается в течение срока ниже</string>
@@ -548,10 +548,10 @@
     <string name="pref_section_playback">Воспроизведение</string>
     <string name="pref_section_system">Система</string>
     <string name="pref_video_header">Видео</string>
-    <string name="pref_appearance_header_summary">Тема, чёрный AMOLED</string>
-    <string name="pref_controls_header_summary">Громкость, жесты, удержание для ускорения</string>
-    <string name="pref_onscreen_header_summary">Часы, время до конца, статистика</string>
-    <string name="pref_video_header_summary">Продолжение просмотра, частота кадров, картинка в картинке</string>
+    <string name="pref_appearance_header_summary">Язык, тема, цвет оформления, чёрный AMOLED</string>
+    <string name="pref_controls_header_summary">Продолжение просмотра, выход, перемотка, следующая серия</string>
+    <string name="pref_onscreen_header_summary">Часы, панель плеера, главы, затемнение на паузе</string>
+    <string name="pref_video_header_summary">Частота кадров, картинка в картинке</string>
     <string name="pref_resume_mode">Продолжение просмотра</string>
     <string name="pref_resume_ask_open">Спрашивать при открытии</string>
     <string name="pref_resume_ask_every">Спрашивать для каждого видео</string>
@@ -582,13 +582,14 @@
     <string name="resume_ask_message">Вы остановились на %1$s</string>
     <string name="resume_ask_continue">Продолжить</string>
     <string name="resume_ask_start_over">С начала</string>
+    <string name="browse_resume_playback">Продолжить</string>
     <string name="resume_ask_continue_from">Продолжить с %1$s</string>
     <string name="resume_ask_left">осталось %1$s</string>
-    <string name="pref_audio_header_summary">Предпочитаемые языки, прямая передача</string>
+    <string name="pref_audio_header_summary">Предпочитаемые языки, прямая передача, задержка звука</string>
     <string name="pref_subtitle_header_summary">Языки, вторая строка, поиск, вид</string>
     <string name="pref_decoding_header_summary">Приоритет декодера, туннелирование, Dolby Vision</string>
     <string name="pref_about_header">О приложении</string>
-    <string name="pref_about_header_summary">Версия, обновления</string>
+    <string name="pref_about_header_summary">Версия, проект, диагностика</string>
 
     <string name="pref_auto_update">Автоматические обновления</string>
     <string name="pref_auto_update_on">Новые выпуски проверяются в фоне и предлагаются</string>
@@ -686,8 +687,8 @@
     <string name="pref_rate_multiple_double">Удвоенная: 25 fps на 50 Гц</string>
     <string name="pref_rate_multiple_highest">Наивысшая: 25 fps на 50 или 100 Гц</string>
     <string name="pref_skip_24p">Без 24p</string>
-    <string name="pref_skip_24p_on">Фильмы идут на 60 Гц раскладкой 3:2, не на 24 Гц. Для ТВ, которые на 24 Гц мерцают или долго гаснут</string>
-    <string name="pref_skip_24p_off">Фильмы идут на 24 Гц, если экран это умеет. Включите, если ТВ на 24 Гц мерцает или долго гаснет</string>
+    <string name="pref_skip_24p_on">Из автоподбора исключены 23,976, 24, 47,952 и 48 Гц. Частота зависит от доступных режимов экрана</string>
+    <string name="pref_skip_24p_off">Автоподбор может выбрать режимы 24p. Включите, чтобы исключить их, если ТВ мерцает или долго гаснет при переключении</string>
     <string name="pref_audio_passthrough_force">Передавать, даже если не заявлено</string>
     <string name="pref_audio_passthrough_force_on">Отправляется, даже если устройство говорит «нет»</string>
     <string name="pref_audio_passthrough_force_off">Отправляется только то, что принимает маршрут HDMI</string>
@@ -720,7 +721,7 @@
     <string name="sleep_timer_less">На пять минут меньше</string>
     <string name="sleep_timer_more">На пять минут больше</string>
     <string name="pref_browser_header">Браузер файлов</string>
-    <string name="pref_browser_header_summary">Доступ к файлам, скрытые файлы, .nomedia</string>
+    <string name="pref_browser_header_summary">Доступ к файлам, недавние и скрытые файлы, защита SMB</string>
     <string name="pref_all_files_access">Доступ ко всем файлам</string>
     <string name="pref_all_files_access_on">Разрешён. Можно показать любую папку на устройстве.</string>
     <string name="pref_all_files_access_off">Не разрешён. Без него браузер видит папки, но не файлы в них.</string>
@@ -773,7 +774,7 @@
     <string name="pref_seek_hold_steps">Шаги растут: 3, 10, 30, 60 с</string>
     <string name="pref_seek_hold_fixed">Постоянный шаг, как задан выше</string>
     <string name="pref_seek_hold_glide">Отметка едет сама: ещё нажатие — быстрее, ×2…×16, в обратную сторону — медленнее и стоп; OK — переход, Back — обратно</string>
-    <string name="pref_seek_without_set">Если рядом с файлом нет кадров trickplay</string>
+    <string name="pref_seek_without_set">Если нет готовых кадров trickplay</string>
     <string name="pref_seek_without_set_card">Табличка со временем, без картинки</string>
     <string name="pref_seek_without_set_frames">Кадры из самого файла, где приставка их декодирует</string>
     <string name="browse_watched_add">Отметить просмотренным</string>
@@ -782,7 +783,7 @@
     <string name="browse_empty_save_here">Здесь нет папок. Сохранить в эту — кнопка «Сохранить сюда» вверху.</string>
     <string name="browse_save_here">Сохранить сюда</string>
     <string name="pref_sync_header">Синхронизация между устройствами</string>
-    <string name="pref_sync_header_summary">Позиции, отметки «просмотрено» и настройки — в файл и обратно</string>
+    <string name="pref_sync_header_summary">Прогресс и настройки: файл, общая папка, Discovery-hub</string>
     <string name="pref_sync_positions">Позиции</string>
     <string name="pref_sync_positions_summary">Где остановился просмотр каждого файла</string>
     <string name="pref_sync_watched">Отметки «просмотрено»</string>

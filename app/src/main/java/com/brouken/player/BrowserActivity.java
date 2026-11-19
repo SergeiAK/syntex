@@ -1347,6 +1347,17 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
         // One glyph per line, in the same order: a panel where some rows carry one and some do not
         // is a panel with holes in it.
         final List<Integer> icons = new ArrayList<>();
+        if (!picker && !item.folder && !item.volume) {
+            final Long position = positions.get(SyncKey.of(item.file.getUri().toString()));
+            if (position != null && position > 0) {
+                labels.add(getString(R.string.browse_resume_playback));
+                icons.add(R.drawable.ic_history_24dp);
+                acts.add(() -> chose(item.file, ResumePolicy.OpenChoice.RESUME));
+            }
+            labels.add(getString(R.string.resume_ask_start_over));
+            icons.add(R.drawable.ic_skip_previous);
+            acts.add(() -> chose(item.file, ResumePolicy.OpenChoice.RESTART));
+        }
         if (canFavorite) {
             final boolean saved = Favorites.has(this, item.file.getUri());
             labels.add(getString(saved
@@ -3536,15 +3547,23 @@ public class BrowserActivity extends AppCompatActivity implements Dialogs.Chrome
      * pick after the first needs none of the machinery the first one does.
      */
     private void chose(final DocumentFile file) {
+        chose(file, ResumePolicy.OpenChoice.DEFAULT);
+    }
+
+    private void chose(final DocumentFile file, final ResumePolicy.OpenChoice choice) {
         if (getCallingActivity() != null) {
             setResult(RESULT_OK, new Intent().setData(file.getUri()));
             finish();
             return;
         }
         Recents.record(this, file.getName(), file.getUri());
-        startActivity(new Intent(Intent.ACTION_VIEW, file.getUri())
+        final Intent launch = new Intent(Intent.ACTION_VIEW, file.getUri())
                 .setClass(this, PlayerActivity.class)
-                .putExtra(PlayerActivity.EXTRA_FROM_BROWSER, true));
+                .putExtra(PlayerActivity.EXTRA_FROM_BROWSER, true);
+        if (choice != ResumePolicy.OpenChoice.DEFAULT) {
+            launch.putExtra(PlayerActivity.EXTRA_BROWSER_OPEN_CHOICE, choice.name());
+        }
+        startActivity(launch);
     }
 
     /**

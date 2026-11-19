@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 
 /**
  * The fragments of a fragmented MP4 that carries no index of its own — no {@code sidx}, no
@@ -56,7 +57,14 @@ final class FragmentIndex {
 
     /** Optionally publishes one snapshot, once the index reaches the startup seek target. */
     static FragmentIndex scan(final Reader reader, final long length, final BooleanSupplier cancelled,
-                              final long readyAtUs, Consumer<FragmentIndex> onCovered)
+                              final long readyAtUs, final Consumer<FragmentIndex> onCovered)
+            throws IOException {
+        return scan(reader, length, cancelled, () -> readyAtUs, onCovered);
+    }
+
+    /** Takes snapshots on demand, not on every fragment. The UI can replace the target as we read. */
+    static FragmentIndex scan(final Reader reader, final long length, final BooleanSupplier cancelled,
+                              final LongSupplier targetUs, final Consumer<FragmentIndex> onCovered)
             throws IOException {
         long position = 0;
         long timescale = 0;
@@ -65,6 +73,7 @@ final class FragmentIndex {
         long[] offs = new long[1024];
         long[] times = new long[1024];
         int count = 0;
+        long publishedThroughUs = -1;
         // The offset of the first moof of another track since the last one of ours: a seek starts there,
         // so the sound that goes with the picture is not cut off ahead of it.
         long otherSince = -1;
@@ -127,11 +136,14 @@ final class FragmentIndex {
                     times[count] = decode * 1_000_000L / timescale;
                     count++;
                     otherSince = -1;
-                    if (onCovered != null && times[count - 1] >= readyAtUs
-                            && !cancelled.getAsBoolean()) {
-                        onCovered.accept(new FragmentIndex(Arrays.copyOf(offs, count),
-                                Arrays.copyOf(times, count), false));
-                        onCovered = null;
+                    if (onCovered != null) {
+                        final long target = targetUs.getAsLong();
+                        final long through = times[count - 1];
+                        if (target > publishedThroughUs && target <= through && !cancelled.getAsBoolean()) {
+                            onCovered.accept(new FragmentIndex(Arrays.copyOf(offs, count),
+                                    Arrays.copyOf(times, count), false));
+                            publishedThroughUs = through;
+                        }
                     }
                 }
                 // The mdat after it, when its header came in with the window: on to the box after that.

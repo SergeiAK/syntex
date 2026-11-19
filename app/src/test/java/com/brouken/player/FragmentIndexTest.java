@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import androidx.media3.common.C;
+import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.extractor.SeekMap;
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor;
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory;
@@ -74,9 +75,68 @@ public class FragmentIndexTest {
             final long durationUs = 16_000_000;
             final SeekMap map = new UnindexedFmp4.IndexSeekMap(snapshot[0], durationUs);
             assertEquals(durationUs, map.getDurationUs());
-            assertEquals(snapshot[0].offsets[snapshot[0].size() - 1],
-                    map.getSeekPoints(durationUs - 1).first.position);
+            final SeekMap.SeekPoints outside = map.getSeekPoints(durationUs - 1);
+            assertEquals(snapshot[0].offsets[snapshot[0].size() - 1], outside.first.position);
+            assertEquals(outside.first, outside.second);
         }
+    }
+
+    @Test
+    public void laterSeekDemandGetsANewSnapshotWithoutPublishingEveryFragment() throws IOException {
+        final long[] wantedUs = {4_000_000};
+        final int[] publications = {0};
+        try (RandomAccessFile raf = new RandomAccessFile(
+                ExtractorHarness.testFile("frag-noindex.mp4"), "r")) {
+            final FragmentIndex index = FragmentIndex.scan((position, into, length) -> {
+                raf.seek(position);
+                return Math.max(raf.read(into, 0, length), 0);
+            }, raf.length(), () -> false, () -> wantedUs[0], snapshot -> {
+                final long covered = snapshot.timesUs[snapshot.size() - 1];
+                assertTrue(covered >= wantedUs[0]);
+                publications[0]++;
+                if (publications[0] == 1) {
+                    wantedUs[0] = 10_000_000;
+                }
+            });
+            assertNotNull(index);
+            assertTrue(index.complete);
+            assertEquals(2, publications[0]);
+        }
+    }
+
+    @Test
+    public void openingPositionTakesPriorityOverARemoteSeekUntilCovered() {
+        final UnindexedFmp4.ScanProgress scan = new UnindexedFmp4.ScanProgress(4_000_000, 16_000_000);
+        scan.keyTargetUs = 10_000_000;
+        assertEquals(4_000_000, scan.targetUs());
+        scan.coveredThroughUs = 6_000_000;
+        assertEquals(10_000_000, scan.targetUs());
+        scan.keyTargetUs = -1;
+        assertEquals(-1, scan.targetUs());
+    }
+
+    @Test
+    public void fragmentMapGivesBothNeighboursAndKeepsSeeksBeforeTheFirstFragmentNonnegative()
+            throws IOException {
+        final FragmentIndex index = scan(ExtractorHarness.testFile("frag-noindex.mp4"));
+        assertNotNull(index);
+        for (int i = 0; i < index.size(); i++) {
+            index.timesUs[i] += 111_000;
+        }
+        final SeekMap map = new UnindexedFmp4.IndexSeekMap(index, C.TIME_UNSET);
+        final long beforeFirst = 30_000;
+        final SeekMap.SeekPoints start = map.getSeekPoints(beforeFirst);
+        assertEquals(index.offsets[0], start.first.position);
+        assertEquals(index.timesUs[0], start.second.timeUs);
+        assertEquals(0, SeekParameters.PREVIOUS_SYNC.resolveSeekPositionUs(
+                beforeFirst, start.first.timeUs, start.second.timeUs));
+
+        final long between = index.timesUs[1] + 30_000;
+        final SeekMap.SeekPoints around = map.getSeekPoints(between);
+        assertEquals(index.offsets[1], around.first.position);
+        assertEquals(index.offsets[2], around.second.position);
+        assertEquals(index.timesUs[2], SeekParameters.NEXT_SYNC.resolveSeekPositionUs(
+                between, around.first.timeUs, around.second.timeUs));
     }
 
     @Test

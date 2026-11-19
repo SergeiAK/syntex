@@ -6,6 +6,9 @@ import static com.brouken.player.ResumePolicy.Decision.START_OVER;
 import static com.brouken.player.ResumePolicy.Start.NEXT;
 import static com.brouken.player.ResumePolicy.Start.OPEN;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -32,6 +35,33 @@ public class ResumePolicyTest {
         assertEquals(CONTINUE, ResumePolicy.decide(ResumePolicy.ALWAYS, OPEN, 40 * MIN, FILM, null));
         assertEquals(START_OVER, ResumePolicy.decide(ResumePolicy.NEVER, OPEN, 40 * MIN, FILM, null));
         assertEquals(START_OVER, ResumePolicy.decide(ResumePolicy.NEVER, NEXT, 40 * MIN, FILM, null));
+    }
+
+    @Test
+    public void fileMenuResumeOverridesAlwaysFromBeginningForThisOpen() {
+        final ResumePolicy.OpenChoice choice = ResumePolicy.OpenChoice.fromBrowserExtra("RESUME").forStart(OPEN);
+        assertFalse(choice.startsAtZero(ResumePolicy.NEVER, OPEN));
+        assertNull(choice.automaticCheck(OPEN));
+        assertEquals(ResumePolicy.OpenChoice.DEFAULT, choice.forStart(NEXT));
+        assertEquals(ResumePolicy.OpenChoice.DEFAULT, choice.forStart(null));
+    }
+
+    @Test
+    public void fileMenuRestartOpensAtZeroWithoutAsking() {
+        final ResumePolicy.OpenChoice choice = ResumePolicy.OpenChoice.fromBrowserExtra("RESTART").forStart(OPEN);
+        assertTrue(choice.startsAtZero(ResumePolicy.ALWAYS, OPEN));
+        assertNull(choice.automaticCheck(OPEN));
+        assertFalse(choice.forStart(NEXT).startsAtZero(ResumePolicy.ALWAYS, NEXT));
+    }
+
+    @Test
+    public void normalBrowserOpenStillUsesTheGlobalSetting() {
+        final ResumePolicy.OpenChoice normal = ResumePolicy.OpenChoice.fromBrowserExtra(null);
+        assertEquals(normal, ResumePolicy.OpenChoice.fromBrowserExtra("unknown"));
+        assertTrue(normal.startsAtZero(ResumePolicy.NEVER, OPEN));
+        assertFalse(normal.startsAtZero(ResumePolicy.ASK_OPEN, OPEN));
+        assertEquals(OPEN, normal.automaticCheck(OPEN));
+        assertEquals(NEXT, normal.automaticCheck(NEXT));
     }
 
     @Test

@@ -29,6 +29,30 @@ final class ResumePolicy {
 
     enum Decision { CONTINUE, START_OVER, ASK }
 
+    /** Explicit actions in the file browser; never inherited by the next item or a player rebuild. */
+    enum OpenChoice {
+        DEFAULT, RESUME, RESTART;
+
+        static OpenChoice fromBrowserExtra(String raw) {
+            if (RESUME.name().equals(raw)) {
+                return RESUME;
+            }
+            return RESTART.name().equals(raw) ? RESTART : DEFAULT;
+        }
+
+        OpenChoice forStart(Start start) {
+            return start == Start.OPEN ? this : DEFAULT;
+        }
+
+        boolean startsAtZero(String mode, Start start) {
+            return this == RESTART || (this == DEFAULT && start != null && NEVER.equals(mode));
+        }
+
+        Start automaticCheck(Start start) {
+            return this == DEFAULT ? start : null;
+        }
+    }
+
     /** Watched less than this, a question would cost more than the film it saves. Ask modes only. */
     static final long MIN_ASK_MS = 30_000;
 

@@ -856,6 +856,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
      * asked to drop (12.11.2026).
      */
     static final String EXTRA_FROM_BROWSER = "from_browser";
+    static final String EXTRA_BROWSER_OPEN_CHOICE = "browser_open_choice";
     static final String EXTRA_JOIN_PASSWORD = "join_password";
     private static final int REQUEST_SETTINGS = 100;
     /** How long the controls stay up, from Settings (Prefs.controllerTimeout); 3500 until they load. */
@@ -1060,6 +1061,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // The same, for the player that is loading: decided when its held start is spent (playPending), once
     // the length and the credits are known. Null when there is nothing to decide.
     private ResumePolicy.Start resumeCheck;
+    private ResumePolicy.OpenChoice browserOpenChoice = ResumePolicy.OpenChoice.DEFAULT;
+    private UnindexedFmp4.Factory fmp4Factory;
+    private UnindexedFmp4.ScanProgress fmp4KeyScan;
+    private long fmp4KeyTargetMs;
+    private final Runnable finishFmp4KeySeek = this::finishFmp4KeySeek;
     /** The viewer seeked while the start was held: their place stands, the resume decision is not made. */
     private boolean seekedBeforeResume;
     private Dialog resumeDialog;
@@ -3810,7 +3816,12 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // couple of seconds after it, so asking again here would keep answering the same press.
             if (now - backPressedAt > Utils.BACK_CONFIRM_WINDOW_MS) {
                 boolean closedSomething = false;
-                if (keyScrubTarget >= 0) {
+                if (fmp4KeyScan != null) {
+                    cancelKeyScrub();
+                    playerView.removeCallbacks(playerView.textClearRunnable);
+                    playerView.textClearRunnable.run();
+                    closedSomething = true;
+                } else if (keyScrubTarget >= 0) {
                     // Back undoes the burst, it does not merely drop what is left of it: the steps seek
                     // as they are pressed, so stopping here would strand the viewer wherever the last
                     // one landed, which is not a place they chose. Only if one of them got through the
@@ -4093,6 +4104,11 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // is: either is taken as it is. Everything else opened here is the viewer's own file.
             resumeStart = applyingRoomMedia || (bundle != null && bundle.containsKey(API_POSITION))
                     ? null : ResumePolicy.Start.OPEN;
+            if (!apiAccess && resumeStart == ResumePolicy.Start.OPEN
+                    && intent.getBooleanExtra(EXTRA_FROM_BROWSER, false)) {
+                browserOpenChoice = ResumePolicy.OpenChoice.fromBrowserExtra(
+                        intent.getStringExtra(EXTRA_BROWSER_OPEN_CHOICE));
+            }
         }
         focusPlay = true;
         checkRoomMedia(false, false);
@@ -4455,6 +4471,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 }
                 break;
             case KeyEvent.KEYCODE_DPAD_UP:
+                if (fmp4KeyScan != null) {
+                    cancelKeyScrub();
+                }
                 playerView.finishPausedKeySeek();
                 if (controllerVisibleFully && isInTvRail(getCurrentFocus())) {
                     // Up walks the rail back the way Down came: from the playlist to the chapters when the
@@ -4485,6 +4504,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (fmp4KeyScan != null) {
+                    cancelKeyScrub();
+                }
                 playerView.finishPausedKeySeek();
                 if (controllerVisibleFully) {
                     // TV: below the transport is the rail - Down opens the file's chapters there, and Down
@@ -4633,6 +4655,8 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         final long from;
         if (keyScrubTarget >= 0) {
             from = keyScrubTarget;
+        } else if (fmp4KeyScan != null) {
+            from = fmp4KeyTargetMs;
         } else {
             // The burst begins here, so this is the place Back undoes to. Kept in the scrub's own state
             // rather than read from playerView.keySeekStart when Back arrives: that one belongs to the
@@ -4662,6 +4686,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             keyScrubPreview = true;
         }
         if (keyScrubPreview) {
+            clearFmp4KeySeek();
             showTrickplayFrame(keyScrubTarget, forward);
             playerView.removeCallbacks(keyScrubCommit);
             playerView.postDelayed(keyScrubCommit, 700);
@@ -4745,6 +4770,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             return C.TIME_UNSET;
         }
         final Uri uri = currentMediaUri();
+        final UnindexedFmp4.ScanProgress scan = fmp4Factory == null ? null : fmp4Factory.scanFor(uri);
+        if (scan != null && Util.msToUs(targetMs) > scan.coveredThroughUs) {
+            return C.TIME_UNSET;
+        }
         final SeekMap map = uri == null ? null : SEEK_MAPS.get(uri.toString());
         if (map == null || !map.isSeekable()) {
             return C.TIME_UNSET;
@@ -4779,6 +4808,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     private boolean seekIfLanded(long position, boolean fromKey) {
+        if (fromKey && deferFmp4KeySeek(position)) {
+            return false;
+        }
         if (!frameRendered || player == null)
             return false;
         frameRendered = false;
@@ -4791,6 +4823,73 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     }
 
     private void seekFromKey(long position) {
+        if (!deferFmp4KeySeek(position)) {
+            seekFromKeyNow(position);
+        }
+    }
+
+    private boolean deferFmp4KeySeek(long positionMs) {
+        if (!isTvBox || controllerVisibleFully || player == null || fmp4Factory == null) {
+            return false;
+        }
+        final UnindexedFmp4.ScanProgress scan = fmp4Factory.scanFor(currentMediaUri());
+        final long targetUs = Util.msToUs(positionMs);
+        if (scan == null || (player.isCurrentMediaItemSeekable() && targetUs <= scan.coveredThroughUs)) {
+            clearFmp4KeySeek();
+            return false;
+        }
+        if (scan.finished && targetUs > scan.coveredThroughUs) {
+            clearFmp4KeySeek();
+            return true; // An incomplete scan must not send this seek into an unseekable map.
+        }
+        if (fmp4KeyScan != scan || fmp4KeyTargetMs != positionMs) {
+            clearFmp4KeySeek();
+            fmp4KeyScan = scan;
+            fmp4KeyTargetMs = positionMs;
+            scan.keyTargetUs = targetUs;
+            Utils.log("fmp4 key seek: waiting for " + positionMs + " ms");
+            playerView.post(finishFmp4KeySeek);
+        }
+        return true;
+    }
+
+    private void finishFmp4KeySeek() {
+        final UnindexedFmp4.ScanProgress scan = fmp4KeyScan;
+        if (scan == null) {
+            return;
+        }
+        if (player == null || player.getPlaybackState() == Player.STATE_IDLE || fmp4Factory == null
+                || fmp4Factory.scanFor(currentMediaUri()) != scan) {
+            clearFmp4KeySeek();
+            return;
+        }
+        if (Util.msToUs(fmp4KeyTargetMs) <= scan.coveredThroughUs && player.isCurrentMediaItemSeekable()) {
+            final long positionMs = fmp4KeyTargetMs;
+            clearFmp4KeySeek();
+            Utils.log("fmp4 key seek: applying " + positionMs + " ms");
+            player.setSeekParameters(SeekParameters.EXACT);
+            frameRendered = false;
+            if (keyScrubTarget == positionMs) {
+                keyScrubSeeked = positionMs;
+            }
+            seekFromKeyNow(positionMs);
+        } else if (scan.finished && Util.msToUs(fmp4KeyTargetMs) > scan.coveredThroughUs) {
+            Utils.log("fmp4 key seek: target not covered");
+            clearFmp4KeySeek();
+        } else {
+            playerView.postDelayed(finishFmp4KeySeek, 50);
+        }
+    }
+
+    private void clearFmp4KeySeek() {
+        if (fmp4KeyScan != null) {
+            fmp4KeyScan.keyTargetUs = -1;
+            fmp4KeyScan = null;
+            playerView.removeCallbacks(finishFmp4KeySeek);
+        }
+    }
+
+    private void seekFromKeyNow(long position) {
         if (isTvBox && !controllerVisibleFully && !player.getPlayWhenReady()) {
             playerView.keepControlsDownForPausedKeySeek();
         }
@@ -4954,6 +5053,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         glideForward = forward;
         glideTier = 0;
         keyScrubPreview = true;
+        clearFmp4KeySeek();
         showGlideRate();
         glideTickAt = SystemClock.uptimeMillis();
         playerView.removeCallbacks(glideTick);
@@ -5014,6 +5114,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
     /** Forget a burst in progress: its target, the step it was on, and the commit it has armed. */
     private void cancelKeyScrub() {
+        clearFmp4KeySeek();
         stopGlide();
         playerView.removeCallbacks(keyScrubCommit);
         keyScrubTarget = -1;
@@ -5272,6 +5373,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         sendPlaylistReport();
         apiPlaylistReport = null;
         apiPlaylistResumeMode = null;
+        browserOpenChoice = ResumePolicy.OpenChoice.DEFAULT;
         apiAccess = false;
         apiAccessPartial = false;
         intentReturnResult = false;
@@ -16476,13 +16578,15 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         // that Dv7Converter still finds a MatroskaExtractor where it looks for one; see MkvCuesLink.
         // A fragmented MP4 without any index is walked box by box on a thread of its own and becomes seekable
         // when that is done; for the player only, the preview frames do not need it (see UnindexedFmp4).
-        final Uri fmp4ResumeUri = !apiAccess && resumeStart == ResumePolicy.Start.OPEN
-                && !ResumePolicy.NEVER.equals(resumeMode())
+        final ResumePolicy.OpenChoice openChoice = browserOpenChoice.forStart(resumeStart);
+        final boolean startOver = openChoice.startsAtZero(resumeMode(), resumeStart);
+        final long startPosition = startOver || mPrefs.mediaUri == null ? 0 : mPrefs.getPosition();
+        final Uri fmp4ResumeUri = !apiAccess && resumeStart == ResumePolicy.Start.OPEN && startPosition > 0
                 && mPrefs.mediaUri != null && "smb".equalsIgnoreCase(mPrefs.mediaUri.getScheme())
                 ? mPrefs.mediaUri : null;
-        final ExtractorsFactory seekableExtractorsFactory = new MkvCuesLink.Factory(
-                new UnindexedFmp4.Factory(this, convertDV7 ? dv7Converter : baseExtractorsFactory, hashSource,
-                        fmp4ResumeUri, fmp4ResumeUri == null ? 0 : Util.msToUs(mPrefs.getPosition())));
+        fmp4Factory = new UnindexedFmp4.Factory(this, convertDV7 ? dv7Converter : baseExtractorsFactory, hashSource,
+                fmp4ResumeUri, fmp4ResumeUri == null ? 0 : Util.msToUs(startPosition));
+        final ExtractorsFactory seekableExtractorsFactory = new MkvCuesLink.Factory(fmp4Factory);
         // The preview frames' own extractor (FileFrames) reads through the same sources, without the
         // wrappers that watch the player's bytes, and without the DV7 rewrite: a preview needs the base
         // layer only.
@@ -16615,16 +16719,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
             applyStoredFrameMode();
 
-            resumeCheck = resumeStart;
+            resumeCheck = startOver ? null : openChoice.automaticCheck(resumeStart);
             resumeStart = null;
+            browserOpenChoice = ResumePolicy.OpenChoice.DEFAULT;
             seekedBeforeResume = false;
-            // "Always from the start" needs neither the length nor the credits, so it does not load the
-            // remembered place only to leave it once the display has settled.
-            final boolean startOver = resumeCheck != null && ResumePolicy.NEVER.equals(resumeMode());
-            if (startOver) {
-                resumeCheck = null;
-            }
-            final long startPosition = startOver ? 0 : mPrefs.getPosition();
 
             MediaItem.Builder mediaItemBuilder = new MediaItem.Builder()
                     .setUri(mPrefs.mediaUri)
@@ -17694,6 +17792,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             // on whatever plays next.
             playerView.removeCallbacks(keyScrubCommit);
             playerView.finishPausedKeySeek();
+            clearFmp4KeySeek();
         }
         if (playerView != null) {
             stopGlide();
@@ -17899,6 +17998,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         @Override
         public void onPositionDiscontinuity(Player.PositionInfo oldPosition,
                                             Player.PositionInfo newPosition, int reason) {
+            if (fmp4KeyScan != null && reason == Player.DISCONTINUITY_REASON_SEEK) {
+                cancelKeyScrub();
+            }
             // The start position is given with the media item, not sought, so a seek before the
             // resume check is the viewer's.
             if (resumeCheck != null && reason == Player.DISCONTINUITY_REASON_SEEK
