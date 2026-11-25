@@ -26,6 +26,21 @@ public class PlaylistRequestTest {
     }
 
     @Test
+    public void trackMemoryRequiresOptInAndReadsEachPickIndependently() {
+        final Bundle request = playlist(episode("https://host/s1e1.mkv", 1, 1, "Winter Is Coming"));
+        assertFalse(PlaylistRequest.read(request).shareTrackMemory);
+        assertFalse(PlaylistRequest.read(request.put(TrackMemory.EXTRA, "off")).shareTrackMemory);
+        assertTrue(PlaylistRequest.read(request.put(TrackMemory.EXTRA, new Bundle())).shareTrackMemory);
+
+        final PlaylistRequest read = PlaylistRequest.read(request.put(TrackMemory.EXTRA, new Bundle()
+                .put(TrackMemory.AUDIO, "off").put(TrackMemory.SUBTITLES, "off")));
+        assertNull(read.error);
+        assertTrue(read.shareTrackMemory);
+        assertNull(read.rememberedAudio);
+        assertEquals("off", read.rememberedSubtitles);
+    }
+
+    @Test
     public void headerLineIsTheSeriesAndTheLogoFallsBackToThePlaylists() {
         final Bundle own = episode("https://host/s1e2.mkv", 1, 2, "The Kingsroad")
                 .put("title", "GoT").put("logo", "https://host/own.png");

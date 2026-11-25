@@ -16,8 +16,9 @@ import java.util.List;
  * <p>Only what the shell sends is read: the playlist's title, start index, headers, {@code ask_resume}
  * and callback, and per item the stream, its names, ids, season and episode, segments, start position,
  * qualities and subtitles. Voices and the track keys of section 5 are not — an item with nothing but
- * voices is refused, the track keys are left alone. The values stay plain Java (no Uri, no MediaItem) so
- * the rules are tested without a device; the activity turns them into media items.
+ * voices is refused, the track keys are left alone. Syntex also accepts its own opt-in track memory
+ * bundle ({@link TrackMemory#EXTRA}). The values stay plain Java (no Uri, no MediaItem) so the rules
+ * are tested without a device; the activity turns them into media items.
  *
  * <p>Reading follows section 6.2: a string is any value's text, trimmed, blank as absent; a whole number
  * is any number or numeric string, rounded down; a time comes as {@code _ms} or {@code _sec}, the first
@@ -86,6 +87,9 @@ final class PlaylistRequest {
     int startIndex;
     String[] headers;
     boolean askResume;
+    boolean shareTrackMemory;
+    String rememberedAudio;
+    String rememberedSubtitles;
     /** The caller's {@code result_callback}, a PendingIntent; kept as it came. */
     Parcelable resultCallback;
     final List<Item> items = new ArrayList<>();
@@ -105,6 +109,13 @@ final class PlaylistRequest {
         request.background = string(playlist, "background");
         request.headers = strings(playlist.get("headers"));
         request.askResume = bool(playlist.get("ask_resume"));
+        final Object trackMemory = playlist.get(TrackMemory.EXTRA);
+        if (trackMemory instanceof Bundle) {
+            final Bundle picks = (Bundle) trackMemory;
+            request.shareTrackMemory = true;
+            request.rememberedAudio = TrackMemory.portableValue(string(picks, TrackMemory.AUDIO), false);
+            request.rememberedSubtitles = TrackMemory.portableValue(string(picks, TrackMemory.SUBTITLES), true);
+        }
         final Object callback = playlist.get("result_callback");
         request.resultCallback = callback instanceof Parcelable ? (Parcelable) callback : null;
 

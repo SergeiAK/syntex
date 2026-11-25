@@ -69,4 +69,37 @@ public class TrackMemoryTest {
                 TrackMemory.seriesKey("", "http://h/stream/e01.mkv?token=a/b"));
         assertNull(TrackMemory.seriesKey(null, null));
     }
+
+    @Test
+    public void portablePickFollowsTheNameAcrossEditionsButNeverTheOrdinal() {
+        final List<TrackMemory.Track> tracks = Arrays.asList(
+                t("rus", TrackMemory.KIND_MAIN, "Дубляж", 0),
+                t(null, TrackMemory.KIND_MAIN, "LostFilm", 1),
+                t("rus", TrackMemory.KIND_COMMENTARY, "LostFilm", 2));
+        assertEquals(1, TrackMemory.matchPortable(tracks, t("rus", TrackMemory.KIND_MAIN, "lostfilm", 0)));
+        assertEquals(-1, TrackMemory.matchPortable(tracks, t("rus", TrackMemory.KIND_MAIN, "Other dub", 0)));
+        assertEquals(-1, TrackMemory.matchPortable(tracks, t("eng", TrackMemory.KIND_MAIN, "Дубляж", 0)));
+    }
+
+    @Test
+    public void portablePickDeclinesAmbiguity() {
+        final List<TrackMemory.Track> tracks = Arrays.asList(
+                t("rus", TrackMemory.KIND_MAIN, "Русский", 0),
+                t("rus", TrackMemory.KIND_MAIN, "Русский", 1),
+                t("rus", TrackMemory.KIND_FORCED, "Русский", 2));
+        assertEquals(-1, TrackMemory.matchPortable(tracks, t("rus", TrackMemory.KIND_MAIN, "Русский", 0)));
+        assertEquals(-1, TrackMemory.matchPortable(tracks, t("rus", TrackMemory.KIND_MAIN, null, 0)));
+        assertEquals(2, TrackMemory.matchPortable(tracks, t("rus", TrackMemory.KIND_FORCED, null, 0)));
+    }
+
+    @Test
+    public void portableValuesDistinguishOffFromAbsentAndRejectInvalidChoices() {
+        assertEquals("off", TrackMemory.portableValue("off", true));
+        assertNull(TrackMemory.portableValue("off", false));
+        assertNull(TrackMemory.portableValue(null, true));
+        assertNull(TrackMemory.portableValue("rus|0|-1|Дубляж", false));
+        assertNull(TrackMemory.portableValue("|0|0|", false));
+        assertNull(TrackMemory.portableValue("rus|2|1|Forced", false));
+        assertEquals("rus|2|1|Forced", TrackMemory.portableValue("rus|2|1|Forced", true));
+    }
 }

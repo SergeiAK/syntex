@@ -497,7 +497,11 @@ Optional extras for a single video:
 
 For a queue, pass `video_list` (Uri[] or String[]) and per-item arrays in the same order: `video_list.name` (with `video_list.filename` as a fallback), `.thumbnail`, `.segments`, `.season`, `.episode`, `.imdb_id`, `.id`, `.subtitles` (a Bundle per item with `uris` and `names`), and `video_list.quality_levels.<i>` / `video_list.quality_urls.<i>` for item `<i>`. The item whose URI equals the intent's data is played first. String arrays may also come as `ArrayList<String>` or `CharSequence[]`; `subs`, `subs.name` and `headers` must be exactly the types above.
 
-Syntex also takes the nested `playlist` Bundle that Just+ 2.1.1 introduced, and answers it through `result_callback` — see Just+'s [playlist API](https://github.com/just-plus-player/just-plus-player/blob/master/docs/PLAYLIST_API.md), sections 2–7. Voices (`voices`) and the track keys of the report are not implemented.
+Syntex also takes the nested `playlist` Bundle that Just+ 2.1.1 introduced, and answers it through `result_callback` — see Just+'s [playlist API](https://github.com/just-plus-player/just-plus-player/blob/master/docs/PLAYLIST_API.md), sections 2–7. Just+'s `voices` and track report keys are not implemented.
+
+**Track memory across devices.** For a playlist with one movie or episodes of one show, the launcher can opt in by putting a Bundle named `syntex_track_memory_v1` inside `playlist`. An empty Bundle asks for changes without restoring a choice. Its optional string keys are `audio` and `subtitles`: `language|kind|index|name`, with the language as a three-letter code (empty if unknown), kind `0` (main), `1` (commentary/descriptive audio), `2` (forced), or `3` (SDH), and the old zero-based index retained for encoding only. Syntex matches by name, language and kind rather than selecting by that index. `subtitles = "off"` explicitly disables subtitles. A missing or unmatched choice does not force a track.
+
+The same Bundle name in the terminal activity result contains only portable picks made by hand in this session, with each field independent. Apply it as a partial update; missing fields do not clear anything. Automatic selections, the secondary subtitle line, and local subtitle files painted outside the track list are not exported. The launcher owns the title identity and any shared storage. `result_callback` is unchanged.
 
 **Segments** are seconds; `duration_ms` is the length they were measured on, so they are rescaled to the actual file. `skip` holds intros, recaps and credits, `ad` holds advertising:
 

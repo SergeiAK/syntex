@@ -3696,6 +3696,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             state.putLongArray("playlistReport", apiPlaylistReport.save());
             state.putString("playlistReportUri", apiPlaylistReport.uri());
             state.putString("playlistReportError", apiPlaylistReport.errorMessage());
+            if (playlistTrackChanges != null) {
+                state.putBundle(TrackMemory.EXTRA, new Bundle(playlistTrackChanges));
+            }
         }
         state.putString("audioTrack", mPrefs.audioTrackId);
         state.putString("subtitleTrack", mPrefs.subtitleTrackId);
@@ -3748,6 +3751,10 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                     state.getString("playlistReportError"));
             if (report != null) {
                 apiPlaylistReport = report;
+            }
+            final Bundle trackChanges = state.getBundle(TrackMemory.EXTRA);
+            if (playlistTrackChanges != null && trackChanges != null) {
+                playlistTrackChanges = trackChanges;
             }
         }
         // Both are memory-only writes here; initializePlayer re-asserts the track ids on the fresh player
@@ -3887,7 +3894,20 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     public void finish() {
         if (apiPlaylistReport != null) {
             notePlaylistProgress();
-            setResult(Activity.RESULT_OK, playlistResult(apiPlaylistReport.snapshot()));
+            final Intent result = playlistResult(apiPlaylistReport.snapshot());
+            if (playlistTrackChanges != null) {
+                final Bundle changes = new Bundle();
+                for (String field : playlistTrackChanges.keySet()) {
+                    final String value = playlistTrackChanges.getString(field);
+                    if (value != null) {
+                        changes.putString(field, value);
+                    }
+                }
+                if (!changes.isEmpty()) {
+                    result.putExtra(TrackMemory.EXTRA, changes);
+                }
+            }
+            setResult(Activity.RESULT_OK, result);
         } else if (intentReturnResult) {
             Intent intent = new Intent("com.mxtech.intent.result.VIEW");
             // Report which item finished so the launcher can attribute the position to the
@@ -4138,6 +4158,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         apiHeaders = request.headers;
         apiPlaylistResultCallback = request.resultCallback;
         apiPlaylistResumeMode = ResumePolicy.playlistMode(request.askResume);
+        playlistTrackChanges = request.shareTrackMemory ? new Bundle() : null;
+        playlistRememberedAudio = request.rememberedAudio;
+        playlistRememberedSubtitles = request.rememberedSubtitles;
 
         apiMediaItems.clear();
         apiPlaylistSegments.clear();
@@ -5373,6 +5396,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         sendPlaylistReport();
         apiPlaylistReport = null;
         apiPlaylistResumeMode = null;
+        playlistTrackChanges = null;
+        playlistRememberedAudio = null;
+        playlistRememberedSubtitles = null;
         browserOpenChoice = ResumePolicy.OpenChoice.DEFAULT;
         apiAccess = false;
         apiAccessPartial = false;
@@ -10813,6 +10839,9 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
     // onTracksChanged of one item apply it once and the next episode applies it afresh.
     private static final String TRACK_MEMORY_PREFS = "track_memory";
     private String trackMemoryDoneFor;
+    private Bundle playlistTrackChanges;
+    private String playlistRememberedAudio;
+    private String playlistRememberedSubtitles;
 
     @Nullable
     private String currentSeriesKey() {
@@ -10870,10 +10899,6 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
 
     /** A pick made by hand in the menu, kept for the series; a null group is subtitles off. */
     private void rememberSeriesPick(final int type, @Nullable final TrackGroup group, final int index) {
-        final String key = currentSeriesKey();
-        if (key == null) {
-            return;
-        }
         String value = TrackMemory.OFF;
         if (group != null) {
             final List<TrackGroup> groups = new ArrayList<>();
@@ -10881,18 +10906,39 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
             final List<TrackMemory.Track> tracks = memoryTracks(type, groups, indices);
             value = null;
             for (int i = 0; i < tracks.size(); i++) {
-                if (groups.get(i) == group && indices.get(i) == index) {
+                if (groups.get(i).equals(group) && indices.get(i) == index) {
                     value = TrackMemory.encode(tracks.get(i));
                     break;
                 }
             }
             if (value == null) {
+                rememberPlaylistTrack(type, null);
                 return;
             }
         }
-        getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE).edit()
-                .putString(key + (type == C.TRACK_TYPE_AUDIO ? "|audio" : "|text"), value).apply();
-        Utils.log("track memory: kept " + (type == C.TRACK_TYPE_AUDIO ? "audio " : "text ") + value);
+        final boolean audio = type == C.TRACK_TYPE_AUDIO;
+        rememberPlaylistTrack(type, value);
+        final String key = currentSeriesKey();
+        if (key != null) {
+            getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE).edit()
+                    .putString(key + (audio ? "|audio" : "|text"), value).apply();
+            Utils.log("track memory: kept " + (audio ? "audio " : "text ") + value);
+        }
+    }
+
+    private void rememberPlaylistTrack(final int type, @Nullable final String value) {
+        if (playlistTrackChanges != null) {
+            final boolean audio = type == C.TRACK_TYPE_AUDIO;
+            // Null supersedes the incoming pick for this session, but never overwrites it in the HUB.
+            playlistTrackChanges.putString(audio ? TrackMemory.AUDIO : TrackMemory.SUBTITLES,
+                    TrackMemory.portableValue(value, !audio));
+        }
+    }
+
+    @Nullable
+    private String playlistTrackPick(final String field, @Nullable final String incoming) {
+        return playlistTrackChanges != null && playlistTrackChanges.containsKey(field)
+                ? playlistTrackChanges.getString(field) : incoming;
     }
 
     /**
@@ -10913,34 +10959,36 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
         }
         trackMemoryDoneFor = done;
         final String key = currentSeriesKey();
-        if (key == null) {
-            return;
-        }
         final android.content.SharedPreferences memory =
                 getSharedPreferences(TRACK_MEMORY_PREFS, MODE_PRIVATE);
         final boolean ownFile = uri.equals(mPrefs.mediaUri);
-        if (!(ownFile && mPrefs.audioTrackId != null)) {
+        final String audio = playlistTrackPick(TrackMemory.AUDIO, playlistRememberedAudio);
+        final String subtitles = playlistTrackPick(TrackMemory.SUBTITLES, playlistRememberedSubtitles);
+        if (audio != null || (key != null && !(ownFile && mPrefs.audioTrackId != null))) {
             final List<TrackGroup> groups = new ArrayList<>();
             final List<Integer> indices = new ArrayList<>();
-            final int at = TrackMemory.match(memoryTracks(C.TRACK_TYPE_AUDIO, groups, indices),
-                    TrackMemory.decode(memory.getString(key + "|audio", null)));
+            final List<TrackMemory.Track> tracks = memoryTracks(C.TRACK_TYPE_AUDIO, groups, indices);
+            final int at = audio != null ? TrackMemory.matchPortable(tracks, TrackMemory.decode(audio))
+                    : TrackMemory.match(tracks, TrackMemory.decode(memory.getString(key + "|audio", null)));
             if (at >= 0) {
                 Utils.log("track memory: audio " + at + " for " + key);
                 applyAudioTrack(groups.get(at), indices.get(at));
             }
         }
-        if (!(ownFile && mPrefs.subtitleTrackId != null) && paintedSubtitleUri == null) {
-            final String text = memory.getString(key + "|text", null);
+        if (subtitles != null || (key != null
+                && !(ownFile && mPrefs.subtitleTrackId != null) && paintedSubtitleUri == null)) {
+            final String text = subtitles != null ? subtitles : memory.getString(key + "|text", null);
             if (TrackMemory.OFF.equals(text)) {
-                if (mainLineTrackSelected()) {
+                if (subtitles != null || mainLineTrackSelected()) {
                     Utils.log("track memory: subtitles off for " + key);
                     disableSubtitles();
                 }
             } else {
                 final List<TrackGroup> groups = new ArrayList<>();
                 final List<Integer> indices = new ArrayList<>();
-                final int at = TrackMemory.match(memoryTracks(C.TRACK_TYPE_TEXT, groups, indices),
-                        TrackMemory.decode(text));
+                final List<TrackMemory.Track> tracks = memoryTracks(C.TRACK_TYPE_TEXT, groups, indices);
+                final int at = subtitles != null ? TrackMemory.matchPortable(tracks, TrackMemory.decode(text))
+                        : TrackMemory.match(tracks, TrackMemory.decode(text));
                 if (at >= 0) {
                     Utils.log("track memory: text " + at + " for " + key);
                     applySubtitle(groups.get(at), indices.get(at));
@@ -12149,6 +12197,7 @@ public class PlayerActivity extends Activity implements Dialogs.Anchored {
                         mPrefs.updateSubtitle(fileOnly);
                         addSubtitleTrack(fileOnly);
                         rememberSidePick(fileOnly);
+                        rememberPlaylistTrack(C.TRACK_TYPE_TEXT, null);
                     }));
         }
         int number = 0;

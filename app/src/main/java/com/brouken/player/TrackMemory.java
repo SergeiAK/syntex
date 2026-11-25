@@ -44,6 +44,11 @@ final class TrackMemory {
     /** What is written for subtitles turned off: off is a pick like any other, and carried the same way. */
     static final String OFF = "off";
 
+    /** Optional bundle in a caller's single-title playlist and in its terminal activity result. */
+    static final String EXTRA = "syntex_track_memory_v1";
+    static final String AUDIO = "audio";
+    static final String SUBTITLES = "subtitles";
+
     private TrackMemory() {
     }
 
@@ -138,6 +143,50 @@ final class TrackMemory {
             }
         }
         return same.get(0);
+    }
+
+    @Nullable
+    static String portableValue(@Nullable String value, boolean subtitles) {
+        if (value == null || value.length() > 1024) {
+            return null;
+        }
+        if (OFF.equals(value)) {
+            return subtitles ? value : null;
+        }
+        final Track track = decode(value);
+        return track != null && track.index >= 0 && track.kind >= KIND_MAIN
+                && track.kind <= (subtitles ? KIND_SDH : KIND_COMMENTARY)
+                && (!subtitles || track.kind != KIND_COMMENTARY)
+                && (track.name != null || track.language != null)
+                ? value : null;
+    }
+
+    /** Another device can receive another edition. Never guess by ordinal or resolve an ambiguity. */
+    static int matchPortable(List<Track> tracks, @Nullable Track pick) {
+        if (pick == null) {
+            return -1;
+        }
+        int match = -1;
+        for (int i = 0; i < tracks.size(); i++) {
+            final Track candidate = tracks.get(i);
+            if (candidate.kind != pick.kind) {
+                continue;
+            }
+            if (pick.name != null) {
+                if (!pick.name.equalsIgnoreCase(candidate.name)
+                        || (pick.language != null && candidate.language != null
+                        && !sameLanguage(pick.language, candidate.language))) {
+                    continue;
+                }
+            } else if (pick.language == null || !sameLanguage(pick.language, candidate.language)) {
+                continue;
+            }
+            if (match >= 0) {
+                return -1;
+            }
+            match = i;
+        }
+        return match;
     }
 
     private static int byName(List<Track> tracks, List<Integer> among, @Nullable String name) {
